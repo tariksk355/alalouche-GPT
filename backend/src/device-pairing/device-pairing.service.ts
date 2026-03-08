@@ -8,6 +8,20 @@ import { CreatePairingRequestDto } from './dto/create-pairing-request.dto';
 export class DevicePairingService {
   constructor(private readonly prisma: PrismaService) {}
 
+  private async ensureRestaurant(restaurantId: string) {
+    const existing = await this.prisma.restaurant.findUnique({ where: { id: restaurantId } });
+    if (existing) {
+      return existing;
+    }
+
+    return this.prisma.restaurant.create({
+      data: {
+        id: restaurantId,
+        name: 'Default Restaurant (local dev)',
+      },
+    });
+  }
+
   private generateShortCode() {
     const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
     return Array.from({ length: 6 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
@@ -25,13 +39,16 @@ export class DevicePairingService {
 
     const code = this.generateShortCode();
     const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
+    const restaurantId = dto.restaurantId || process.env.DEFAULT_RESTAURANT_ID || 'demo-restaurant';
+
+    await this.ensureRestaurant(restaurantId);
 
     const pairingCode = await this.prisma.devicePairingCode.create({
       data: {
         code,
         status: 'code_created',
         expiresAt,
-        restaurantId: dto.restaurantId || process.env.DEFAULT_RESTAURANT_ID || 'demo-restaurant',
+        restaurantId,
         createdBy: 'admin_stub',
       },
     });
