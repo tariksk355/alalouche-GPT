@@ -85,6 +85,14 @@ Env vars:
 - Direct Sunmi thermal printer control from browser JS.
 - Reliable drawer/ESC-POS hardware commands.
 
+### Bridge print test trigger (PoC)
+- Receiver UI includes:
+  - **Info imprimante**
+  - **Test impression**
+  - per-order **Test print** button
+- In pure web mode, these return explicit unavailable responses.
+- In Android wrapper mode, they call `window.SunmiBridge` methods and display structured native response messages.
+
 ### Recommended production path
 Use an Android native wrapper + bridge + Sunmi SDK for real built-in printer support.
 The current web app is intentionally prepared for this through adapter contracts.
@@ -99,3 +107,12 @@ The current web app is intentionally prepared for this through adapter contracts
 - `src/boundaries/printerAdapter.js` defines the web-side contract.
 - `src/boundaries/printJobContract.js` defines structured receipt payloads.
 - Native implementation should consume `PrintJob` and execute Sunmi SDK calls.
+
+## Native Android wrapper PoC
+
+A minimum sideload-focused wrapper lives under `native/android/` with:
+- WebView host
+- JavaScript bridge (`window.SunmiBridge`)
+- structured bridge responses for printer operations
+
+See: `native/android/README.md` for build/install and runtime URL override instructions.

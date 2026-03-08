@@ -41,3 +41,9 @@ Defined in `sunmi/src/boundaries/printJobContract.js` with fields for:
 - Implement native bridge adapter for `isAvailable`, `printReceipt`, `getPrinterInfo`, and optional `openCashDrawer`.
 - Map structured `PrintJob` into Sunmi SDK print calls in native layer.
 - Add printer capability negotiation (paper width/cutter/drawer support).
+
+
+## Current native PoC location
+
+- Android wrapper + JS bridge PoC: `native/android/`
+- Build/install instructions: `native/android/README.md`

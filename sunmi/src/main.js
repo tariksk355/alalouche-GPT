@@ -1,11 +1,13 @@
 import { POLL_INTERVAL_MS } from './config.js';
 import { debugLog } from './debug.js';
-import { formatOrderStatus } from './boundaries/orderFormatter.js';
+import { formatOrderStatus, toPrintJob } from './boundaries/orderFormatter.js';
+import { createPrinterAdapter } from './boundaries/printerAdapter.js';
 import { changeOrderStatus, validateDeviceAndLoadOrders } from './services/receiverService.js';
 import { checkPairingStatus, submitPairingCode } from './services/pairingService.js';
 import { tokenStore } from './storage/tokenStore.js';
 
 const app = document.getElementById('app');
+const printerAdapter = createPrinterAdapter();
 
 const state = {
   mode: 'booting', // booting | not_paired | pairing_submitting | pairing_waiting | verifying | server_error | receiver_loaded
@@ -20,6 +22,7 @@ const state = {
   receiverPollId: null,
   pairingPollId: null,
   pairingTimeoutId: null,
+  printerMessage: '',
 };
 
 function stopPairingPolling() {
@@ -112,6 +115,7 @@ function render() {
           <button class="btn-accept" data-action="accepted" data-id="${order.id}">Accepter</button>
           <button class="btn-ready" data-action="ready" data-id="${order.id}">Prêt</button>
           <button class="btn-done" data-action="completed" data-id="${order.id}">Terminé</button>
+          <button class="btn-secondary-inline" data-action="print-test-order" data-id="${order.id}">Test print</button>
         </div>
       </div>
     `).join('');
@@ -120,9 +124,14 @@ function render() {
     <div class="card">
       <div class="title">Sunmi Receiver</div>
       <p class="subtle">Connecté: ${state.deviceName || 'Périphérique'}</p>
+      <div class="btn-row">
+        <button id="printer-info-btn" class="btn-secondary-inline">Info imprimante</button>
+        <button id="printer-test-btn" class="btn-secondary-inline">Test impression</button>
+      </div>
       <button id="unpair-btn" class="btn-secondary">Désassocier cet appareil</button>
     </div>
     ${ordersHtml}
+    ${state.printerMessage ? `<div class="card"><p class="subtle">${state.printerMessage}</p></div>` : ''}
     ${state.error ? `<div class="card"><p class="error">${state.error}</p></div>` : ''}
   `;
 }
@@ -151,6 +160,7 @@ async function refreshReceiver() {
     state.error = result.error || '';
     state.deviceName = '';
     state.orders = [];
+    state.printerMessage = '';
     stopReceiverPolling();
   } else {
     state.mode = 'server_error';
@@ -188,6 +198,7 @@ async function startPairingSubmit() {
   state.pairingRequestId = res.pairingRequestId;
   state.mode = 'pairing_waiting';
   state.pairingMessage = 'Demande envoyée. En attente de confirmation...';
+  debugLog('pairing_request_submitted', { pairingRequestId: res.pairingRequestId });
   render();
   startPairingPolling();
 }
@@ -239,6 +250,36 @@ function startPairingPolling() {
   }, 10 * 60 * 1000);
 }
 
+async function showPrinterInfo() {
+  const info = await printerAdapter.getPrinterInfo();
+  state.printerMessage = `Imprimante: mode=${info.mode}, available=${info.available}${info.message ? `, message=${info.message}` : ''}`;
+  render();
+}
+
+async function runPrintTest(order) {
+  const printJob = toPrintJob(order || {
+    id: 'test-order',
+    orderNumber: 'TEST-001',
+    customerName: 'Test Client',
+    payload: {
+      items: [{ name: 'Article test', quantity: 1, price: 0 }],
+      total: 0,
+      currency: 'CHF',
+    },
+  }, {
+    name: 'À la Louche',
+  });
+
+  const res = await printerAdapter.printReceipt(printJob);
+
+  if (res.ok) {
+    state.printerMessage = 'Impression envoyée avec succès.';
+  } else {
+    state.printerMessage = `Impression indisponible: ${res.code || 'UNKNOWN'} - ${res.message || ''}`;
+  }
+  render();
+}
+
 app.addEventListener('input', (event) => {
   const target = event.target;
   if (!(target instanceof HTMLInputElement)) return;
@@ -272,6 +313,7 @@ app.addEventListener('click', async (event) => {
     state.orders = [];
     state.error = '';
     state.pairingMessage = '';
+    state.printerMessage = '';
     stopReceiverPolling();
     stopPairingPolling();
     render();
@@ -283,9 +325,25 @@ app.addEventListener('click', async (event) => {
     return;
   }
 
+  if (target.id === 'printer-info-btn') {
+    await showPrinterInfo();
+    return;
+  }
+
+  if (target.id === 'printer-test-btn') {
+    await runPrintTest(state.orders[0]);
+    return;
+  }
+
   const orderId = target.dataset.id;
   const status = target.dataset.action;
   if (!orderId || !status) return;
+
+  if (status === 'print-test-order') {
+    const order = state.orders.find((item) => item.id === orderId);
+    await runPrintTest(order);
+    return;
+  }
 
   target.setAttribute('disabled', 'true');
   const res = await changeOrderStatus(orderId, status);

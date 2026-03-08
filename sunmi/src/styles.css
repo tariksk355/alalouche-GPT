@@ -17,3 +17,5 @@ button:disabled { opacity: 0.6; }
 .status-pill { font-size: 12px; border: 1px solid #475569; border-radius: 999px; padding: 2px 8px; }
 .topbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
 .input { width: 100%; box-sizing: border-box; margin-top: 10px; border-radius: 10px; border: 1px solid #475569; background: #0b1220; color: #f8fafc; padding: 12px; font-size: 20px; letter-spacing: 1px; text-transform: uppercase; }
+
+.btn-secondary-inline { background: #334155; }
