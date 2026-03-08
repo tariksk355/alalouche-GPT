@@ -67,10 +67,10 @@ class SunmiPrinterManager(private val context: Context) {
         }
 
         if (service != null) {
-            runCatching { service.getServiceVersion() }.onSuccess { info.put("serviceVersion", it ?: "") }
-            runCatching { service.getPrinterSerialNo() }.onSuccess { info.put("printerSerialNo", it ?: "") }
-            runCatching { service.getPrinterVersion() }.onSuccess { info.put("printerVersion", it ?: "") }
-            runCatching { service.updatePrinterState() }.onSuccess { info.put("printerStateCode", it) }
+            runCatching { service.getServiceVersion() }.onSuccess { serviceVersion -> info.put("serviceVersion", serviceVersion ?: "") }
+            runCatching { service.getPrinterSerialNo() }.onSuccess { serialNo -> info.put("printerSerialNo", serialNo ?: "") }
+            runCatching { service.getPrinterVersion() }.onSuccess { printerVersion -> info.put("printerVersion", printerVersion ?: "") }
+            runCatching { service.updatePrinterState() }.onSuccess { stateCode -> info.put("printerStateCode", stateCode) }
         } else {
             info.put("message", "Sunmi printer service is not bound.")
         }
