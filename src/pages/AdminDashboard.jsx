@@ -1,0 +1,720 @@
+import { useState, useEffect } from "react";
+import { createPageUrl } from "@/utils";
+import { base44 } from "@/api/base44Client";
+import { reservationStatusEmail } from "@/components/emails/emailTemplates";
+import { formatTime, formatDate, formatDateFull } from "@/components/formatDate";
+import AdminAnalytics from "@/components/admin/AdminAnalytics";
+import DeviceProvisioning from "@/components/admin/DeviceProvisioning";
+
+const NAV_ITEMS = [
+  { id: "orders", label: "Commandes", icon: "🛒" },
+  { id: "menu", label: "Menu", icon: "🍽️" },
+  { id: "reservations", label: "Réservations", icon: "📅" },
+  { id: "customers", label: "Clients", icon: "👥" },
+  { id: "marketing", label: "Marketing", icon: "📢" },
+  { id: "analytics", label: "Analytiques", icon: "📊" },
+  { id: "settings", label: "Paramètres", icon: "⚙️" },
+];
+
+export default function AdminDashboard() {
+  const [admin, setAdmin] = useState(null);
+  const [activeTab, setActiveTab] = useState("orders");
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  useEffect(() => {
+    const stored = localStorage.getItem("alalouche_admin");
+    if (!stored) {
+      window.location.href = createPageUrl("AdminLogin");
+      return;
+    }
+    setAdmin(JSON.parse(stored));
+  }, []);
+
+  const handleLogout = () => {
+    localStorage.removeItem("alalouche_admin");
+    window.location.href = createPageUrl("AdminLogin");
+  };
+
+  if (!admin) return null;
+
+  return (
+    <div className="min-h-screen bg-gray-50 text-gray-900 flex">
+      {sidebarOpen && (
+        <div className="fixed inset-0 bg-black/40 z-20 lg:hidden" onClick={() => setSidebarOpen(false)} />
+      )}
+
+      {/* Sidebar */}
+      <aside className={`fixed lg:static inset-y-0 left-0 z-30 w-64 bg-white border-r border-gray-200 flex flex-col transition-transform duration-300 ${sidebarOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"}`}>
+        <div className="p-6 border-b border-gray-200">
+          <img src="https://qtrypzzcjebvfcihiynt.supabase.co/storage/v1/object/public/base44-prod/public/user_6988e8d4fc295c9d940c5901/05562fbc0_Alalouche-logo.png" alt="" className="w-14 mb-3" />
+          <p className="text-gray-900 font-semibold">Administration</p>
+          <p className="text-gray-500 text-sm">{admin.name || admin.username}</p>
+        </div>
+        <nav className="flex-1 p-4 space-y-1">
+          {NAV_ITEMS.map(item => (
+            <button
+              key={item.id}
+              onClick={() => { setActiveTab(item.id); setSidebarOpen(false); }}
+              className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-left transition-colors ${activeTab === item.id ? "bg-[#b5122a] text-white" : "text-gray-600 hover:bg-gray-100 hover:text-gray-900"}`}
+            >
+              <span>{item.icon}</span>
+              <span className="font-medium">{item.label}</span>
+            </button>
+          ))}
+        </nav>
+        <div className="p-4 border-t border-gray-200">
+          <button onClick={handleLogout} className="w-full px-4 py-2 text-gray-500 hover:text-gray-900 text-sm transition-colors text-left">
+            Se déconnecter
+          </button>
+        </div>
+      </aside>
+
+      {/* Main */}
+      <div className="flex-1 flex flex-col min-w-0">
+        <header className="bg-white border-b border-gray-200 px-4 lg:px-6 py-4 flex items-center gap-4">
+          <button className="lg:hidden text-gray-500 hover:text-gray-900" onClick={() => setSidebarOpen(true)}>
+            <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+            </svg>
+          </button>
+          <h1 className="text-lg font-semibold capitalize text-gray-900">
+            {NAV_ITEMS.find(n => n.id === activeTab)?.label}
+          </h1>
+        </header>
+
+        <main className="flex-1 p-4 lg:p-6 overflow-auto">
+          {activeTab === "orders" && <AdminOrders />}
+          {activeTab === "menu" && <AdminMenu />}
+          {activeTab === "reservations" && <AdminReservations />}
+          {activeTab === "customers" && <AdminCustomers />}
+          {activeTab === "marketing" && <AdminMarketing />}
+          {activeTab === "analytics" && <AdminAnalytics />}
+          {activeTab === "settings" && <AdminSettings />}
+        </main>
+      </div>
+    </div>
+  );
+}
+
+// ─── Orders Panel ─────────────────────────────────────────────────────────────
+function AdminOrders() {
+  const [orders, setOrders] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [filter, setFilter] = useState("all");
+  const [selectedOrder, setSelectedOrder] = useState(null);
+  const [successMsg, setSuccessMsg] = useState("");
+
+  useEffect(() => {
+    loadOrders();
+    const unsub = base44.entities.Order.subscribe(event => {
+      if (event.type === "create") setOrders(prev => [event.data, ...prev]);
+      else if (event.type === "update") setOrders(prev => prev.map(o => o.id === event.id ? event.data : o));
+    });
+    return unsub;
+  }, []);
+
+  const loadOrders = async () => {
+    const data = await base44.entities.Order.list("-created_date", 100);
+    setOrders(data);
+    setLoading(false);
+  };
+
+  const showSuccess = (msg) => {
+    setSuccessMsg(msg);
+    setTimeout(() => setSuccessMsg(""), 3000);
+  };
+
+  const setPrepTime = async (order, minutes) => {
+    const readyAt = new Date(Date.now() + minutes * 60000).toISOString();
+    await base44.entities.Order.update(order.id, {
+      prep_time_minutes: minutes,
+      ready_at: readyAt,
+      status: "accepted",
+      printed: false,
+      printed_at: null
+    });
+    showSuccess(`Commande acceptée — prête dans ${minutes} min`);
+  };
+
+  const updateStatus = async (order, status) => {
+    await base44.entities.Order.update(order.id, { status });
+    const labels = { ready: "Commande marquée comme prête ✓", completed: "Commande terminée ✓", cancelled: "Commande annulée" };
+    showSuccess(labels[status] || "Statut mis à jour ✓");
+  };
+
+  const STATUS_COLORS = { new: "bg-yellow-500", accepted: "bg-blue-500", ready: "bg-green-500", completed: "bg-gray-400", cancelled: "bg-red-500" };
+  const STATUS_LABELS = { new: "Nouveau", accepted: "Accepté", ready: "Prêt", completed: "Terminé", cancelled: "Annulé" };
+
+  const filtered = filter === "all" ? orders : orders.filter(o => o.status === filter);
+
+  return (
+    <div>
+      {successMsg && <div className="mb-4 bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-lg text-sm font-medium">{successMsg}</div>}
+
+      <div className="flex gap-2 mb-6 overflow-x-auto pb-2">
+        {["all", "new", "accepted", "ready", "completed"].map(f => (
+          <button key={f} onClick={() => setFilter(f)}
+            className={`px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-colors ${filter === f ? "bg-[#b5122a] text-white" : "bg-white border border-gray-200 text-gray-600 hover:text-gray-900"}`}>
+            {f === "all" ? "Toutes" : STATUS_LABELS[f]}
+            {f === "new" && orders.filter(o => o.status === "new").length > 0 && (
+              <span className="ml-1 bg-yellow-500 text-black text-xs rounded-full px-1.5">{orders.filter(o => o.status === "new").length}</span>
+            )}
+          </button>
+        ))}
+      </div>
+
+      {loading ? (
+        <div className="text-center text-gray-400 py-12">Chargement...</div>
+      ) : (
+        <div className="space-y-3">
+          {filtered.map(order => (
+            <div key={order.id} className={`bg-white rounded-xl border p-5 shadow-sm ${order.status === "new" ? "border-yellow-400" : "border-gray-200"}`}>
+              <div className="flex flex-wrap items-start justify-between gap-4 mb-3">
+                <div>
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className={`w-2 h-2 rounded-full ${STATUS_COLORS[order.status]}`} />
+                    <span className="font-semibold text-gray-900">{order.order_number}</span>
+                    <span className="text-gray-500 text-sm">— {order.customer_name}</span>
+                  </div>
+                  <div className="text-gray-500 text-sm">
+                    {order.order_type === "takeaway" ? "À emporter" : "Livraison"} · {order.payment_method === "cash" ? "Espèces" : "Carte"} · CHF {order.total_amount?.toFixed(2)}
+                  </div>
+                  <div className="text-gray-400 text-xs mt-1">
+                    {order.customer_phone && <span>{order.customer_phone}</span>}
+                    {order.created_date && (
+                      <span className="ml-2">· Reçu à {formatTime(order.created_date)} ({formatDate(order.created_date)})</span>
+                    )}
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className={`px-2 py-1 rounded text-xs font-medium ${STATUS_COLORS[order.status]} text-white`}>{STATUS_LABELS[order.status]}</span>
+                  <button onClick={() => setSelectedOrder(selectedOrder?.id === order.id ? null : order)}
+                    className="text-xs text-gray-500 hover:text-gray-900 border border-gray-200 px-2 py-1 rounded">
+                    {selectedOrder?.id === order.id ? "Fermer" : "Détails"}
+                  </button>
+                </div>
+              </div>
+
+              {order.status === "new" && (
+                <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
+                  <p className="text-yellow-700 text-sm mb-2 font-medium">⚠️ Sélectionner le temps de préparation</p>
+                  <div className="flex gap-2 flex-wrap">
+                    {[15, 30, 45, 60].map(mins => (
+                      <button key={mins} onClick={() => setPrepTime(order, mins)}
+                        className="px-4 py-2 bg-yellow-500 text-black font-bold rounded hover:bg-yellow-400 transition-colors text-sm">
+                        {mins} min
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {order.status === "accepted" && order.ready_at && (
+                <div className="text-sm text-blue-600 mt-2">
+                  ⏱ Prêt à: {formatTime(order.ready_at)}
+                  {order.prep_time_minutes && <span className="ml-2 text-gray-400">({order.prep_time_minutes} min)</span>}
+                </div>
+              )}
+
+              {selectedOrder?.id === order.id && (
+                <div className="mt-4 pt-4 border-t border-gray-100">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                    <div>
+                      <p className="text-gray-500 mb-2 font-medium">Articles commandés :</p>
+                      {order.items?.map((item, i) => (
+                        <div key={i} className="flex justify-between mb-1 text-gray-700">
+                          <span>{item.name} x{item.quantity}</span>
+                          <span className="text-gray-500">CHF {(item.price * item.quantity).toFixed(2)}</span>
+                        </div>
+                      ))}
+                      <div className="border-t border-gray-100 mt-2 pt-2 flex justify-between font-bold text-gray-900">
+                        <span>Total</span>
+                        <span>CHF {order.total_amount?.toFixed(2)}</span>
+                      </div>
+                    </div>
+                    <div>
+                      {order.customer_address && <p className="text-gray-600"><span className="text-gray-400">Adresse: </span>{order.customer_address}</p>}
+                      {order.notes && <p className="text-gray-600 mt-1"><span className="text-gray-400">Notes: </span>{order.notes}</p>}
+                    </div>
+                  </div>
+                  <div className="flex gap-2 mt-4 flex-wrap">
+                    {order.status === "accepted" && (
+                      <button onClick={() => updateStatus(order, "ready")}
+                        className="px-4 py-2 bg-green-600 text-white rounded text-sm hover:bg-green-500">
+                        Marquer prêt
+                      </button>
+                    )}
+                    {order.status === "ready" && (
+                      <button onClick={() => updateStatus(order, "completed")}
+                        className="px-4 py-2 bg-gray-600 text-white rounded text-sm hover:bg-gray-500">
+                        Terminer
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          ))}
+          {filtered.length === 0 && <div className="text-center text-gray-400 py-12">Aucune commande.</div>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Menu Panel ───────────────────────────────────────────────────────────────
+function AdminMenu() {
+  const [items, setItems] = useState([]);
+  const [form, setForm] = useState({ name: "", description: "", price: "", category: "Sandwichs et menu", image_url: "", available: true, allergens: "" });
+  const [editing, setEditing] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [success, setSuccess] = useState("");
+  const [uploading, setUploading] = useState(false);
+
+  const CATEGORIES = ["Sandwichs et menu", "Nos sauces chaudes", "Nos sauces froides", "Plats et Pide", "Boissons", "Bières & Alcools", "Vins", "Desserts"];
+
+  useEffect(() => {
+    base44.entities.MenuItem.list("sort_order").then(setItems);
+  }, []);
+
+  const handleImageUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    setUploading(true);
+    const { file_url } = await base44.integrations.Core.UploadFile({ file });
+    setForm(f => ({ ...f, image_url: file_url }));
+    setUploading(false);
+  };
+
+  const handleSave = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+    const data = { ...form, price: parseFloat(form.price) };
+    if (editing) {
+      await base44.entities.MenuItem.update(editing.id, data);
+      setItems(prev => prev.map(i => i.id === editing.id ? { ...i, ...data } : i));
+      setSuccess("Article modifié avec succès !");
+    } else {
+      const created = await base44.entities.MenuItem.create(data);
+      setItems(prev => [...prev, created]);
+      setSuccess("Article ajouté avec succès !");
+    }
+    setForm({ name: "", description: "", price: "", category: "Sandwichs et menu", image_url: "", available: true, allergens: "" });
+    setEditing(null);
+    setLoading(false);
+    setTimeout(() => setSuccess(""), 3000);
+  };
+
+  const handleEdit = (item) => {
+    setEditing(item);
+    setForm({ name: item.name, description: item.description || "", price: String(item.price), category: item.category, image_url: item.image_url || "", available: item.available !== false, allergens: item.allergens || "" });
+  };
+
+  const handleDelete = async (id) => {
+    if (!confirm("Supprimer cet article ?")) return;
+    await base44.entities.MenuItem.delete(id);
+    setItems(prev => prev.filter(i => i.id !== id));
+  };
+
+  const toggleAvailable = async (item) => {
+    await base44.entities.MenuItem.update(item.id, { available: !item.available });
+    setItems(prev => prev.map(i => i.id === item.id ? { ...i, available: !i.available } : i));
+  };
+
+  return (
+    <div className="grid lg:grid-cols-2 gap-8">
+      <div className="bg-white rounded-xl p-6 border border-gray-200 shadow-sm">
+        <h2 className="font-semibold text-lg mb-5 text-gray-900">{editing ? "Modifier l'article" : "Ajouter un article"}</h2>
+        {success && <div className="mb-4 bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-lg text-sm">{success}</div>}
+        <form onSubmit={handleSave} className="space-y-4">
+          <div className="grid grid-cols-2 gap-4">
+            <div className="col-span-2">
+              <label className="block text-sm text-gray-500 mb-1">Nom *</label>
+              <input required value={form.name} onChange={e => setForm({ ...form, name: e.target.value })}
+                className="w-full bg-gray-50 border border-gray-200 text-gray-900 px-3 py-2 rounded-lg focus:outline-none focus:border-gray-400" />
+            </div>
+            <div>
+              <label className="block text-sm text-gray-500 mb-1">Prix (CHF) *</label>
+              <input required type="number" step="0.5" value={form.price} onChange={e => setForm({ ...form, price: e.target.value })}
+                className="w-full bg-gray-50 border border-gray-200 text-gray-900 px-3 py-2 rounded-lg focus:outline-none focus:border-gray-400" />
+            </div>
+            <div>
+              <label className="block text-sm text-gray-500 mb-1">Catégorie</label>
+              <select value={form.category} onChange={e => setForm({ ...form, category: e.target.value })}
+                className="w-full bg-gray-50 border border-gray-200 text-gray-900 px-3 py-2 rounded-lg focus:outline-none focus:border-gray-400">
+                {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
+            </div>
+            <div className="col-span-2">
+              <label className="block text-sm text-gray-500 mb-1">Description</label>
+              <textarea rows={2} value={form.description} onChange={e => setForm({ ...form, description: e.target.value })}
+                className="w-full bg-gray-50 border border-gray-200 text-gray-900 px-3 py-2 rounded-lg focus:outline-none focus:border-gray-400 resize-none" />
+            </div>
+            <div className="col-span-2">
+              <label className="block text-sm text-gray-500 mb-1">Image</label>
+              <input type="file" accept="image/*" onChange={handleImageUpload} className="w-full text-gray-500 text-sm" />
+              {uploading && <p className="text-xs text-gray-400 mt-1">Upload en cours...</p>}
+              {form.image_url && <img src={form.image_url} alt="" className="mt-2 w-20 h-20 object-cover rounded" />}
+            </div>
+            <div className="col-span-2">
+              <label className="block text-sm text-gray-500 mb-1">Allergènes</label>
+              <input value={form.allergens} onChange={e => setForm({ ...form, allergens: e.target.value })}
+                className="w-full bg-gray-50 border border-gray-200 text-gray-900 px-3 py-2 rounded-lg focus:outline-none focus:border-gray-400" placeholder="Gluten, lactose..." />
+            </div>
+            <div className="col-span-2 flex items-center gap-2">
+              <input type="checkbox" id="available" checked={form.available} onChange={e => setForm({ ...form, available: e.target.checked })} className="w-4 h-4" />
+              <label htmlFor="available" className="text-sm text-gray-500">Disponible</label>
+            </div>
+          </div>
+          <div className="flex gap-3">
+            <button type="submit" disabled={loading}
+              className="flex-1 py-2 bg-[#b5122a] text-white rounded-lg font-medium hover:bg-[#8f0e21] disabled:opacity-60 transition-colors">
+              {loading ? "..." : editing ? "Modifier" : "Ajouter"}
+            </button>
+            {editing && (
+              <button type="button" onClick={() => { setEditing(null); setForm({ name: "", description: "", price: "", category: "Sandwichs et menu", image_url: "", available: true, allergens: "" }); }}
+                className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors">
+                Annuler
+              </button>
+            )}
+          </div>
+        </form>
+      </div>
+
+      <div className="space-y-3">
+        <h2 className="font-semibold text-lg text-gray-900">Articles ({items.length})</h2>
+        <div className="space-y-2 max-h-[600px] overflow-y-auto">
+          {items.map(item => (
+            <div key={item.id} className="bg-white rounded-lg border border-gray-200 p-4 flex items-center gap-3 shadow-sm">
+              {item.image_url && <img src={item.image_url} alt="" className="w-12 h-12 object-cover rounded flex-shrink-0" />}
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="font-medium truncate text-gray-900">{item.name}</span>
+                  <span className={`w-2 h-2 rounded-full flex-shrink-0 ${item.available !== false ? "bg-green-500" : "bg-gray-300"}`} />
+                </div>
+                <div className="text-gray-500 text-sm">{item.category} — CHF {item.price?.toFixed(2)}</div>
+              </div>
+              <div className="flex gap-2 flex-shrink-0">
+                <button onClick={() => toggleAvailable(item)} className="text-xs text-gray-500 hover:text-gray-900 border border-gray-200 px-2 py-1 rounded">
+                  {item.available !== false ? "Désactiver" : "Activer"}
+                </button>
+                <button onClick={() => handleEdit(item)} className="text-xs text-blue-600 hover:text-blue-700 border border-gray-200 px-2 py-1 rounded">Éditer</button>
+                <button onClick={() => handleDelete(item.id)} className="text-xs text-red-500 hover:text-red-600 border border-gray-200 px-2 py-1 rounded">Supprimer</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Reservations Panel ───────────────────────────────────────────────────────
+function AdminReservations() {
+  const [reservations, setReservations] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [successMsg, setSuccessMsg] = useState("");
+
+  useEffect(() => {
+    base44.entities.Reservation.list("-created_date", 100).then(data => {
+      setReservations(data);
+      setLoading(false);
+    });
+  }, []);
+
+  const updateStatus = async (r, status) => {
+    await base44.entities.Reservation.update(r.id, { status });
+    setReservations(prev => prev.map(res => res.id === r.id ? { ...res, status } : res));
+    if (r.email) {
+      await base44.integrations.Core.SendEmail({
+        to: r.email,
+        subject: status === "confirmed" ? "Réservation confirmée — À la louche" : "Réservation annulée — À la louche",
+        body: reservationStatusEmail({ name: r.name, date: r.date, time: r.time, guests: r.guests, status })
+      });
+    }
+    setSuccessMsg(status === "confirmed" ? "Réservation confirmée — email envoyé au client ✓" : "Réservation annulée — email envoyé au client ✓");
+    setTimeout(() => setSuccessMsg(""), 4000);
+  };
+
+  const STATUS_COLORS = { pending: "bg-yellow-500", confirmed: "bg-green-500", cancelled: "bg-red-500" };
+  const STATUS_LABELS = { pending: "En attente", confirmed: "Confirmée", cancelled: "Annulée" };
+
+  return (
+    <div>
+      {successMsg && <div className="mb-4 bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-lg text-sm font-medium">{successMsg}</div>}
+      <div className="space-y-3">
+        {loading ? <div className="text-center text-gray-400 py-12">Chargement...</div> :
+          reservations.map(r => (
+            <div key={r.id} className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm">
+              <div className="flex flex-wrap justify-between items-start gap-3">
+                <div>
+                  <div className="font-semibold text-lg text-gray-900">{r.name}</div>
+                  <div className="text-gray-500 text-sm">{r.date} à {r.time} — {r.guests} personne{r.guests > 1 ? "s" : ""}</div>
+                  <div className="text-gray-400 text-sm mt-1">{r.email} · {r.phone}</div>
+                  {r.created_date && <div className="text-gray-400 text-xs mt-1">Reçu le {formatDateFull(r.created_date)} à {formatTime(r.created_date)}</div>}
+                  {r.notes && <div className="text-gray-500 text-sm mt-1 italic">"{r.notes}"</div>}
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className={`px-2 py-1 rounded text-xs font-medium text-white ${STATUS_COLORS[r.status]}`}>{STATUS_LABELS[r.status]}</span>
+                  {r.status === "pending" && (
+                    <>
+                      <button onClick={() => updateStatus(r, "confirmed")} className="px-3 py-1 bg-green-600 text-white rounded text-xs hover:bg-green-500">Confirmer</button>
+                      <button onClick={() => updateStatus(r, "cancelled")} className="px-3 py-1 bg-red-600 text-white rounded text-xs hover:bg-red-500">Annuler</button>
+                    </>
+                  )}
+                </div>
+              </div>
+            </div>
+          ))
+        }
+        {!loading && reservations.length === 0 && <div className="text-center text-gray-400 py-12">Aucune réservation.</div>}
+      </div>
+    </div>
+  );
+}
+
+// ─── Customers Panel ──────────────────────────────────────────────────────────
+function AdminCustomers() {
+  const [customers, setCustomers] = useState([]);
+  const [search, setSearch] = useState("");
+  const [showForm, setShowForm] = useState(false);
+  const [editingCustomer, setEditingCustomer] = useState(null);
+  const [form, setForm] = useState({ name: "", phone: "", email: "", address: "", notes: "" });
+  const [loading, setLoading] = useState(false);
+  const [success, setSuccess] = useState("");
+
+  useEffect(() => {
+    base44.entities.Customer.list("-total_orders", 200).then(setCustomers);
+  }, []);
+
+  const openAdd = () => { setEditingCustomer(null); setForm({ name: "", phone: "", email: "", address: "", notes: "" }); setShowForm(true); };
+  const openEdit = (c) => { setEditingCustomer(c); setForm({ name: c.name || "", phone: c.phone || "", email: c.email || "", address: c.address || "", notes: c.notes || "" }); setShowForm(true); };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+    if (editingCustomer) {
+      await base44.entities.Customer.update(editingCustomer.id, form);
+      setCustomers(prev => prev.map(c => c.id === editingCustomer.id ? { ...c, ...form } : c));
+      setSuccess("Client modifié avec succès !");
+    } else {
+      const created = await base44.entities.Customer.create({ ...form, total_orders: 0 });
+      setCustomers(prev => [created, ...prev]);
+      setSuccess("Client ajouté avec succès !");
+    }
+    setShowForm(false);
+    setEditingCustomer(null);
+    setTimeout(() => setSuccess(""), 3000);
+    setLoading(false);
+  };
+
+  const handleDelete = async (c) => {
+    if (!confirm(`Supprimer "${c.name}" ?`)) return;
+    await base44.entities.Customer.delete(c.id);
+    setCustomers(prev => prev.filter(x => x.id !== c.id));
+  };
+
+  const filtered = customers.filter(c =>
+    c.name?.toLowerCase().includes(search.toLowerCase()) ||
+    c.phone?.includes(search) ||
+    c.email?.toLowerCase().includes(search.toLowerCase())
+  );
+
+  return (
+    <div>
+      {success && <div className="mb-4 bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-lg text-sm">{success}</div>}
+      <div className="flex gap-3 mb-6">
+        <input value={search} onChange={e => setSearch(e.target.value)}
+          className="flex-1 bg-white border border-gray-200 text-gray-900 px-4 py-2 rounded-lg focus:outline-none focus:border-gray-400 shadow-sm"
+          placeholder="Rechercher par nom, téléphone ou email..." />
+        <button onClick={openAdd} className="px-4 py-2 bg-[#b5122a] text-white rounded-lg font-medium hover:bg-[#8f0e21] transition-colors">+ Ajouter</button>
+      </div>
+
+      {showForm && (
+        <form onSubmit={handleSubmit} className="bg-white rounded-xl border border-gray-200 p-5 mb-6 grid grid-cols-1 md:grid-cols-2 gap-4 shadow-sm">
+          <h3 className="md:col-span-2 font-semibold text-gray-900">{editingCustomer ? "Modifier le client" : "Ajouter un client"}</h3>
+          <div><label className="block text-sm text-gray-500 mb-1">Nom *</label><input required value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} className="w-full bg-gray-50 border border-gray-200 text-gray-900 px-3 py-2 rounded-lg focus:outline-none" /></div>
+          <div><label className="block text-sm text-gray-500 mb-1">Téléphone *</label><input required value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} className="w-full bg-gray-50 border border-gray-200 text-gray-900 px-3 py-2 rounded-lg focus:outline-none" /></div>
+          <div><label className="block text-sm text-gray-500 mb-1">Email</label><input type="email" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} className="w-full bg-gray-50 border border-gray-200 text-gray-900 px-3 py-2 rounded-lg focus:outline-none" /></div>
+          <div><label className="block text-sm text-gray-500 mb-1">Adresse</label><input value={form.address} onChange={e => setForm({ ...form, address: e.target.value })} className="w-full bg-gray-50 border border-gray-200 text-gray-900 px-3 py-2 rounded-lg focus:outline-none" /></div>
+          <div className="md:col-span-2"><label className="block text-sm text-gray-500 mb-1">Notes</label><textarea rows={2} value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} className="w-full bg-gray-50 border border-gray-200 text-gray-900 px-3 py-2 rounded-lg focus:outline-none resize-none" /></div>
+          <div className="md:col-span-2 flex gap-3">
+            <button type="submit" disabled={loading} className="px-6 py-2 bg-[#b5122a] text-white rounded-lg font-medium hover:bg-[#8f0e21] disabled:opacity-60">{loading ? "..." : editingCustomer ? "Enregistrer" : "Ajouter"}</button>
+            <button type="button" onClick={() => { setShowForm(false); setEditingCustomer(null); }} className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200">Annuler</button>
+          </div>
+        </form>
+      )}
+
+      <div className="space-y-2">
+        {filtered.map(c => (
+          <div key={c.id} className="bg-white rounded-lg border border-gray-200 px-5 py-4 flex flex-wrap justify-between items-center gap-3 shadow-sm">
+            <div>
+              <span className="font-semibold text-gray-900">{c.name}</span>
+              <span className="text-gray-500 text-sm ml-3">{c.phone}</span>
+              {c.email && <span className="text-gray-400 text-sm ml-3">{c.email}</span>}
+              {c.address && <div className="text-gray-400 text-xs mt-0.5">{c.address}</div>}
+            </div>
+            <div className="flex items-center gap-3">
+              <span className="text-[#b5122a] font-bold text-sm">{c.total_orders || 0} commande{(c.total_orders || 0) !== 1 ? "s" : ""}</span>
+              <button onClick={() => openEdit(c)} className="text-xs text-blue-600 hover:text-blue-700 border border-gray-200 px-2 py-1 rounded">Éditer</button>
+              <button onClick={() => handleDelete(c)} className="text-xs text-red-500 hover:text-red-600 border border-gray-200 px-2 py-1 rounded">Supprimer</button>
+            </div>
+          </div>
+        ))}
+        {filtered.length === 0 && <div className="text-center text-gray-400 py-12">Aucun client trouvé.</div>}
+      </div>
+    </div>
+  );
+}
+
+// ─── Marketing Panel ──────────────────────────────────────────────────────────
+function AdminMarketing() {
+  const [emailForm, setEmailForm] = useState({ subject: "", body: "" });
+  const [loading, setLoading] = useState(false);
+  const [success, setSuccess] = useState("");
+  const [customerCount, setCustomerCount] = useState(0);
+
+  useEffect(() => {
+    base44.entities.Customer.filter({ subscribed_email: true }).then(data => setCustomerCount(data.length));
+  }, []);
+
+  const sendBulkEmail = async (e) => {
+    e.preventDefault();
+    if (loading) return;
+    setLoading(true);
+    setSuccess("");
+    const customers = await base44.entities.Customer.filter({ subscribed_email: true });
+    const recipientEmails = customers.filter(c => c.email).map(c => c.email);
+    if (recipientEmails.length === 0) { setSuccess("Aucun client avec une adresse email abonné."); setLoading(false); return; }
+    const res = await base44.functions.invoke("sendBulkMarketingEmail", { emails: recipientEmails, subject: emailForm.subject, body: emailForm.body });
+    if (res.data?.success) {
+      setSuccess(`✅ Email envoyé à ${res.data.sentCount} client(s) !`);
+      setEmailForm({ subject: "", body: "" });
+    } else {
+      setSuccess(`❌ Erreur : ${res.data?.error || "Échec"}`);
+    }
+    setLoading(false);
+    setTimeout(() => setSuccess(""), 6000);
+  };
+
+  return (
+    <div className="max-w-2xl">
+      {success && <div className="mb-4 bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-lg text-sm">{success}</div>}
+      <form onSubmit={sendBulkEmail} className="bg-white rounded-xl border border-gray-200 p-6 space-y-4 shadow-sm">
+        <p className="text-gray-500 text-sm">{customerCount} clients abonnés aux emails</p>
+        <div>
+          <label className="block text-sm text-gray-500 mb-1">Sujet *</label>
+          <input required value={emailForm.subject} onChange={e => setEmailForm({ ...emailForm, subject: e.target.value })}
+            className="w-full bg-gray-50 border border-gray-200 text-gray-900 px-4 py-2 rounded-lg focus:outline-none focus:border-gray-400" placeholder="Promotion du week-end !" />
+        </div>
+        <div>
+          <label className="block text-sm text-gray-500 mb-1">Message *</label>
+          <textarea required rows={8} value={emailForm.body} onChange={e => setEmailForm({ ...emailForm, body: e.target.value })}
+            className="w-full bg-gray-50 border border-gray-200 text-gray-900 px-4 py-2 rounded-lg focus:outline-none focus:border-gray-400 resize-none" placeholder="Votre message..." />
+        </div>
+        <button type="submit" disabled={loading} className="w-full py-3 bg-[#b5122a] text-white font-semibold rounded-lg hover:bg-[#8f0e21] disabled:opacity-60 transition-colors">
+          {loading ? "Envoi en cours..." : "Envoyer à tous les abonnés"}
+        </button>
+      </form>
+    </div>
+  );
+}
+
+// ─── Settings Panel ───────────────────────────────────────────────────────────
+function AdminSettings() {
+  const [settings, setSettings] = useState(null);
+  const [success, setSuccess] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    base44.entities.PrinterSettings.list().then(data => {
+      if (data.length > 0) setSettings(data[0]);
+      else setSettings({ auto_print: true, paper_width: "58mm", copies: 1, default_prep_time: 30, require_prep_time: true });
+    });
+  }, []);
+
+  const handleSave = async () => {
+    setLoading(true);
+    if (settings.id) {
+      await base44.entities.PrinterSettings.update(settings.id, settings);
+    } else {
+      const created = await base44.entities.PrinterSettings.create(settings);
+      setSettings(created);
+    }
+    setSuccess("Paramètres sauvegardés !");
+    setTimeout(() => setSuccess(""), 3000);
+    setLoading(false);
+  };
+
+  if (!settings) return <div className="text-gray-400">Chargement...</div>;
+
+  return (
+    <div className="max-w-lg">
+      {success && <div className="mb-4 bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-lg text-sm">{success}</div>}
+      <div className="bg-white rounded-xl border border-gray-200 p-6 space-y-6 shadow-sm">
+        <DeviceProvisioning />
+        <div>
+          <h3 className="font-semibold text-lg mb-4 text-gray-900">Imprimante</h3>
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <label className="text-gray-700">Impression automatique</label>
+              <button onClick={() => setSettings(s => ({ ...s, auto_print: !s.auto_print }))}
+                className={`w-12 h-6 rounded-full transition-colors ${settings.auto_print ? "bg-[#b5122a]" : "bg-gray-300"} relative`}>
+                <span className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-transform ${settings.auto_print ? "translate-x-7" : "translate-x-1"}`} />
+              </button>
+            </div>
+            <div>
+              <label className="block text-sm text-gray-500 mb-2">Largeur du papier</label>
+              <div className="flex gap-3">
+                {["58mm", "80mm"].map(w => (
+                  <button key={w} onClick={() => setSettings(s => ({ ...s, paper_width: w }))}
+                    className={`px-4 py-2 rounded-lg border transition-colors ${settings.paper_width === w ? "border-[#b5122a] text-[#b5122a] bg-red-50" : "border-gray-200 text-gray-500 hover:border-gray-400"}`}>
+                    {w}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div>
+              <label className="block text-sm text-gray-500 mb-2">Nombre de copies</label>
+              <div className="flex gap-3">
+                {[1, 2, 3].map(n => (
+                  <button key={n} onClick={() => setSettings(s => ({ ...s, copies: n }))}
+                    className={`w-10 h-10 rounded-lg border transition-colors ${settings.copies === n ? "border-[#b5122a] text-[#b5122a] bg-red-50" : "border-gray-200 text-gray-500 hover:border-gray-400"}`}>
+                    {n}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+        <div>
+          <h3 className="font-semibold text-lg mb-4 text-gray-900">Commandes</h3>
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm text-gray-500 mb-2">Temps de préparation par défaut</label>
+              <div className="flex gap-3 flex-wrap">
+                {[15, 30, 45, 60].map(t => (
+                  <button key={t} onClick={() => setSettings(s => ({ ...s, default_prep_time: t }))}
+                    className={`px-4 py-2 rounded-lg border transition-colors ${settings.default_prep_time === t ? "border-[#b5122a] text-[#b5122a] bg-red-50" : "border-gray-200 text-gray-500 hover:border-gray-400"}`}>
+                    {t} min
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="flex items-center justify-between">
+              <label className="text-gray-700">Sélection de délai obligatoire</label>
+              <button onClick={() => setSettings(s => ({ ...s, require_prep_time: !s.require_prep_time }))}
+                className={`w-12 h-6 rounded-full transition-colors ${settings.require_prep_time ? "bg-[#b5122a]" : "bg-gray-300"} relative`}>
+                <span className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-transform ${settings.require_prep_time ? "translate-x-7" : "translate-x-1"}`} />
+              </button>
+            </div>
+          </div>
+        </div>
+        <button onClick={handleSave} disabled={loading}
+          className="w-full py-3 bg-[#b5122a] text-white font-semibold rounded-lg hover:bg-[#8f0e21] disabled:opacity-60 transition-colors">
+          {loading ? "Sauvegarde..." : "Sauvegarder les paramètres"}
+        </button>
+      </div>
+    </div>
+  );
+}
