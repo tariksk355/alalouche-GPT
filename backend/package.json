@@ -3,12 +3,19 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "db:up": "docker compose -f docker-compose.yml up -d",
+    "db:down": "docker compose -f docker-compose.yml down",
     "build": "tsc -p tsconfig.build.json",
     "start": "node dist/main.js",
     "start:dev": "ts-node src/main.ts",
+    "dev": "npm run start:dev",
     "prisma:generate": "prisma generate",
-    "prisma:push": "prisma db push",
+    "prisma:migrate": "prisma migrate dev --name init",
+    "prisma:seed": "node prisma/seed.js",
     "prisma:studio": "prisma studio"
+  },
+  "prisma": {
+    "seed": "node prisma/seed.js"
   },
   "dependencies": {
     "@nestjs/common": "^10.4.2",

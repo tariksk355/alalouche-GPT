@@ -1,115 +1,163 @@
-# Backend (NestJS + Prisma)
+# Backend local bootstrap (NestJS + Prisma + PostgreSQL)
 
-This backend is a standalone NestJS service for the first migration slice:
-- health
-- device pairing lifecycle
-- device verification + token issuance
-- device-authenticated receiver endpoints
+This document is for reproducible local setup of the backend only.
 
-## 1) Prerequisites
+## What this backend includes
+
+- `GET /health`
+- Device pairing flow endpoints:
+  - `POST /admin/device-pairing-codes`
+  - `POST /devices/pairing-requests`
+  - `GET /admin/device-pairing-requests`
+  - `POST /admin/device-pairing-requests/:id/confirm`
+  - `POST /devices/verify`
+- Device-auth endpoints:
+  - `GET /devices/me`
+  - `GET /receiver/orders`
+  - `POST /receiver/orders/:id/status`
+
+Admin auth is intentionally stubbed with `x-admin-token` for local flow execution.
+
+---
+
+## Prerequisites
 
 - Node.js 20+
 - npm 10+
-- PostgreSQL 14+
+- Docker + Docker Compose
+- `curl` + `jq` (for smoke test)
 
-## 2) Environment variables
+---
 
-Copy `.env.example` to `.env` and adjust values:
+## Copy-paste local setup (fresh machine)
+
+Run all commands from `backend/`.
+
+### 1) Start local PostgreSQL
+
+```bash
+npm run db:up
+```
+
+This starts `postgres:16-alpine` using `backend/docker-compose.yml` and exposes port `5432`.
+
+### 2) Copy environment variables
 
 ```bash
 cp .env.example .env
 ```
 
-Required variables:
+Defaults in `.env.example` are already aligned with local docker-compose PostgreSQL.
 
-- `PORT` — API port (default `3000`)
-- `DATABASE_URL` — PostgreSQL connection string
-- `ADMIN_TOKEN` — temporary admin stub token used via `x-admin-token` header
-- `DEFAULT_RESTAURANT_ID` — default restaurant id for locally generated pairing codes
-
-## 3) Local database setup
-
-Example with local PostgreSQL:
-
-```sql
-CREATE DATABASE alalouche;
-```
-
-No manual table SQL is required; Prisma creates schema via `db push`.
-
-## 4) Install + Prisma + build + run
-
-From `backend/`:
+### 3) Install dependencies
 
 ```bash
 npm install
-npm run prisma:generate
-npm run prisma:push
-npm run build
-npm run start:dev
 ```
 
-- `start:dev` runs `ts-node src/main.ts`
-- API base URL: `http://localhost:3000`
+### 4) Generate Prisma client
 
-## 5) Endpoints in this slice
+```bash
+npm run prisma:generate
+```
 
-- `GET /health`
-- `POST /admin/device-pairing-codes`
-- `POST /devices/pairing-requests`
-- `GET /admin/device-pairing-requests`
-- `POST /admin/device-pairing-requests/:id/confirm`
-- `POST /devices/verify`
-- `GET /devices/me`
-- `GET /receiver/orders`
-- `POST /receiver/orders/:id/status`
+### 5) Apply schema migration/bootstrap on fresh DB
 
-## 6) Local smoke test plan (curl)
+```bash
+npm run prisma:migrate
+```
 
-Export common values:
+> Script uses: `prisma migrate dev --name init`.
+
+### 6) Seed local test data
+
+```bash
+npm run prisma:seed
+```
+
+Seed creates:
+- one default restaurant (`DEFAULT_RESTAURANT_ID`)
+- optional sample orders when `SEED_SAMPLE_ORDERS=true`
+
+### 7) Start backend
+
+```bash
+npm run dev
+```
+
+Backend runs at `http://localhost:3000` by default.
+
+---
+
+## Local pairing smoke test
+
+### Option A: one-command smoke script
+
+With backend running in another terminal:
+
+```bash
+./scripts/smoke-test.sh
+```
+
+This executes:
+1. `GET /health`
+2. `POST /admin/device-pairing-codes`
+3. `POST /devices/pairing-requests`
+4. `POST /admin/device-pairing-requests/:id/confirm`
+5. `POST /devices/verify`
+6. `GET /devices/me`
+7. `GET /receiver/orders`
+
+You can override defaults:
+
+```bash
+API_URL=http://localhost:3000 ADMIN_TOKEN=dev-admin ./scripts/smoke-test.sh
+```
+
+### Option B: manual curl sequence
 
 ```bash
 export API=http://localhost:3000
 export ADMIN_TOKEN=dev-admin
 ```
 
-### A. Health
+1) Health
 
 ```bash
 curl -s "$API/health" | jq
 ```
 
-### B. Create pairing code (admin)
+2) Create pairing code
 
 ```bash
 PAIRING_CODE_RESP=$(curl -s -X POST "$API/admin/device-pairing-codes" \
   -H "Content-Type: application/json" \
   -H "x-admin-token: $ADMIN_TOKEN" \
-  -d '{"deviceName":"Sunmi Caisse Local"}')
+  -d '{"deviceName":"Sunmi Local Dev"}')
 
 echo "$PAIRING_CODE_RESP" | jq
-CODE=$(echo "$PAIRING_CODE_RESP" | jq -r '.data.code')
+PAIRING_CODE=$(echo "$PAIRING_CODE_RESP" | jq -r '.data.code')
 ```
 
-### C. Create pairing request (device enters code manually)
+3) Create pairing request
 
 ```bash
 PAIRING_REQUEST_RESP=$(curl -s -X POST "$API/devices/pairing-requests" \
   -H "Content-Type: application/json" \
-  -d "{\"pairingCode\":\"$CODE\",\"deviceName\":\"Sunmi V2\",\"deviceModel\":\"V2\",\"platform\":\"android\",\"appVersion\":\"1.0.0\",\"installId\":\"local-install-1\"}")
+  -d "{\"pairingCode\":\"$PAIRING_CODE\",\"deviceName\":\"Sunmi Dev Unit\",\"deviceModel\":\"V2\",\"platform\":\"android\",\"appVersion\":\"1.0.0\",\"installId\":\"dev-install-001\"}")
 
 echo "$PAIRING_REQUEST_RESP" | jq
 PAIRING_REQUEST_ID=$(echo "$PAIRING_REQUEST_RESP" | jq -r '.data.pairingRequestId')
 ```
 
-### D. Confirm pairing request (admin)
+4) Confirm pairing request
 
 ```bash
 curl -s -X POST "$API/admin/device-pairing-requests/$PAIRING_REQUEST_ID/confirm" \
   -H "x-admin-token: $ADMIN_TOKEN" | jq
 ```
 
-### E. Device verify/poll and receive token
+5) Verify device and get token
 
 ```bash
 VERIFY_RESP=$(curl -s -X POST "$API/devices/verify" \
@@ -120,32 +168,30 @@ echo "$VERIFY_RESP" | jq
 DEVICE_TOKEN=$(echo "$VERIFY_RESP" | jq -r '.data.deviceToken')
 ```
 
-### F. Device identity endpoint
+6) Device self endpoint
 
 ```bash
 curl -s "$API/devices/me" \
   -H "Authorization: Bearer $DEVICE_TOKEN" | jq
 ```
 
-### G. Receiver order list (device auth)
+7) Receiver orders
 
 ```bash
 curl -s "$API/receiver/orders" \
   -H "Authorization: Bearer $DEVICE_TOKEN" | jq
 ```
 
-### H. Receiver order status update (if an order exists)
+---
+
+## Useful commands
 
 ```bash
-ORDER_ID="<put-order-id-here>"
-curl -s -X POST "$API/receiver/orders/$ORDER_ID/status" \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $DEVICE_TOKEN" \
-  -d '{"status":"accepted"}' | jq
+npm run db:up
+npm run db:down
+npm run prisma:generate
+npm run prisma:migrate
+npm run prisma:seed
+npm run dev
+npm run build
 ```
-
-## Notes
-
-- Admin auth is intentionally stubbed for v1 using `x-admin-token`.
-- Token storage is hash-at-rest in DB (`sha256` hash stored, raw token returned once via verify response).
-- This is intentionally limited to the first migration slice; no additional product features were added.
