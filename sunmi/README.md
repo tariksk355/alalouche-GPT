@@ -13,8 +13,12 @@ This folder contains a **lightweight device-side Sunmi app shell** that handles 
   - `receiverService.js` → device validation + receiver order workflow
 - `src/storage/tokenStore.js` → swappable token storage adapter boundary
 - `src/boundaries/`
-  - `orderFormatter.js` → display mapping boundary
-  - `printerAdapter.js` → placeholder only (no printer integration yet)
+  - `orderFormatter.js` → display mapping + print-data boundary
+  - `printJobContract.js` → structured print job data model
+  - `printerAdapter.js` → contract + unavailable web adapter (no fake printing)
+- `docs/`
+  - `capabilities.md`
+  - `printer-integration-architecture.md`
 
 ## First-launch flow
 
@@ -70,24 +74,28 @@ Env vars:
 - `server_error`
 - `receiver_loaded`
 
-## What is intentionally NOT implemented yet
+## Printer integration section (realistic)
 
-- Printer integration (real print calls).
-- Android native bridge integration.
+### What works now in pure web
+- Pairing and receiver workflows.
+- Backend polling/status updates.
+- Building **structured print job data** only.
+
+### What is NOT possible in pure web alone
+- Direct Sunmi thermal printer control from browser JS.
+- Reliable drawer/ESC-POS hardware commands.
+
+### Recommended production path
+Use an Android native wrapper + bridge + Sunmi SDK for real built-in printer support.
+The current web app is intentionally prepared for this through adapter contracts.
+
+### What is intentionally NOT implemented yet
+- Real printer execution.
+- Android native bridge implementation.
 - QR-first pairing UX.
-
-## Pure web vs native boundary
-
-### Works in pure web now
-- Manual pairing code submission and verify polling.
-- Stored-token validation.
-- Receiver order polling/status update.
-
-### Requires Android bridge / Sunmi SDK later
-- Hardware-backed secure token storage.
-- Native printer execution and status.
-- Device hardware APIs.
 
 ## Future printer/native boundary
 
-`src/boundaries/printerAdapter.js` remains a placeholder boundary and is intentionally untouched by this step.
+- `src/boundaries/printerAdapter.js` defines the web-side contract.
+- `src/boundaries/printJobContract.js` defines structured receipt payloads.
+- Native implementation should consume `PrintJob` and execute Sunmi SDK calls.
