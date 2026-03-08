@@ -5,6 +5,28 @@ function bearer(token) {
   return { Authorization: `Bearer ${token}` };
 }
 
+export async function createPairingRequest(payload) {
+  const data = await requestJson('/devices/pairing-requests', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+  debugLog('pairing_request_submitted', { pairingRequestId: data?.pairingRequestId });
+  return data;
+}
+
+export async function verifyDevice(pairingRequestId) {
+  const data = await requestJson('/devices/verify', {
+    method: 'POST',
+    body: JSON.stringify({ pairingRequestId }),
+  });
+
+  if (data?.status === 'device_active') {
+    debugLog('pairing_verified', { pairingRequestId });
+  }
+
+  return data;
+}
+
 export async function getDeviceMe(token) {
   const data = await requestJson('/devices/me', { headers: bearer(token) });
   debugLog('device_validated', { deviceId: data?.id, name: data?.deviceName });

@@ -2,38 +2,88 @@ import { POLL_INTERVAL_MS } from './config.js';
 import { debugLog } from './debug.js';
 import { formatOrderStatus } from './boundaries/orderFormatter.js';
 import { changeOrderStatus, validateDeviceAndLoadOrders } from './services/receiverService.js';
+import { checkPairingStatus, submitPairingCode } from './services/pairingService.js';
+import { tokenStore } from './storage/tokenStore.js';
 
 const app = document.getElementById('app');
 
 const state = {
-  mode: 'loading', // loading | not_paired | verifying | server_error | loaded
+  mode: 'booting', // booting | not_paired | pairing_submitting | pairing_waiting | verifying | server_error | receiver_loaded
+  pairingCode: '',
+  pairingRequestId: null,
+  pairingMessage: '',
   deviceName: '',
   orders: [],
   error: '',
-  inFlight: false,
-  pollId: null,
+  receiverInFlight: false,
+  pairingInFlight: false,
+  receiverPollId: null,
+  pairingPollId: null,
+  pairingTimeoutId: null,
 };
 
+function stopPairingPolling() {
+  if (state.pairingPollId) {
+    clearInterval(state.pairingPollId);
+    state.pairingPollId = null;
+  }
+  if (state.pairingTimeoutId) {
+    clearTimeout(state.pairingTimeoutId);
+    state.pairingTimeoutId = null;
+  }
+}
+
+function stopReceiverPolling() {
+  if (state.receiverPollId) {
+    clearInterval(state.receiverPollId);
+    state.receiverPollId = null;
+  }
+}
+
+function renderPairingCard() {
+  return `
+    <div class="card">
+      <div class="title">Sunmi Receiver</div>
+      <p class="warning">Appareil non associé</p>
+      <p class="subtle">Entrez le code d'association fourni par l'administrateur.</p>
+      <input id="pairing-code-input" class="input" placeholder="Ex: AB12CD" value="${state.pairingCode}" />
+      <button id="pairing-submit-btn" class="btn-primary" ${state.mode === 'pairing_submitting' ? 'disabled' : ''}>
+        ${state.mode === 'pairing_submitting' ? 'Envoi...' : "Associer l'appareil"}
+      </button>
+      <button id="reset-token-btn" class="btn-secondary">Réinitialiser le token local</button>
+      ${state.pairingMessage ? `<p class="subtle">${state.pairingMessage}</p>` : ''}
+      ${state.error ? `<p class="error">${state.error}</p>` : ''}
+    </div>
+  `;
+}
+
 function render() {
-  if (state.mode === 'loading') {
-    app.innerHTML = '<div class="card"><div class="title">Sunmi Receiver</div><p>Chargement...</p></div>';
+  if (state.mode === 'booting') {
+    app.innerHTML = '<div class="card"><div class="title">Sunmi Receiver</div><p>Initialisation...</p></div>';
+    return;
+  }
+
+  if (state.mode === 'not_paired' || state.mode === 'pairing_submitting') {
+    app.innerHTML = renderPairingCard();
+    return;
+  }
+
+  if (state.mode === 'pairing_waiting') {
+    app.innerHTML = `
+      <div class="card">
+        <div class="title">Sunmi Receiver</div>
+        <p>Association en attente de confirmation admin...</p>
+        <p class="subtle">Request: ${state.pairingRequestId || '-'}</p>
+        ${state.pairingMessage ? `<p class="subtle">${state.pairingMessage}</p>` : ''}
+        ${state.error ? `<p class="error">${state.error}</p>` : ''}
+        <button id="pairing-cancel-btn" class="btn-secondary">Annuler</button>
+      </div>
+    `;
     return;
   }
 
   if (state.mode === 'verifying') {
     app.innerHTML = '<div class="card"><div class="title">Sunmi Receiver</div><p>Vérification du périphérique...</p></div>';
-    return;
-  }
-
-  if (state.mode === 'not_paired') {
-    app.innerHTML = `
-      <div class="card">
-        <div class="title">Sunmi Receiver</div>
-        <p class="warning">Appareil non associé.</p>
-        <p class="subtle">Associez ce périphérique via le flux de pairing (code manuel), puis revenez ici.</p>
-        ${state.error ? `<p class="error">${state.error}</p>` : ''}
-      </div>
-    `;
     return;
   }
 
@@ -43,6 +93,7 @@ function render() {
         <div class="title">Sunmi Receiver</div>
         <p class="error">Erreur serveur</p>
         <p class="subtle">${state.error || 'Vérifiez la connectivité réseau et le backend.'}</p>
+        <button id="retry-btn" class="btn-primary">Réessayer</button>
       </div>
     `;
     return;
@@ -69,33 +120,168 @@ function render() {
     <div class="card">
       <div class="title">Sunmi Receiver</div>
       <p class="subtle">Connecté: ${state.deviceName || 'Périphérique'}</p>
+      <button id="unpair-btn" class="btn-secondary">Désassocier cet appareil</button>
     </div>
     ${ordersHtml}
     ${state.error ? `<div class="card"><p class="error">${state.error}</p></div>` : ''}
   `;
 }
 
-async function refresh() {
-  if (state.inFlight) {
+async function refreshReceiver() {
+  if (state.receiverInFlight) {
     debugLog('poll_skipped_inflight');
     return;
   }
 
-  state.inFlight = true;
-  if (state.mode === 'loading') state.mode = 'verifying';
+  state.receiverInFlight = true;
+  state.mode = 'verifying';
+  render();
 
   const result = await validateDeviceAndLoadOrders();
-  state.mode = result.state;
-  state.deviceName = result.device?.deviceName || '';
-  state.orders = result.orders || [];
-  state.error = result.error || '';
-  state.inFlight = false;
+
+  if (result.state === 'loaded') {
+    state.mode = 'receiver_loaded';
+    state.deviceName = result.device?.deviceName || '';
+    state.orders = result.orders || [];
+    state.error = '';
+    debugLog('receiver_entered');
+  } else if (result.state === 'not_paired') {
+    state.mode = 'not_paired';
+    state.pairingMessage = '';
+    state.error = result.error || '';
+    state.deviceName = '';
+    state.orders = [];
+    stopReceiverPolling();
+  } else {
+    state.mode = 'server_error';
+    state.error = result.error || 'Erreur serveur.';
+  }
+
+  state.receiverInFlight = false;
   render();
 }
+
+function startReceiverPolling() {
+  stopReceiverPolling();
+  state.receiverPollId = setInterval(() => {
+    if (state.mode !== 'receiver_loaded') return;
+    refreshReceiver();
+  }, POLL_INTERVAL_MS);
+}
+
+async function startPairingSubmit() {
+  const code = state.pairingCode;
+  state.mode = 'pairing_submitting';
+  state.error = '';
+  state.pairingMessage = '';
+  render();
+
+  const res = await submitPairingCode(code);
+
+  if (!res.ok) {
+    state.mode = 'not_paired';
+    state.error = res.message;
+    render();
+    return;
+  }
+
+  state.pairingRequestId = res.pairingRequestId;
+  state.mode = 'pairing_waiting';
+  state.pairingMessage = 'Demande envoyée. En attente de confirmation...';
+  render();
+  startPairingPolling();
+}
+
+function startPairingPolling() {
+  stopPairingPolling();
+  state.pairingInFlight = false;
+
+  state.pairingPollId = setInterval(async () => {
+    if (state.mode !== 'pairing_waiting') return;
+    if (state.pairingInFlight) return;
+    state.pairingInFlight = true;
+
+    debugLog('pairing_waiting_tick', { pairingRequestId: state.pairingRequestId });
+
+    const result = await checkPairingStatus(state.pairingRequestId);
+
+    if (result.status === 'paired') {
+      stopPairingPolling();
+      debugLog('pairing_verified');
+      state.mode = 'verifying';
+      state.error = '';
+      state.pairingMessage = '';
+      render();
+      await refreshReceiver();
+      startReceiverPolling();
+    } else if (result.status === 'expired') {
+      stopPairingPolling();
+      state.mode = 'not_paired';
+      state.error = result.message;
+      state.pairingMessage = '';
+      render();
+    } else if (result.status === 'error') {
+      state.error = result.message;
+      render();
+    }
+
+    state.pairingInFlight = false;
+  }, 3000);
+
+  state.pairingTimeoutId = setTimeout(() => {
+    stopPairingPolling();
+    if (state.mode === 'pairing_waiting') {
+      state.mode = 'not_paired';
+      state.error = "Délai dépassé. Veuillez régénérer un code d'association.";
+      state.pairingMessage = '';
+      render();
+    }
+  }, 10 * 60 * 1000);
+}
+
+app.addEventListener('input', (event) => {
+  const target = event.target;
+  if (!(target instanceof HTMLInputElement)) return;
+  if (target.id === 'pairing-code-input') {
+    state.pairingCode = target.value.toUpperCase();
+  }
+});
 
 app.addEventListener('click', async (event) => {
   const target = event.target;
   if (!(target instanceof HTMLElement)) return;
+
+  if (target.id === 'pairing-submit-btn') {
+    await startPairingSubmit();
+    return;
+  }
+
+  if (target.id === 'pairing-cancel-btn') {
+    stopPairingPolling();
+    state.mode = 'not_paired';
+    state.pairingMessage = '';
+    state.error = '';
+    render();
+    return;
+  }
+
+  if (target.id === 'reset-token-btn' || target.id === 'unpair-btn') {
+    tokenStore.clear();
+    state.mode = 'not_paired';
+    state.deviceName = '';
+    state.orders = [];
+    state.error = '';
+    state.pairingMessage = '';
+    stopReceiverPolling();
+    stopPairingPolling();
+    render();
+    return;
+  }
+
+  if (target.id === 'retry-btn') {
+    await refreshReceiver();
+    return;
+  }
 
   const orderId = target.dataset.id;
   const status = target.dataset.action;
@@ -107,25 +293,36 @@ app.addEventListener('click', async (event) => {
 
   if (!res.ok) {
     state.error = res.message;
+    if (res.code === 'DEVICE_AUTH_REQUIRED') {
+      state.mode = 'not_paired';
+      stopReceiverPolling();
+    }
     render();
     return;
   }
 
-  await refresh();
+  await refreshReceiver();
 });
-
-function startPolling() {
-  if (state.pollId) clearInterval(state.pollId);
-
-  state.pollId = setInterval(() => {
-    refresh();
-  }, POLL_INTERVAL_MS);
-}
 
 window.addEventListener('beforeunload', () => {
-  if (state.pollId) clearInterval(state.pollId);
+  stopReceiverPolling();
+  stopPairingPolling();
 });
 
-render();
-refresh();
-startPolling();
+async function boot() {
+  debugLog('app_boot');
+  render();
+
+  if (!tokenStore.get()) {
+    state.mode = 'not_paired';
+    render();
+    return;
+  }
+
+  await refreshReceiver();
+  if (state.mode === 'receiver_loaded') {
+    startReceiverPolling();
+  }
+}
+
+boot();

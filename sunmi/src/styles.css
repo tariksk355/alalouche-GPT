@@ -6,10 +6,14 @@ body { margin: 0; font-family: Arial, sans-serif; background: #0f172a; color: #f
 .subtle { color: #94a3b8; font-size: 13px; }
 .error { color: #fca5a5; }
 .warning { color: #fde68a; }
-.btn-row { display: flex; gap: 8px; margin-top: 10px; }
-button { border: 0; border-radius: 10px; padding: 12px 14px; font-size: 16px; font-weight: 600; color: white; min-height: 44px; }
+.btn-row { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+button { border: 0; border-radius: 10px; padding: 12px 14px; font-size: 16px; font-weight: 600; color: white; min-height: 44px; margin-top: 10px; }
+button:disabled { opacity: 0.6; }
+.btn-primary { background: #2563eb; width: 100%; }
+.btn-secondary { background: #475569; width: 100%; }
 .btn-accept { background: #2563eb; }
 .btn-ready { background: #059669; }
 .btn-done { background: #4b5563; }
 .status-pill { font-size: 12px; border: 1px solid #475569; border-radius: 999px; padding: 2px 8px; }
 .topbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+.input { width: 100%; box-sizing: border-box; margin-top: 10px; border-radius: 10px; border: 1px solid #475569; background: #0b1220; color: #f8fafc; padding: 12px; font-size: 20px; letter-spacing: 1px; text-transform: uppercase; }
