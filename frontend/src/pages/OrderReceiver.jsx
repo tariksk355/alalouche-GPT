@@ -1,34 +1,45 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { getDeviceMe, getReceiverOrders, updateOrderStatus } from "@/lib/api/receiver";
 import { clearDeviceToken, getDeviceToken } from "@/lib/deviceTokenStore";
 
+// Sunmi-friendly receiver note:
+// - Uses stored token + API verification (no query-param token flow)
+// - Uses simple polling instead of realtime for reliability on constrained devices
+// - Keeps dependencies minimal
+
 export default function OrderReceiver() {
   const [orders, setOrders] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [deviceState, setDeviceState] = useState("checking"); // checking | not_paired | ready | server_error
+  const [deviceState, setDeviceState] = useState("loading"); // loading | not_paired | verifying | server_error | loaded
   const [errorMessage, setErrorMessage] = useState("");
   const [deviceName, setDeviceName] = useState("");
+  const pollRef = useRef(null);
+  const requestInFlightRef = useRef(false);
 
   async function loadOrdersWithDeviceValidation() {
+    if (requestInFlightRef.current) return;
+    requestInFlightRef.current = true;
+
     const token = getDeviceToken();
 
     if (!token) {
       setDeviceState("not_paired");
-      setLoading(false);
+      setErrorMessage("");
+      requestInFlightRef.current = false;
       return;
     }
 
     try {
+      setDeviceState((prev) => (prev === "loaded" ? prev : "verifying"));
       const device = await getDeviceMe(token);
       setDeviceName(device?.deviceName || "Périphérique");
-      setDeviceState("ready");
 
       const list = await getReceiverOrders(token);
       setOrders(list);
       setErrorMessage("");
-      setLoading(false);
+      setDeviceState("loaded");
     } catch (e) {
       const msg = e.message || "Erreur serveur.";
+
       if (e.code === "DEVICE_TOKEN_INVALID" || e.code === "DEVICE_AUTH_REQUIRED") {
         clearDeviceToken();
         setDeviceState("not_paired");
@@ -37,7 +48,8 @@ export default function OrderReceiver() {
         setDeviceState("server_error");
         setErrorMessage(msg);
       }
-      setLoading(false);
+    } finally {
+      requestInFlightRef.current = false;
     }
   }
 
@@ -59,12 +71,26 @@ export default function OrderReceiver() {
 
   useEffect(() => {
     loadOrdersWithDeviceValidation();
-    const interval = setInterval(loadOrdersWithDeviceValidation, 5000);
-    return () => clearInterval(interval);
+
+    if (pollRef.current) clearInterval(pollRef.current);
+    pollRef.current = setInterval(() => {
+      loadOrdersWithDeviceValidation();
+    }, 5000);
+
+    return () => {
+      if (pollRef.current) {
+        clearInterval(pollRef.current);
+        pollRef.current = null;
+      }
+    };
   }, []);
 
-  if (loading) {
+  if (deviceState === "loading") {
     return <div className="min-h-screen bg-gray-950 text-white p-4">Chargement du receiver...</div>;
+  }
+
+  if (deviceState === "verifying") {
+    return <div className="min-h-screen bg-gray-950 text-white p-4">Vérification du périphérique...</div>;
   }
 
   if (deviceState === "not_paired") {

@@ -1,8 +1,6 @@
 import { requestJson } from './http';
 import { ADMIN_TOKEN } from './config';
-
-/** @typedef {{ pairingCodeId:string, code:string, expiresAt:string }} PairingCode */
-/** @typedef {{ pairingRequestId:string, status:string }} PairingRequestCreateResponse */
+import { debugLog } from './debug';
 
 export async function createPairingCode(payload) {
   const data = await requestJson('/admin/device-pairing-codes', {
@@ -10,7 +8,7 @@ export async function createPairingCode(payload) {
     headers: { 'x-admin-token': ADMIN_TOKEN },
     body: JSON.stringify(payload),
   });
-  console.debug('[pairing] pairing code created', data?.pairingCodeId);
+  debugLog('pairing_code_created', { pairingCodeId: data?.pairingCodeId });
   return data;
 }
 
@@ -19,7 +17,7 @@ export async function createPairingRequest(payload) {
     method: 'POST',
     body: JSON.stringify(payload),
   });
-  console.debug('[pairing] request submitted', data?.pairingRequestId);
+  debugLog('pairing_request_submitted', { pairingRequestId: data?.pairingRequestId });
   return data;
 }
 
@@ -27,8 +25,8 @@ export async function listPendingPairingRequests() {
   const data = await requestJson('/admin/device-pairing-requests', {
     headers: { 'x-admin-token': ADMIN_TOKEN },
   });
-  const requests = (data?.requests || []).filter((request) => request.status === 'request_pending');
-  return requests;
+
+  return (data?.requests || []).filter((request) => request.status === 'request_pending');
 }
 
 export async function confirmPairingRequest(id) {
@@ -36,15 +34,20 @@ export async function confirmPairingRequest(id) {
     method: 'POST',
     headers: { 'x-admin-token': ADMIN_TOKEN },
   });
-  console.debug('[pairing] request confirmed', id);
+  debugLog('pairing_request_confirmed', { pairingRequestId: id });
   return data;
 }
 
 export async function verifyDevice(pairingRequestId) {
-  const data = await requestJson('/devices/verify', {
-    method: 'POST',
-    body: JSON.stringify({ pairingRequestId }),
-  });
-  console.debug('[pairing] verify response received', data?.status);
-  return data;
+  try {
+    const data = await requestJson('/devices/verify', {
+      method: 'POST',
+      body: JSON.stringify({ pairingRequestId }),
+    });
+    debugLog('verify_succeeded', { pairingRequestId, status: data?.status });
+    return data;
+  } catch (error) {
+    debugLog('verify_failed', { pairingRequestId, code: error?.code, message: error?.message });
+    throw error;
+  }
 }

@@ -11,24 +11,40 @@ export class ApiError extends Error {
 }
 
 function toApiError(response, data) {
-  const message = data?.message || data?.error || `HTTP ${response.status}`;
+  const message = data?.message || data?.error || `Request failed (${response.status})`;
   const code = data?.error || `HTTP_${response.status}`;
-  return new ApiError(message, code, response.status, data);
+  return new ApiError(message, code, response.status, data || null);
 }
 
 export async function requestJson(path, options = {}) {
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    headers: {
-      'Content-Type': 'application/json',
-      ...(options.headers || {}),
-    },
-    ...options,
-  });
+  const headers = {
+    'Content-Type': 'application/json',
+    ...(options.headers || {}),
+  };
 
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok || data?.ok === false) {
+  let response;
+  try {
+    response = await fetch(`${API_BASE_URL}${path}`, {
+      ...options,
+      headers,
+    });
+  } catch (error) {
+    throw new ApiError('Unable to reach the backend service.', 'NETWORK_ERROR', 0, error);
+  }
+
+  const data = await response.json().catch(() => null);
+
+  if (!response.ok) {
     throw toApiError(response, data);
   }
 
-  return data?.data ?? null;
+  if (data && typeof data === 'object' && data.ok === false) {
+    throw toApiError(response, data);
+  }
+
+  if (data && typeof data === 'object' && 'data' in data) {
+    return data.data;
+  }
+
+  return data;
 }

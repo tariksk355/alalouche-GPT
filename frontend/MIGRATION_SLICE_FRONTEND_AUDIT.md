@@ -1,24 +1,38 @@
 # Frontend audit for pairing/receiver vertical slice
 
-## Files currently responsible in this slice
+## Files responsible for this slice
 
-- Admin pairing code generation + confirmation UI:
+- Admin pairing code generation + pending request confirmation UI:
   - `frontend/src/components/admin/DeviceProvisioning.jsx`
 - Device pairing screen:
   - `frontend/src/pages/DevicePair.jsx`
 - Receiver screen + order loading:
   - `frontend/src/pages/OrderReceiver.jsx`
+- Slice API layer:
+  - `frontend/src/lib/api/config.js`
+  - `frontend/src/lib/api/http.js`
+  - `frontend/src/lib/api/devicePairing.js`
+  - `frontend/src/lib/api/receiver.js`
+- Device token storage boundary:
+  - `frontend/src/lib/deviceTokenStore.js`
 
-## Base44 calls related to this slice (legacy / still present in repo)
+## Legacy/Base44 touchpoints still present (outside or around this slice)
 
-- Legacy serverless function route handlers still present under:
-  - `frontend/functions/deviceProvision.ts`
-  - `frontend/functions/orderReceiverPage.ts`
-  - `frontend/functions/orderReceiverUI.ts`
-  - `frontend/functions/devicePairPage.ts`
-- Base44 SDK client file remains for other non-migrated areas:
-  - `frontend/src/api/base44Client.js`
+1. Legacy Base44 SDK client remains in repo:
+- `frontend/src/api/base44Client.js`
 
-## Scope of this migration step
+2. Legacy Base44 runtime function files remain in repo:
+- `frontend/functions/deviceProvision.ts`
+- `frontend/functions/devicePairPage.ts`
+- `frontend/functions/orderReceiverPage.ts`
+- `frontend/functions/orderReceiverUI.ts`
+- and other files under `frontend/functions/*`
 
-This patch only migrates backend/runtime calls for the pairing + receiver first vertical slice in the frontend pages/components above. Other Base44 usage in unrelated pages remains intentionally unchanged for incremental migration.
+3. Base44 Vite plugin remains configured:
+- `frontend/vite.config.js`
+
+4. Non-slice pages/components still use Base44 entities/auth and are not migrated in this step.
+
+## Scope note
+
+This migration step intentionally keeps scope limited to the pairing + receiver vertical slice and does not rewrite unrelated frontend areas.

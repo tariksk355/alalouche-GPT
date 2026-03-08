@@ -3,14 +3,18 @@ import { createPairingRequest, verifyDevice } from "@/lib/api/devicePairing";
 import { setDeviceToken } from "@/lib/deviceTokenStore";
 
 export default function DevicePair() {
-  const [step, setStep] = useState("init");
+  const [step, setStep] = useState("init"); // init | activating | waiting | success | error
   const [errorMsg, setErrorMsg] = useState("");
   const [pairingCode, setPairingCode] = useState(new URLSearchParams(window.location.search).get("code") || "");
   const [pairingRequestId, setPairingRequestId] = useState(null);
-  const pollRef = useRef(null);
+  const pollIntervalRef = useRef(null);
+  const pollTimeoutRef = useRef(null);
 
-  useEffect(() => () => {
-    if (pollRef.current) clearInterval(pollRef.current);
+  useEffect(() => {
+    return () => {
+      if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+      if (pollTimeoutRef.current) clearTimeout(pollTimeoutRef.current);
+    };
   }, []);
 
   async function startPairing() {
@@ -19,6 +23,9 @@ export default function DevicePair() {
       setStep("error");
       return;
     }
+
+    if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+    if (pollTimeoutRef.current) clearTimeout(pollTimeoutRef.current);
 
     setStep("activating");
     setErrorMsg("");
@@ -43,21 +50,36 @@ export default function DevicePair() {
   }
 
   function startPolling(requestId) {
-    pollRef.current = setInterval(async () => {
+    pollIntervalRef.current = setInterval(async () => {
       try {
         const res = await verifyDevice(requestId);
+
         if (res.status === "device_active" && res.deviceToken) {
           setDeviceToken(res.deviceToken);
           setStep("success");
-          clearInterval(pollRef.current);
+          clearInterval(pollIntervalRef.current);
+          pollIntervalRef.current = null;
+          return;
         }
-      } catch (e) {
-        setErrorMsg(e.message || "Erreur de vérification du périphérique.");
+
+        if (res.status === "device_expired" || res.status === "device_revoked") {
+          setErrorMsg("La demande d'association n'est plus valide.");
+          setStep("error");
+          clearInterval(pollIntervalRef.current);
+          pollIntervalRef.current = null;
+        }
+      } catch {
+        // keep polling quietly; transient connectivity issues should not break pairing immediately
       }
     }, 3000);
 
-    setTimeout(() => {
-      if (pollRef.current) clearInterval(pollRef.current);
+    pollTimeoutRef.current = setTimeout(() => {
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current);
+        pollIntervalRef.current = null;
+      }
+      setErrorMsg("Délai dépassé. Vérifiez la connexion et recommencez l'association.");
+      setStep("error");
     }, 10 * 60 * 1000);
   }
 
