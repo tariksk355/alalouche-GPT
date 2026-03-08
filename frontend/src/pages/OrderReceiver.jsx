@@ -1,51 +1,96 @@
 import { useEffect, useState } from "react";
-import { backendClient } from "@/api/backendClient";
+import { getDeviceMe, getReceiverOrders, updateOrderStatus } from "@/lib/api/receiver";
+import { clearDeviceToken, getDeviceToken } from "@/lib/deviceTokenStore";
 
 export default function OrderReceiver() {
   const [orders, setOrders] = useState([]);
-  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [deviceState, setDeviceState] = useState("checking"); // checking | not_paired | ready | server_error
+  const [errorMessage, setErrorMessage] = useState("");
+  const [deviceName, setDeviceName] = useState("");
 
-  const token = localStorage.getItem("device_access_token");
+  async function loadOrdersWithDeviceValidation() {
+    const token = getDeviceToken();
 
-  async function loadOrders() {
     if (!token) {
-      setError("Appareil non authentifié. Associez l'appareil d'abord.");
+      setDeviceState("not_paired");
+      setLoading(false);
       return;
     }
 
     try {
-      const res = await backendClient.request("/receiver/orders", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      setOrders(res.data.orders || []);
+      const device = await getDeviceMe(token);
+      setDeviceName(device?.deviceName || "Périphérique");
+      setDeviceState("ready");
+
+      const list = await getReceiverOrders(token);
+      setOrders(list);
+      setErrorMessage("");
+      setLoading(false);
     } catch (e) {
-      setError(e.message);
+      const msg = e.message || "Erreur serveur.";
+      if (e.code === "DEVICE_TOKEN_INVALID" || e.code === "DEVICE_AUTH_REQUIRED") {
+        clearDeviceToken();
+        setDeviceState("not_paired");
+        setErrorMessage("Périphérique non associé ou token invalide. Refaire l'association.");
+      } else {
+        setDeviceState("server_error");
+        setErrorMessage(msg);
+      }
+      setLoading(false);
     }
   }
 
   async function setStatus(orderId, status) {
+    const token = getDeviceToken();
+    if (!token) {
+      setDeviceState("not_paired");
+      return;
+    }
+
     try {
-      await backendClient.request(`/receiver/orders/${orderId}/status`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ status }),
-      });
-      await loadOrders();
+      await updateOrderStatus(token, orderId, status);
+      await loadOrdersWithDeviceValidation();
     } catch (e) {
-      setError(e.message);
+      setDeviceState("server_error");
+      setErrorMessage(e.message || "Impossible de mettre à jour la commande.");
     }
   }
 
   useEffect(() => {
-    loadOrders();
-    const int = setInterval(loadOrders, 5000);
-    return () => clearInterval(int);
+    loadOrdersWithDeviceValidation();
+    const interval = setInterval(loadOrdersWithDeviceValidation, 5000);
+    return () => clearInterval(interval);
   }, []);
+
+  if (loading) {
+    return <div className="min-h-screen bg-gray-950 text-white p-4">Chargement du receiver...</div>;
+  }
+
+  if (deviceState === "not_paired") {
+    return (
+      <div className="min-h-screen bg-gray-950 text-white p-4">
+        <h1 className="text-xl font-semibold mb-4">Receiver commandes</h1>
+        <p className="text-yellow-300">Appareil non associé.</p>
+        <p className="text-gray-300 mt-2">Ouvrez la page d'association de périphérique et entrez le code admin.</p>
+        {errorMessage && <p className="text-red-400 mt-3">{errorMessage}</p>}
+      </div>
+    );
+  }
+
+  if (deviceState === "server_error") {
+    return (
+      <div className="min-h-screen bg-gray-950 text-white p-4">
+        <h1 className="text-xl font-semibold mb-4">Receiver commandes</h1>
+        <p className="text-red-400">Erreur serveur: {errorMessage}</p>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gray-950 text-white p-4">
-      <h1 className="text-xl font-semibold mb-4">Receiver commandes</h1>
-      {error && <p className="text-red-400 mb-3">{error}</p>}
+      <h1 className="text-xl font-semibold mb-1">Receiver commandes</h1>
+      <p className="text-sm text-gray-400 mb-4">Connecté: {deviceName}</p>
       <div className="space-y-3">
         {orders.map((order) => (
           <div key={order.id} className="border border-gray-700 rounded-lg p-3">
@@ -61,6 +106,7 @@ export default function OrderReceiver() {
             </div>
           </div>
         ))}
+        {orders.length === 0 && <p className="text-gray-400">Aucune commande en attente.</p>}
       </div>
     </div>
   );

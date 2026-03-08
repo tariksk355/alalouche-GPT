@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { backendClient } from "@/api/backendClient";
+import { createPairingRequest, verifyDevice } from "@/lib/api/devicePairing";
+import { setDeviceToken } from "@/lib/deviceTokenStore";
 
 export default function DevicePair() {
   const [step, setStep] = useState("init");
@@ -23,42 +24,35 @@ export default function DevicePair() {
     setErrorMsg("");
 
     try {
-      const res = await backendClient.request("/devices/pairing-requests", {
-        method: "POST",
-        body: JSON.stringify({
-          pairingCode: pairingCode.trim().toUpperCase(),
-          deviceName: "Sunmi Receiver",
-          deviceModel: "Unknown",
-          platform: "android",
-          appVersion: "v1",
-          installId: crypto.randomUUID(),
-        }),
+      const res = await createPairingRequest({
+        pairingCode: pairingCode.trim().toUpperCase(),
+        deviceName: "Sunmi Receiver",
+        deviceModel: "Unknown",
+        platform: "android",
+        appVersion: "v1",
+        installId: crypto.randomUUID(),
       });
 
-      setPairingRequestId(res.data.pairingRequestId);
+      setPairingRequestId(res.pairingRequestId);
       setStep("waiting");
-      startPolling(res.data.pairingRequestId);
+      startPolling(res.pairingRequestId);
     } catch (e) {
       setStep("error");
-      setErrorMsg(e.message);
+      setErrorMsg(e.message || "Impossible de créer la demande d'association.");
     }
   }
 
   function startPolling(requestId) {
     pollRef.current = setInterval(async () => {
       try {
-        const res = await backendClient.request("/devices/verify", {
-          method: "POST",
-          body: JSON.stringify({ pairingRequestId: requestId }),
-        });
-
-        if (res.data.status === "device_active" && res.data.deviceToken) {
-          localStorage.setItem("device_access_token", res.data.deviceToken);
+        const res = await verifyDevice(requestId);
+        if (res.status === "device_active" && res.deviceToken) {
+          setDeviceToken(res.deviceToken);
           setStep("success");
           clearInterval(pollRef.current);
         }
-      } catch {
-        // keep polling
+      } catch (e) {
+        setErrorMsg(e.message || "Erreur de vérification du périphérique.");
       }
     }, 3000);
 

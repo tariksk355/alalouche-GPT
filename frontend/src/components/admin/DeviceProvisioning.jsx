@@ -1,14 +1,20 @@
 import { useEffect, useState } from "react";
-import { backendClient } from "@/api/backendClient";
+import { confirmPairingRequest, createPairingCode, listPendingPairingRequests } from "@/lib/api/devicePairing";
 
 export default function DeviceProvisioning() {
   const [requests, setRequests] = useState([]);
   const [codes, setCodes] = useState([]);
   const [deviceName, setDeviceName] = useState("Sunmi Caisse");
+  const [error, setError] = useState("");
 
   async function loadRequests() {
-    const res = await backendClient.request("/admin/device-pairing-requests");
-    setRequests(res.data.requests || []);
+    try {
+      const pendingRequests = await listPendingPairingRequests();
+      setRequests(pendingRequests);
+      setError("");
+    } catch (e) {
+      setError(e.message || "Impossible de charger les demandes de pairing.");
+    }
   }
 
   useEffect(() => {
@@ -16,21 +22,23 @@ export default function DeviceProvisioning() {
   }, []);
 
   async function generateCode() {
-    const res = await backendClient.request("/admin/device-pairing-codes", {
-      method: "POST",
-      body: JSON.stringify({ deviceName }),
-      headers: { "x-admin-token": import.meta.env.VITE_ADMIN_TOKEN || "dev-admin" },
-    });
-
-    setCodes((prev) => [res.data, ...prev].slice(0, 5));
+    try {
+      const pairingCode = await createPairingCode({ deviceName });
+      setCodes((prev) => [pairingCode, ...prev].slice(0, 5));
+      setError("");
+    } catch (e) {
+      setError(e.message || "Impossible de créer un code de pairing.");
+    }
   }
 
-  async function confirmRequest(id) {
-    await backendClient.request(`/admin/device-pairing-requests/${id}/confirm`, {
-      method: "POST",
-      headers: { "x-admin-token": import.meta.env.VITE_ADMIN_TOKEN || "dev-admin" },
-    });
-    await loadRequests();
+  async function onConfirmRequest(id) {
+    try {
+      await confirmPairingRequest(id);
+      await loadRequests();
+      setError("");
+    } catch (e) {
+      setError(e.message || "Impossible de confirmer la demande.");
+    }
   }
 
   return (
@@ -47,7 +55,8 @@ export default function DeviceProvisioning() {
       </div>
 
       <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
-        <h3 className="font-semibold mb-4">Demandes de pairing</h3>
+        <h3 className="font-semibold mb-4">Demandes de pairing en attente</h3>
+        {error && <p className="text-sm text-red-600 mb-4">{error}</p>}
         <div className="space-y-3">
           {requests.map((request) => (
             <div key={request.id} className="flex items-center justify-between border rounded-lg p-3">
@@ -55,12 +64,10 @@ export default function DeviceProvisioning() {
                 <p className="font-medium">{request.deviceName || "Sunmi"}</p>
                 <p className="text-xs text-gray-500">{request.status}</p>
               </div>
-              {request.status === "request_pending" && (
-                <button onClick={() => confirmRequest(request.id)} className="text-xs px-3 py-1 border rounded">Confirmer</button>
-              )}
+              <button onClick={() => onConfirmRequest(request.id)} className="text-xs px-3 py-1 border rounded">Confirmer</button>
             </div>
           ))}
-          {requests.length === 0 && <p className="text-sm text-gray-400">Aucune demande</p>}
+          {requests.length === 0 && <p className="text-sm text-gray-400">Aucune demande en attente</p>}
         </div>
       </div>
     </div>
