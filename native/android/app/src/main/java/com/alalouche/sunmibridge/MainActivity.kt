@@ -60,6 +60,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        runCatching { jsBridge.release() }
         webView.removeJavascriptInterface(BRIDGE_NAME)
         webView.destroy()
         super.onDestroy()

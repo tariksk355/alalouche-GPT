@@ -9,11 +9,9 @@ This is a **minimum native wrapper PoC** for fast on-device validation (not Play
 - `native/android/app/src/main/java/com/alalouche/sunmibridge/SunmiJsBridge.kt`
   - `JavascriptInterface` bridge exposed as `window.SunmiBridge`
 - `native/android/app/src/main/java/com/alalouche/sunmibridge/SunmiPrinterManager.kt`
-  - printer operation handler with explicit structured responses
-- `native/android/app/src/main/AndroidManifest.xml`
-  - internet + cleartext dev config
-- `native/android/app/build.gradle.kts`
-  - debug-friendly build config
+  - printer service bind + print attempt path + structured JSON responses
+- `native/android/app/src/main/aidl/woyou/aidlservice/jiuiv5/*`
+  - AIDL contracts for Sunmi printer service calls
 
 ## What is implemented in this PoC
 
@@ -24,33 +22,30 @@ This is a **minimum native wrapper PoC** for fast on-device validation (not Play
   - `getPrinterInfo(requestJson)`
   - `printReceipt(printJobJson)`
   - `openCashDrawer(requestJson)`
+- Real first-pass printer path:
+  - attempts binding to Sunmi printer service (`woyou.aidlservice.jiuiv5.IWoyouService`)
+  - maps structured print job to basic text receipt commands
+  - sends print commands via AIDL service when bound
 - Structured JSON responses from all bridge methods.
-- Explicit error and not-implemented responses (no fake print success).
+- Explicit failure responses when binding or print execution cannot proceed.
 
-## What is NOT fully implemented yet
+## What is still pending / not production-ready
 
-- Actual Sunmi SDK binder/service print execution path.
-- Cash drawer real control.
-- Production hardening/signing/release pipeline.
-
-`printReceipt(...)` currently confirms bridge path and print job payload arrival, then returns:
-- `ok: false`
-- `code: SUNMI_PRINT_NOT_IMPLEMENTED`
-
-This is intentional and honest until Sunmi SDK binding is wired.
+- Full Sunmi model compatibility hardening.
+- Callback/result synchronization for guaranteed print completion.
+- Advanced receipt layout, bitmap/logo support, retries.
+- Release signing/distribution hardening.
 
 ## Build APK (debug)
 
 From `native/android/`:
 
 ```bash
-# one-time if wrapper scripts are missing on your machine
+# if gradle wrapper scripts are missing, run once:
 # gradle wrapper
 
 ./gradlew assembleDebug
 ```
-
-If `gradlew` is not present, install local Gradle and run `gradle wrapper` once in `native/android/`.
 
 APK output:
 
@@ -65,30 +60,50 @@ adb devices
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
-Then launch the app from the device.
+Then launch the app on device.
 
 ## Web app URL configuration
 
-Current default debug URL is set in `app/build.gradle.kts`:
+Default debug URL in `app/build.gradle.kts`:
 - `BuildConfig.DEFAULT_WEB_APP_URL = "http://10.0.2.2:4174/"`
 
-For real Sunmi device testing, update this to a reachable LAN/staging URL (for example your dev machine IP).
+For real Sunmi handheld testing, use a reachable LAN/staging URL (your host IP).
 
-You can also start activity with URL override extra:
+URL override at launch:
 
 ```bash
 adb shell am start -n com.alalouche.sunmibridge/.MainActivity --es WEB_APP_URL "http://<LAN_IP>:4174/"
 ```
 
-## Debugging / logs
+## How to test printer path on real Sunmi
 
-Use logcat filters:
+1. Start backend + `sunmi/` web app.
+2. Install and open Android wrapper.
+3. Pair device in app shell if needed.
+4. Tap **Info imprimante** and confirm diagnostics include:
+   - `mode: native_bridge`
+   - `serviceBound: true` (expected when service is available)
+5. Tap **Test impression** or per-order **Test print**.
+
+## What counts as success in this PoC
+
+- Bridge call reaches native side.
+- Native side attempts service bind and print command execution.
+- Result returns either:
+  - `ok: true` + `PRINT_SENT` (print commands sent), or
+  - explicit failure (e.g. `SUNMI_SERVICE_UNAVAILABLE`, `SUNMI_PRINT_REMOTE_ERROR`, etc.) with message.
+
+No fake success is returned.
+
+## Debugging / logs
 
 ```bash
 adb logcat | grep -E "SunmiBridgePoC|SunmiJsBridge|SunmiPrinterManager"
 ```
 
-## Integration with `sunmi/` web app
-
-The web shell detects `window.SunmiBridge` and calls native bridge methods through the printer adapter contract.
-If bridge is absent, it cleanly falls back to pure-web unavailable mode.
+Useful log events:
+- bridge method called
+- service bind success/failure
+- print attempt started
+- print success/failure
+- printer info queried

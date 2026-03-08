@@ -42,6 +42,10 @@ class SunmiJsBridge(context: Context) {
         }
     }
 
+    fun release() {
+        printerManager.release()
+    }
+
     private fun safeResponse(operation: String, block: () -> JSONObject): String {
         return try {
             block().toString()
