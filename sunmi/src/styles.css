@@ -1,0 +1,15 @@
+:root { color-scheme: dark; }
+body { margin: 0; font-family: Arial, sans-serif; background: #0f172a; color: #f8fafc; }
+.app { min-height: 100vh; padding: 16px; }
+.card { background: #111827; border: 1px solid #374151; border-radius: 12px; padding: 14px; margin-bottom: 12px; }
+.title { font-size: 22px; font-weight: 700; margin-bottom: 6px; }
+.subtle { color: #94a3b8; font-size: 13px; }
+.error { color: #fca5a5; }
+.warning { color: #fde68a; }
+.btn-row { display: flex; gap: 8px; margin-top: 10px; }
+button { border: 0; border-radius: 10px; padding: 12px 14px; font-size: 16px; font-weight: 600; color: white; min-height: 44px; }
+.btn-accept { background: #2563eb; }
+.btn-ready { background: #059669; }
+.btn-done { background: #4b5563; }
+.status-pill { font-size: 12px; border: 1px solid #475569; border-radius: 999px; padding: 2px 8px; }
+.topbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
