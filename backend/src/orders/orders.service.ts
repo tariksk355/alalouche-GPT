@@ -9,6 +9,23 @@ export class OrdersService {
     private readonly notificationService: NotificationService,
   ) {}
 
+
+  async listAdminOrders(restaurantId: string) {
+    return this.prisma.order.findMany({
+      where: { restaurantId },
+      orderBy: { createdAt: 'desc' },
+      take: 200,
+    });
+  }
+
+  async listAdminReservations(restaurantId: string) {
+    return this.prisma.reservation.findMany({
+      where: { restaurantId },
+      orderBy: [{ reservationDate: 'asc' }, { createdAt: 'desc' }],
+      take: 200,
+    });
+  }
+
   async listOpenOrders(restaurantId: string) {
     return this.prisma.order.findMany({
       where: { restaurantId, status: { in: ['new', 'accepted', 'ready'] } },

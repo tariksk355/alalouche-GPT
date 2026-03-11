@@ -1,11 +1,11 @@
 import { useState, useEffect } from "react";
 import { createPageUrl } from "@/utils";
 import { base44 } from "@/api/base44Client";
-import { reservationStatusEmail } from "@/components/emails/emailTemplates";
 import { formatTime, formatDate, formatDateFull } from "@/components/formatDate";
 import AdminAnalytics from "@/components/admin/AdminAnalytics";
 import DeviceProvisioning from "@/components/admin/DeviceProvisioning";
 import { clearStoredAdminSession, getStoredAdminSession } from "@/lib/customerAuth";
+import { getAdminKpis, listAdminOrders, listAdminReservations, updateAdminOrderStatus, updateAdminReservationStatus } from "@/lib/api/adminOps";
 
 const NAV_ITEMS = [
   { id: "orders", label: "Commandes", icon: "🛒" },
@@ -104,20 +104,53 @@ function AdminOrders() {
   const [filter, setFilter] = useState("all");
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [successMsg, setSuccessMsg] = useState("");
+  const [errorMsg, setErrorMsg] = useState("");
+  const [kpis, setKpis] = useState(null);
 
   useEffect(() => {
     loadOrders();
-    const unsub = base44.entities.Order.subscribe(event => {
-      if (event.type === "create") setOrders(prev => [event.data, ...prev]);
-      else if (event.type === "update") setOrders(prev => prev.map(o => o.id === event.id ? event.data : o));
-    });
-    return unsub;
+    loadKpis();
   }, []);
 
+  const normalizeOrder = (order) => {
+    const payload = order?.payload && typeof order.payload === 'object' ? order.payload : {};
+    return {
+      ...order,
+      order_number: order.orderNumber,
+      customer_name: order.customerName,
+      customer_email: order.customerEmail,
+      customer_phone: payload.customerPhone || null,
+      customer_address: payload.customerAddress || null,
+      order_type: payload.orderType || 'takeaway',
+      payment_method: payload.paymentMethod || 'cash',
+      total_amount: Number(order.totalAmount || 0),
+      items: Array.isArray(payload.items) ? payload.items : [],
+      notes: payload.notes || null,
+      created_date: order.createdAt,
+      prep_time_minutes: order.prepMinutes,
+    };
+  };
+
   const loadOrders = async () => {
-    const data = await base44.entities.Order.list("-created_date", 100);
-    setOrders(data);
-    setLoading(false);
+    setLoading(true);
+    setErrorMsg("");
+    try {
+      const data = await listAdminOrders();
+      setOrders(data.map(normalizeOrder));
+    } catch (error) {
+      setErrorMsg(error.message || 'Impossible de charger les commandes.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadKpis = async () => {
+    try {
+      const data = await getAdminKpis();
+      setKpis(data);
+    } catch {
+      setKpis(null);
+    }
   };
 
   const showSuccess = (msg) => {
@@ -126,21 +159,16 @@ function AdminOrders() {
   };
 
   const setPrepTime = async (order, minutes) => {
-    const readyAt = new Date(Date.now() + minutes * 60000).toISOString();
-    await base44.entities.Order.update(order.id, {
-      prep_time_minutes: minutes,
-      ready_at: readyAt,
-      status: "accepted",
-      printed: false,
-      printed_at: null
-    });
+    await updateAdminOrderStatus(order.id, { status: 'accepted', prepMinutes: minutes });
     showSuccess(`Commande acceptée — prête dans ${minutes} min`);
+    await Promise.all([loadOrders(), loadKpis()]);
   };
 
   const updateStatus = async (order, status) => {
-    await base44.entities.Order.update(order.id, { status });
-    const labels = { ready: "Commande marquée comme prête ✓", completed: "Commande terminée ✓", cancelled: "Commande annulée" };
-    showSuccess(labels[status] || "Statut mis à jour ✓");
+    await updateAdminOrderStatus(order.id, { status });
+    const labels = { ready: 'Commande marquée comme prête ✓', completed: 'Commande terminée ✓' };
+    showSuccess(labels[status] || 'Statut mis à jour ✓');
+    await Promise.all([loadOrders(), loadKpis()]);
   };
 
   const STATUS_COLORS = { new: "bg-yellow-500", accepted: "bg-blue-500", ready: "bg-green-500", completed: "bg-gray-400", cancelled: "bg-red-500" };
@@ -151,6 +179,24 @@ function AdminOrders() {
   return (
     <div>
       {successMsg && <div className="mb-4 bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-lg text-sm font-medium">{successMsg}</div>}
+      {errorMsg && <div className="mb-4 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm font-medium">{errorMsg}</div>}
+
+      {kpis && (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-6">
+          <div className="bg-white border border-gray-200 rounded-lg p-4 shadow-sm">
+            <div className="text-xs text-gray-500">Commandes (jour)</div>
+            <div className="text-2xl font-bold text-gray-900">{kpis.orderCount}</div>
+          </div>
+          <div className="bg-white border border-gray-200 rounded-lg p-4 shadow-sm">
+            <div className="text-xs text-gray-500">Réservations (jour)</div>
+            <div className="text-2xl font-bold text-gray-900">{kpis.reservationCount}</div>
+          </div>
+          <div className="bg-white border border-gray-200 rounded-lg p-4 shadow-sm">
+            <div className="text-xs text-gray-500">CA (jour)</div>
+            <div className="text-2xl font-bold text-gray-900">CHF {Number(kpis.dailyTurnover || 0).toFixed(2)}</div>
+          </div>
+        </div>
+      )}
 
       <div className="flex gap-2 mb-6 overflow-x-auto pb-2">
         {["all", "new", "accepted", "ready", "completed"].map(f => (
@@ -210,22 +256,25 @@ function AdminOrders() {
                 </div>
               )}
 
-              {order.status === "accepted" && order.ready_at && (
-                <div className="text-sm text-blue-600 mt-2">
-                  ⏱ Prêt à: {formatTime(order.ready_at)}
-                  {order.prep_time_minutes && <span className="ml-2 text-gray-400">({order.prep_time_minutes} min)</span>}
+              {order.status === "accepted" && (
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 flex items-center justify-between">
+                  <p className="text-blue-700 text-sm">En préparation {order.prep_time_minutes && <span className="ml-2 text-gray-400">({order.prep_time_minutes} min)</span>}</p>
+                  <button onClick={() => updateStatus(order, "ready")}
+                    className="px-4 py-2 bg-green-600 text-white rounded text-sm hover:bg-green-500">
+                    Marquer prêt
+                  </button>
                 </div>
               )}
 
               {selectedOrder?.id === order.id && (
-                <div className="mt-4 pt-4 border-t border-gray-100">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                <div className="mt-4 border-t border-gray-100 pt-4 space-y-3 text-sm">
+                  <div className="grid md:grid-cols-2 gap-4">
                     <div>
-                      <p className="text-gray-500 mb-2 font-medium">Articles commandés :</p>
+                      <p className="font-medium text-gray-900 mb-2">Articles</p>
                       {order.items?.map((item, i) => (
-                        <div key={i} className="flex justify-between mb-1 text-gray-700">
+                        <div key={i} className="flex justify-between text-gray-600 py-1">
                           <span>{item.name} x{item.quantity}</span>
-                          <span className="text-gray-500">CHF {(item.price * item.quantity).toFixed(2)}</span>
+                          <span>CHF {(item.price * item.quantity).toFixed(2)}</span>
                         </div>
                       ))}
                       <div className="border-t border-gray-100 mt-2 pt-2 flex justify-between font-bold text-gray-900">
@@ -239,12 +288,6 @@ function AdminOrders() {
                     </div>
                   </div>
                   <div className="flex gap-2 mt-4 flex-wrap">
-                    {order.status === "accepted" && (
-                      <button onClick={() => updateStatus(order, "ready")}
-                        className="px-4 py-2 bg-green-600 text-white rounded text-sm hover:bg-green-500">
-                        Marquer prêt
-                      </button>
-                    )}
                     {order.status === "ready" && (
                       <button onClick={() => updateStatus(order, "completed")}
                         className="px-4 py-2 bg-gray-600 text-white rounded text-sm hover:bg-gray-500">
@@ -415,34 +458,53 @@ function AdminReservations() {
   const [reservations, setReservations] = useState([]);
   const [loading, setLoading] = useState(true);
   const [successMsg, setSuccessMsg] = useState("");
+  const [errorMsg, setErrorMsg] = useState("");
+
+  const normalizeReservation = (reservation) => ({
+    ...reservation,
+    name: reservation.customerName,
+    email: reservation.customerEmail,
+    guests: reservation.guestCount,
+    date: formatDate(reservation.reservationDate),
+    time: formatTime(reservation.reservationDate),
+    created_date: reservation.createdAt,
+  });
+
+  const loadReservations = async () => {
+    setLoading(true);
+    setErrorMsg('');
+    try {
+      const data = await listAdminReservations();
+      setReservations(data.map(normalizeReservation));
+    } catch (error) {
+      setErrorMsg(error.message || 'Impossible de charger les réservations.');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    base44.entities.Reservation.list("-created_date", 100).then(data => {
-      setReservations(data);
-      setLoading(false);
-    });
+    loadReservations();
   }, []);
 
   const updateStatus = async (r, status) => {
-    await base44.entities.Reservation.update(r.id, { status });
-    setReservations(prev => prev.map(res => res.id === r.id ? { ...res, status } : res));
-    if (r.email) {
-      await base44.integrations.Core.SendEmail({
-        to: r.email,
-        subject: status === "confirmed" ? "Réservation confirmée — À la louche" : "Réservation annulée — À la louche",
-        body: reservationStatusEmail({ name: r.name, date: r.date, time: r.time, guests: r.guests, status })
-      });
+    try {
+      const updated = await updateAdminReservationStatus(r.id, { status });
+      setReservations(prev => prev.map(res => (res.id === r.id ? normalizeReservation(updated) : res)));
+      setSuccessMsg(status === 'confirmed' ? 'Réservation confirmée ✓' : 'Réservation annulée ✓');
+      setTimeout(() => setSuccessMsg(''), 4000);
+    } catch (error) {
+      setErrorMsg(error.message || 'Impossible de mettre à jour la réservation.');
     }
-    setSuccessMsg(status === "confirmed" ? "Réservation confirmée — email envoyé au client ✓" : "Réservation annulée — email envoyé au client ✓");
-    setTimeout(() => setSuccessMsg(""), 4000);
   };
 
-  const STATUS_COLORS = { pending: "bg-yellow-500", confirmed: "bg-green-500", cancelled: "bg-red-500" };
-  const STATUS_LABELS = { pending: "En attente", confirmed: "Confirmée", cancelled: "Annulée" };
+  const STATUS_COLORS = { pending: 'bg-yellow-500', confirmed: 'bg-green-500', cancelled: 'bg-red-500' };
+  const STATUS_LABELS = { pending: 'En attente', confirmed: 'Confirmée', cancelled: 'Annulée' };
 
   return (
     <div>
       {successMsg && <div className="mb-4 bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-lg text-sm font-medium">{successMsg}</div>}
+      {errorMsg && <div className="mb-4 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm font-medium">{errorMsg}</div>}
       <div className="space-y-3">
         {loading ? <div className="text-center text-gray-400 py-12">Chargement...</div> :
           reservations.map(r => (
@@ -450,17 +512,17 @@ function AdminReservations() {
               <div className="flex flex-wrap justify-between items-start gap-3">
                 <div>
                   <div className="font-semibold text-lg text-gray-900">{r.name}</div>
-                  <div className="text-gray-500 text-sm">{r.date} à {r.time} — {r.guests} personne{r.guests > 1 ? "s" : ""}</div>
-                  <div className="text-gray-400 text-sm mt-1">{r.email} · {r.phone}</div>
+                  <div className="text-gray-500 text-sm">{r.date} à {r.time} — {r.guests} personne{r.guests > 1 ? 's' : ''}</div>
+                  <div className="text-gray-400 text-sm mt-1">{r.email || 'email non renseigné'}</div>
                   {r.created_date && <div className="text-gray-400 text-xs mt-1">Reçu le {formatDateFull(r.created_date)} à {formatTime(r.created_date)}</div>}
                   {r.notes && <div className="text-gray-500 text-sm mt-1 italic">"{r.notes}"</div>}
                 </div>
                 <div className="flex items-center gap-2">
                   <span className={`px-2 py-1 rounded text-xs font-medium text-white ${STATUS_COLORS[r.status]}`}>{STATUS_LABELS[r.status]}</span>
-                  {r.status === "pending" && (
+                  {r.status === 'pending' && (
                     <>
-                      <button onClick={() => updateStatus(r, "confirmed")} className="px-3 py-1 bg-green-600 text-white rounded text-xs hover:bg-green-500">Confirmer</button>
-                      <button onClick={() => updateStatus(r, "cancelled")} className="px-3 py-1 bg-red-600 text-white rounded text-xs hover:bg-red-500">Annuler</button>
+                      <button onClick={() => updateStatus(r, 'confirmed')} className="px-3 py-1 bg-green-600 text-white rounded text-xs hover:bg-green-500">Confirmer</button>
+                      <button onClick={() => updateStatus(r, 'cancelled')} className="px-3 py-1 bg-red-600 text-white rounded text-xs hover:bg-red-500">Annuler</button>
                     </>
                   )}
                 </div>

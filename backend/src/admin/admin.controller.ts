@@ -1,8 +1,10 @@
-import { Controller, Get, Headers, UnauthorizedException } from '@nestjs/common';
+import { Body, Controller, Get, Headers, Param, Post, UnauthorizedException } from '@nestjs/common';
 import { AccessTokenPayload } from '../auth/token.service';
 import { ok } from '../common/api-response';
 import { AuthService } from '../auth/auth.service';
 import { OrdersService } from '../orders/orders.service';
+import { UpdateAdminOrderStatusDto } from './dto/update-admin-order-status.dto';
+import { UpdateAdminReservationStatusDto } from './dto/update-admin-reservation-status.dto';
 
 @Controller('admin')
 export class AdminController {
@@ -51,5 +53,53 @@ export class AdminController {
     const auth = this.requireAdmin(authorization, adminToken, legacyRestaurantId);
     const kpis = await this.ordersService.getDailyKpis(auth.restaurantId);
     return ok(kpis);
+  }
+
+  @Get('orders')
+  async listOrders(
+    @Headers('authorization') authorization?: string,
+    @Headers('x-admin-token') adminToken?: string,
+    @Headers('x-restaurant-id') legacyRestaurantId?: string,
+  ) {
+    const auth = this.requireAdmin(authorization, adminToken, legacyRestaurantId);
+    const orders = await this.ordersService.listAdminOrders(auth.restaurantId);
+    return ok({ orders });
+  }
+
+  @Post('orders/:id/status')
+  async updateOrderStatus(
+    @Param('id') id: string,
+    @Body() dto: UpdateAdminOrderStatusDto,
+    @Headers('authorization') authorization?: string,
+    @Headers('x-admin-token') adminToken?: string,
+    @Headers('x-restaurant-id') legacyRestaurantId?: string,
+  ) {
+    const auth = this.requireAdmin(authorization, adminToken, legacyRestaurantId);
+    const order = await this.ordersService.updateStatus(auth.restaurantId, id, dto.status, dto.prepMinutes);
+    return ok({ order });
+  }
+
+  @Get('reservations')
+  async listReservations(
+    @Headers('authorization') authorization?: string,
+    @Headers('x-admin-token') adminToken?: string,
+    @Headers('x-restaurant-id') legacyRestaurantId?: string,
+  ) {
+    const auth = this.requireAdmin(authorization, adminToken, legacyRestaurantId);
+    const reservations = await this.ordersService.listAdminReservations(auth.restaurantId);
+    return ok({ reservations });
+  }
+
+  @Post('reservations/:id/status')
+  async updateReservationStatus(
+    @Param('id') id: string,
+    @Body() dto: UpdateAdminReservationStatusDto,
+    @Headers('authorization') authorization?: string,
+    @Headers('x-admin-token') adminToken?: string,
+    @Headers('x-restaurant-id') legacyRestaurantId?: string,
+  ) {
+    const auth = this.requireAdmin(authorization, adminToken, legacyRestaurantId);
+    const reservation = await this.ordersService.updateReservationStatus(auth.restaurantId, id, dto.status);
+    return ok({ reservation });
   }
 }
