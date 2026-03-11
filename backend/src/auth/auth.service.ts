@@ -3,6 +3,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { AdminLoginDto } from './dto/admin-login.dto';
 import { CustomerLoginDto } from './dto/customer-login.dto';
 import { CustomerSignupDto } from './dto/customer-signup.dto';
+import { UpdateCustomerProfileDto } from './dto/update-customer-profile.dto';
 import { hashPassword, verifyPassword } from './password';
 import { AccessTokenPayload, TokenService } from './token.service';
 
@@ -115,6 +116,38 @@ export class AuthService {
     }
 
     return payload;
+  }
+
+  async updateCustomerProfile(token: string, dto: UpdateCustomerProfileDto) {
+    const payload = this.verifyAccessToken(token, 'customer');
+
+    const customer = await this.prisma.customer.findFirst({
+      where: {
+        id: payload.sub,
+        restaurantId: payload.restaurantId,
+      },
+    });
+
+    if (!customer) {
+      throw new UnauthorizedException({ error: 'INVALID_TOKEN', message: 'Customer no longer exists.' });
+    }
+
+    const updated = await this.prisma.customer.update({
+      where: { id: customer.id },
+      data: {
+        fullName: dto.fullName ?? customer.fullName,
+        phone: dto.phone === undefined ? customer.phone : dto.phone || null,
+      },
+    });
+
+    return {
+      role: 'customer',
+      id: updated.id,
+      fullName: updated.fullName,
+      email: updated.email,
+      phone: updated.phone,
+      restaurantId: updated.restaurantId,
+    };
   }
 
   private issueCustomerSession(id: string, restaurantId: string, email: string, fullName: string, phone: string | null) {

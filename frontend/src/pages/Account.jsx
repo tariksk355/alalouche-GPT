@@ -6,7 +6,7 @@ import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useAuth } from '@/lib/AuthContext';
-import { loginCustomer, signupCustomer } from '@/lib/customerAuth';
+import { getStoredCustomerSession, loginCustomer, signupCustomer, updateCustomerMe } from '@/lib/customerAuth';
 
 export default function Account() {
   const navigate = useNavigate();
@@ -16,6 +16,8 @@ export default function Account() {
   const [signupForm, setSignupForm] = useState({ fullName: '', email: '', phone: '', password: '' });
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [profileForm, setProfileForm] = useState({ fullName: '', phone: '' });
+  const [savingProfile, setSavingProfile] = useState(false);
 
   const handleLogin = async (e) => {
     e.preventDefault();
@@ -48,12 +50,39 @@ export default function Account() {
   };
 
   if (isAuthenticated && user) {
+    const effectiveProfile = {
+      fullName: profileForm.fullName || user.fullName || '',
+      phone: profileForm.phone || user.phone || '',
+    };
+
+    const handleProfileSave = async (e) => {
+      e.preventDefault();
+      setError('');
+      setSavingProfile(true);
+
+      try {
+        const session = getStoredCustomerSession();
+        if (!session?.token) throw new Error('Connexion expirée.');
+
+        await updateCustomerMe(session.token, {
+          fullName: effectiveProfile.fullName,
+          phone: effectiveProfile.phone,
+        });
+        await refreshSession();
+      } catch (err) {
+        setError(err.message || 'Mise à jour impossible.');
+      } finally {
+        setSavingProfile(false);
+      }
+    };
+
     return (
       <div className="min-h-screen bg-gray-50 p-4">
         <div className="max-w-xl mx-auto pt-10">
           <Card className="p-6 space-y-4">
             <h1 className="text-2xl font-semibold">Mon compte</h1>
             <p className="text-sm text-gray-600">Connecté en tant que {user.fullName}</p>
+            {error && <p className="text-sm text-red-600">{error}</p>}
             <div className="space-y-2 text-sm">
               <p>
                 <strong>Email:</strong> {user.email}
@@ -62,6 +91,25 @@ export default function Account() {
                 <strong>Téléphone:</strong> {user.phone || 'Non renseigné'}
               </p>
             </div>
+
+            <form onSubmit={handleProfileSave} className="space-y-3 border-t border-gray-200 pt-4">
+              <p className="text-sm font-medium">Mettre à jour mes informations</p>
+              <Input
+                placeholder="Nom complet"
+                value={effectiveProfile.fullName}
+                onChange={(e) => setProfileForm((prev) => ({ ...prev, fullName: e.target.value }))}
+                required
+              />
+              <Input
+                placeholder="Téléphone"
+                value={effectiveProfile.phone}
+                onChange={(e) => setProfileForm((prev) => ({ ...prev, phone: e.target.value }))}
+              />
+              <Button type="submit" disabled={savingProfile}>
+                {savingProfile ? 'Enregistrement...' : 'Enregistrer'}
+              </Button>
+            </form>
+
             <div className="flex gap-2">
               <Button onClick={() => navigate(createPageUrl('MesCommandes'))}>Mes commandes</Button>
               <Button variant="outline" onClick={logout}>

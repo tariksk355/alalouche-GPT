@@ -80,6 +80,7 @@ model Customer {
   email         String
   phone         String?
   passwordHash  String
+  orders        Order[]
   createdAt     DateTime   @default(now())
   updatedAt     DateTime   @updatedAt
 
@@ -141,6 +142,8 @@ model Order {
   id            String      @id @default(cuid())
   restaurantId  String
   restaurant    Restaurant  @relation(fields: [restaurantId], references: [id])
+  customerId    String?
+  customer      Customer?   @relation(fields: [customerId], references: [id])
   orderNumber   String
   customerName  String
   customerEmail String?
@@ -150,6 +153,8 @@ model Order {
   payload       Json?
   createdAt     DateTime    @default(now())
   updatedAt     DateTime    @updatedAt
+
+  @@index([restaurantId, customerId, createdAt])
 }
 
 model Reservation {

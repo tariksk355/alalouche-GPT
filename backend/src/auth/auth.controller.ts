@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Headers, Post, UnauthorizedException, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Headers, Patch, Post, UnauthorizedException, UseGuards } from '@nestjs/common';
 import { ok } from '../common/api-response';
 import { TenantContextGuard } from '../tenant/tenant-context.guard';
 import { TenantCtx } from '../tenant/tenant.decorator';
@@ -7,6 +7,7 @@ import { AuthService } from './auth.service';
 import { AdminLoginDto } from './dto/admin-login.dto';
 import { CustomerLoginDto } from './dto/customer-login.dto';
 import { CustomerSignupDto } from './dto/customer-signup.dto';
+import { UpdateCustomerProfileDto } from './dto/update-customer-profile.dto';
 
 @Controller()
 export class AuthController {
@@ -43,6 +44,13 @@ export class AuthController {
   async customerMe(@Headers('authorization') authorization?: string) {
     const token = this.extractBearer(authorization);
     const customer = await this.authService.getSessionUser(token, 'customer');
+    return ok({ customer });
+  }
+
+  @Patch('auth/me')
+  async updateCustomerMe(@Body() dto: UpdateCustomerProfileDto, @Headers('authorization') authorization?: string) {
+    const token = this.extractBearer(authorization);
+    const customer = await this.authService.updateCustomerProfile(token, dto);
     return ok({ customer });
   }
 

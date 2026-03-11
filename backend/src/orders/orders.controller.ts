@@ -21,6 +21,9 @@ export class OrdersController {
     @Body() dto: CreateStorefrontOrderDto,
     @Headers('authorization') authorization?: string,
   ) {
+    let customerId: string | null = null;
+    let customerEmail: string | null = null;
+
     if (authorization?.startsWith('Bearer ')) {
       const token = authorization.slice('Bearer '.length);
       const customer = this.authService.verifyAccessToken(token, 'customer');
@@ -30,9 +33,15 @@ export class OrdersController {
           message: 'Customer token restaurant does not match request tenant context.',
         });
       }
+
+      customerId = customer.sub;
+      customerEmail = customer.email || null;
     }
 
-    const order = await this.ordersService.createStorefrontOrder(tenant.restaurantId, dto);
+    const order = await this.ordersService.createStorefrontOrder(tenant.restaurantId, dto, {
+      customerId,
+      customerEmail,
+    });
     return ok({ order });
   }
 
@@ -55,7 +64,10 @@ export class OrdersController {
       });
     }
 
-    const orders = await this.ordersService.listCustomerOrders(tenant.restaurantId, customer.email || null);
+    const orders = await this.ordersService.listCustomerOrders(tenant.restaurantId, {
+      customerId: customer.sub,
+      customerEmail: customer.email || null,
+    });
     return ok({ orders });
   }
 

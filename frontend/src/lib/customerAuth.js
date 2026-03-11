@@ -86,3 +86,14 @@ export async function fetchCustomerMe(token) {
   });
   return data.data.customer;
 }
+
+export async function updateCustomerMe(token, payload) {
+  const data = await backendClient.request('/auth/me', {
+    method: 'PATCH',
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(payload),
+  });
+  return data.data.customer;
+}

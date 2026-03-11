@@ -15,7 +15,11 @@ export class OrdersService {
     return `${prefix}-${suffix}`;
   }
 
-  async createStorefrontOrder(restaurantId: string, dto: CreateStorefrontOrderDto) {
+  async createStorefrontOrder(
+    restaurantId: string,
+    dto: CreateStorefrontOrderDto,
+    options?: { customerId?: string | null; customerEmail?: string | null },
+  ) {
     const restaurant = await this.prisma.restaurant.findUnique({ where: { id: restaurantId } });
     const orderingSettings = (restaurant?.orderingSettings as Record<string, unknown> | null) || {};
     const prefix = typeof orderingSettings.orderNumberPrefix === 'string' ? orderingSettings.orderNumberPrefix : 'ORD';
@@ -35,7 +39,8 @@ export class OrdersService {
         restaurantId,
         orderNumber,
         customerName: dto.customerName,
-        customerEmail: dto.customerEmail?.toLowerCase() || null,
+        customerId: options?.customerId || null,
+        customerEmail: dto.customerEmail?.toLowerCase() || options?.customerEmail?.toLowerCase() || null,
         status: 'new',
         totalAmount,
         payload: {
@@ -85,17 +90,22 @@ export class OrdersService {
     return order;
   }
 
-  async listCustomerOrders(restaurantId: string, customerEmail?: string | null) {
-    const email = customerEmail?.trim().toLowerCase() || null;
-    if (!email) return [];
+  async listCustomerOrders(restaurantId: string, identity: { customerId?: string | null; customerEmail?: string | null }) {
+    const customerId = identity.customerId?.trim() || null;
+    const email = identity.customerEmail?.trim().toLowerCase() || null;
+    if (!customerId && !email) return [];
 
-    const orders = await this.prisma.order.findMany({
-      where: { restaurantId },
+    return this.prisma.order.findMany({
+      where: {
+        restaurantId,
+        OR: [
+          ...(customerId ? [{ customerId }] : []),
+          ...(email ? [{ customerId: null, customerEmail: email }] : []),
+        ],
+      },
       orderBy: { createdAt: 'desc' },
       take: 300,
     });
-
-    return orders.filter((order: { customerEmail: string | null }) => order.customerEmail?.toLowerCase() === email);
   }
 
 
