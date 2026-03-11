@@ -5,24 +5,61 @@ function isAuthError(error) {
   return error?.code === 'DEVICE_TOKEN_INVALID' || error?.code === 'DEVICE_AUTH_REQUIRED' || error?.status === 401;
 }
 
-export async function validateDeviceAndLoadOrders() {
+export async function validateDeviceSession() {
   const token = tokenStore.get();
   if (!token) {
-    return { state: 'not_paired', device: null, orders: [], error: null };
+    return { state: 'not_paired', device: null, error: null };
   }
 
   try {
     const device = await getDeviceMe(token);
-    const orders = await getReceiverOrders(token);
-    return { state: 'loaded', device, orders, error: null };
+    return { state: 'validated', device, error: null };
   } catch (error) {
     if (isAuthError(error)) {
       tokenStore.clear();
-      return { state: 'not_paired', device: null, orders: [], error: 'Périphérique non associé ou token invalide.' };
+      return { state: 'not_paired', device: null, error: 'Périphérique non associé ou token invalide.' };
     }
 
-    return { state: 'server_error', device: null, orders: [], error: error.message || 'Erreur serveur.' };
+    return { state: 'server_error', device: null, error: error.message || 'Erreur serveur.' };
   }
+}
+
+export async function loadOrders() {
+  const token = tokenStore.get();
+  if (!token) {
+    return { state: 'not_paired', orders: [], error: null };
+  }
+
+  try {
+    const orders = await getReceiverOrders(token);
+    return { state: 'loaded', orders, error: null };
+  } catch (error) {
+    if (isAuthError(error)) {
+      tokenStore.clear();
+      return { state: 'not_paired', orders: [], error: 'Périphérique non associé ou token invalide.' };
+    }
+
+    return { state: 'server_error', orders: [], error: error.message || 'Erreur serveur.' };
+  }
+}
+
+export async function validateDeviceAndLoadOrders() {
+  const validation = await validateDeviceSession();
+  if (validation.state !== 'validated') {
+    return { state: validation.state, device: validation.device, orders: [], error: validation.error };
+  }
+
+  const ordersResult = await loadOrders();
+  if (ordersResult.state !== 'loaded') {
+    return { state: ordersResult.state, device: validation.device, orders: [], error: ordersResult.error };
+  }
+
+  return {
+    state: 'loaded',
+    device: validation.device,
+    orders: ordersResult.orders,
+    error: null,
+  };
 }
 
 export async function changeOrderStatus(orderId, status) {

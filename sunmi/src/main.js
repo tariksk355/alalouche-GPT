@@ -2,7 +2,7 @@ import { POLL_INTERVAL_MS } from './config.js';
 import { debugLog } from './debug.js';
 import { formatOrderStatus, toPrintJob } from './boundaries/orderFormatter.js';
 import { createPrinterAdapter } from './boundaries/printerAdapter.js';
-import { changeOrderStatus, validateDeviceAndLoadOrders } from './services/receiverService.js';
+import { changeOrderStatus, loadOrders, validateDeviceSession } from './services/receiverService.js';
 import { checkPairingStatus, submitPairingCode } from './services/pairingService.js';
 import { tokenStore } from './storage/tokenStore.js';
 
@@ -40,6 +40,7 @@ function stopReceiverPolling() {
   if (state.receiverPollId) {
     clearInterval(state.receiverPollId);
     state.receiverPollId = null;
+    debugLog('receiver_poll_stop');
   }
 }
 
@@ -136,24 +137,62 @@ function render() {
   `;
 }
 
-async function refreshReceiver() {
+async function validateDeviceOnceAndEnterReceiver() {
+  debugLog('device_validation_started');
+  state.mode = 'verifying';
+  render();
+
+  const validation = await validateDeviceSession();
+
+  if (validation.state === 'validated') {
+    state.mode = 'receiver_loaded';
+    state.deviceName = validation.device?.deviceName || '';
+    state.error = '';
+    debugLog('device_validation_success', { deviceName: state.deviceName || 'unknown' });
+    render();
+    return true;
+  }
+
+  if (validation.state === 'not_paired') {
+    state.mode = 'not_paired';
+    state.pairingMessage = '';
+    state.error = validation.error || '';
+    state.deviceName = '';
+    state.orders = [];
+    state.printerMessage = '';
+    stopReceiverPolling();
+    debugLog('device_validation_not_paired', { message: state.error || 'no_message' });
+    render();
+    return false;
+  }
+
+  state.mode = 'server_error';
+  state.error = validation.error || 'Erreur serveur.';
+  debugLog('device_validation_server_error', { message: state.error || 'unknown_error' });
+  render();
+  return false;
+}
+
+async function refreshOrders() {
   if (state.receiverInFlight) {
     debugLog('poll_skipped_inflight');
     return;
   }
 
-  state.receiverInFlight = true;
-  state.mode = 'verifying';
-  render();
+  if (state.mode !== 'receiver_loaded') {
+    debugLog('poll_skipped_mode', { mode: state.mode });
+    return;
+  }
 
-  const result = await validateDeviceAndLoadOrders();
+  state.receiverInFlight = true;
+  debugLog('orders_poll_tick');
+
+  const result = await loadOrders();
 
   if (result.state === 'loaded') {
-    state.mode = 'receiver_loaded';
-    state.deviceName = result.device?.deviceName || '';
     state.orders = result.orders || [];
     state.error = '';
-    debugLog('receiver_entered');
+    debugLog('orders_poll_success', { count: state.orders.length });
   } else if (result.state === 'not_paired') {
     state.mode = 'not_paired';
     state.pairingMessage = '';
@@ -162,9 +201,11 @@ async function refreshReceiver() {
     state.orders = [];
     state.printerMessage = '';
     stopReceiverPolling();
+    debugLog('orders_poll_auth_failed', { message: state.error || 'token_invalid' });
   } else {
-    state.mode = 'server_error';
+    // Keep receiver UI stable; only report background polling error.
     state.error = result.error || 'Erreur serveur.';
+    debugLog('orders_poll_server_error', { message: state.error || 'unknown_error' });
   }
 
   state.receiverInFlight = false;
@@ -173,9 +214,10 @@ async function refreshReceiver() {
 
 function startReceiverPolling() {
   stopReceiverPolling();
+  debugLog('receiver_poll_start', { intervalMs: POLL_INTERVAL_MS });
   state.receiverPollId = setInterval(() => {
     if (state.mode !== 'receiver_loaded') return;
-    refreshReceiver();
+    refreshOrders();
   }, POLL_INTERVAL_MS);
 }
 
@@ -223,8 +265,11 @@ function startPairingPolling() {
       state.error = '';
       state.pairingMessage = '';
       render();
-      await refreshReceiver();
-      startReceiverPolling();
+      await validateDeviceOnceAndEnterReceiver();
+      if (state.mode === 'receiver_loaded') {
+        await refreshOrders();
+        startReceiverPolling();
+      }
     } else if (result.status === 'expired') {
       stopPairingPolling();
       state.mode = 'not_paired';
@@ -321,7 +366,15 @@ app.addEventListener('click', async (event) => {
   }
 
   if (target.id === 'retry-btn') {
-    await refreshReceiver();
+    if (state.mode === 'receiver_loaded') {
+      await refreshOrders();
+    } else {
+      const validated = await validateDeviceOnceAndEnterReceiver();
+      if (validated) {
+        await refreshOrders();
+        startReceiverPolling();
+      }
+    }
     return;
   }
 
@@ -359,7 +412,7 @@ app.addEventListener('click', async (event) => {
     return;
   }
 
-  await refreshReceiver();
+  await refreshOrders();
 });
 
 window.addEventListener('beforeunload', () => {
@@ -377,7 +430,10 @@ async function boot() {
     return;
   }
 
-  await refreshReceiver();
+  const validated = await validateDeviceOnceAndEnterReceiver();
+  if (!validated) return;
+
+  await refreshOrders();
   if (state.mode === 'receiver_loaded') {
     startReceiverPolling();
   }
