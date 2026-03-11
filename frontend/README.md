@@ -12,7 +12,7 @@ cp .env.example .env
 
 Required vars:
 - `VITE_API_BASE_URL` (NestJS backend URL, example `http://localhost:3000`)
-- `VITE_ADMIN_TOKEN` (matches backend `ADMIN_TOKEN`, default `dev-admin`)
+- `VITE_ADMIN_TOKEN` (legacy pairing compatibility only; backend bearer auth is preferred)
 - `VITE_DEBUG_PAIRING` (`true|false`, optional debug logs for this slice)
 
 ## Install and run
@@ -61,3 +61,25 @@ Still legacy/Base44 elsewhere (not migrated in this step):
 - many non-slice screens (account/menu/order/admin broader features)
 - legacy function files under `frontend/functions/*`
 - Base44 Vite plugin still present in `vite.config.js`
+
+## Tenant bootstrap (Batch C)
+
+The frontend now bootstraps tenant configuration from backend public endpoints before shared shell render:
+- `GET /public/restaurant-config` (host/subdomain or tenant hint)
+- fallback `GET /public/restaurants/:restaurantSlug/config` when explicit slug hint exists
+
+Tenant hint sources (in order):
+- query (`?restaurantSlug=` or `?slug=`)
+- route fallback (`/r/:slug`)
+- cached local hint
+
+If tenant bootstrap fails or tenant is inactive, the app shows a dedicated "restaurant unavailable" state instead of a blank screen.
+
+## Tenant-scoped browser storage keys
+
+Shared session/cart persistence now uses tenant-scoped keys:
+- `saas:{restaurantSlug}:customer_session`
+- `saas:{restaurantSlug}:admin_session`
+- `saas:{restaurantSlug}:cart`
+
+Legacy keys are dual-read/migrated forward on first access (`alalouche_*`) to preserve local compatibility during transition.

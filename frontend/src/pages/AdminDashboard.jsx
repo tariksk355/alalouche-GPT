@@ -5,6 +5,7 @@ import { reservationStatusEmail } from "@/components/emails/emailTemplates";
 import { formatTime, formatDate, formatDateFull } from "@/components/formatDate";
 import AdminAnalytics from "@/components/admin/AdminAnalytics";
 import DeviceProvisioning from "@/components/admin/DeviceProvisioning";
+import { clearStoredAdminSession, getStoredAdminSession } from "@/lib/customerAuth";
 
 const NAV_ITEMS = [
   { id: "orders", label: "Commandes", icon: "🛒" },
@@ -22,16 +23,16 @@ export default function AdminDashboard() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   useEffect(() => {
-    const stored = localStorage.getItem("alalouche_admin");
+    const stored = getStoredAdminSession();
     if (!stored) {
       window.location.href = createPageUrl("AdminLogin");
       return;
     }
-    setAdmin(JSON.parse(stored));
+    setAdmin(stored);
   }, []);
 
   const handleLogout = () => {
-    localStorage.removeItem("alalouche_admin");
+    clearStoredAdminSession();
     window.location.href = createPageUrl("AdminLogin");
   };
 
