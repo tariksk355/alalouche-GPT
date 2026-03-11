@@ -1,60 +1,57 @@
-import { useState, useEffect } from "react";
-import { base44 } from "@/api/base44Client";
-import { reservationRequestEmail, newReservationNotifyEmail } from "@/components/emails/emailTemplates";
+import { useEffect, useState } from 'react';
+import { backendClient } from '@/api/backendClient';
+import { useAuth } from '@/lib/AuthContext';
 
 export default function Reservation() {
-  const [form, setForm] = useState({ name: "", email: "", phone: "", date: "", time: "", guests: 2, notes: "" });
+  const { user } = useAuth();
+  const [form, setForm] = useState({ name: '', email: '', phone: '', date: '', time: '', guests: 2, notes: '' });
   const [loading, setLoading] = useState(false);
+  const [success, setSuccess] = useState(false);
+  const [error, setError] = useState('');
 
   useEffect(() => {
-    base44.auth.me().then(user => {
-      if (user) {
-        setForm(prev => ({
-          ...prev,
-          name: user.full_name || "",
-          email: user.email || "",
-          phone: user.phone || "",
-        }));
-      }
-    }).catch(() => {});
-  }, []);
-  const [success, setSuccess] = useState(false);
-  const [error, setError] = useState("");
+    if (!user) return;
+    setForm((prev) => ({
+      ...prev,
+      name: user.fullName || prev.name,
+      email: user.email || prev.email,
+      phone: user.phone || prev.phone,
+    }));
+  }, [user]);
 
-  const TIMES = ["11:30", "12:00", "12:30", "13:00", "13:30", "18:00", "18:30", "19:00", "19:30", "20:00", "20:30", "21:00"];
+  const TIMES = ['11:30', '12:00', '12:30', '13:00', '13:30', '18:00', '18:30', '19:00', '19:30', '20:00', '20:30', '21:00'];
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
-    setError("");
-    // Create reservation
-    await base44.entities.Reservation.create({ ...form, guests: Number(form.guests), status: "pending" });
-
-    // Send acknowledgement email to customer (non-blocking)
-    try {
-      await base44.integrations.Core.SendEmail({
-        to: form.email,
-        subject: "Demande de réservation reçue — À la louche",
-        body: reservationRequestEmail({ name: form.name, date: form.date, time: form.time, guests: form.guests, notes: form.notes })
-      });
-    } catch (e) { console.warn("Email client failed", e); }
+    setError('');
 
     try {
-      await base44.integrations.Core.SendEmail({
-        to: "kodlantiswiss@gmail.com",
-        subject: `🔔 Nouvelle réservation — ${form.name} — ${form.date} à ${form.time}`,
-        body: newReservationNotifyEmail({ name: form.name, email: form.email, phone: form.phone, date: form.date, time: form.time, guests: form.guests, notes: form.notes })
+      await backendClient.request('/reservations', {
+        method: 'POST',
+        body: JSON.stringify({
+          name: form.name,
+          email: form.email,
+          phone: form.phone,
+          date: form.date,
+          time: form.time,
+          guests: Number(form.guests),
+          notes: form.notes,
+        }),
       });
-    } catch (e) { console.warn("Email restaurant failed", e); }
 
-    setSuccess(true);
-    setForm({ name: "", email: "", phone: "", date: "", time: "", guests: 2, notes: "" });
-    setLoading(false);
+      setSuccess(true);
+      setForm({ name: '', email: '', phone: '', date: '', time: '', guests: 2, notes: '' });
+    } catch (submitError) {
+      setError(submitError.message || "La réservation n'a pas pu être envoyée.");
+    } finally {
+      setLoading(false);
+    }
   };
 
   const tomorrow = new Date();
   tomorrow.setDate(tomorrow.getDate() + 1);
-  const minDate = tomorrow.toISOString().split("T")[0];
+  const minDate = tomorrow.toISOString().split('T')[0];
 
   return (
     <div className="min-h-screen bg-white">
@@ -86,7 +83,7 @@ export default function Reservation() {
                 <input
                   required
                   value={form.name}
-                  onChange={e => setForm({ ...form, name: e.target.value })}
+                  onChange={(e) => setForm({ ...form, name: e.target.value })}
                   className="w-full border border-gray-300 px-4 py-3 focus:outline-none focus:border-black transition-colors"
                   placeholder="Votre nom"
                 />
@@ -97,7 +94,7 @@ export default function Reservation() {
                   required
                   type="email"
                   value={form.email}
-                  onChange={e => setForm({ ...form, email: e.target.value })}
+                  onChange={(e) => setForm({ ...form, email: e.target.value })}
                   className="w-full border border-gray-300 px-4 py-3 focus:outline-none focus:border-black transition-colors"
                   placeholder="votre@email.com"
                 />
@@ -107,7 +104,7 @@ export default function Reservation() {
                 <input
                   required
                   value={form.phone}
-                  onChange={e => setForm({ ...form, phone: e.target.value })}
+                  onChange={(e) => setForm({ ...form, phone: e.target.value })}
                   className="w-full border border-gray-300 px-4 py-3 focus:outline-none focus:border-black transition-colors"
                   placeholder="026 303 45 61"
                 />
@@ -116,11 +113,13 @@ export default function Reservation() {
                 <label className="block text-sm font-medium text-gray-700 mb-1">Nombre de personnes *</label>
                 <select
                   value={form.guests}
-                  onChange={e => setForm({ ...form, guests: e.target.value })}
+                  onChange={(e) => setForm({ ...form, guests: e.target.value })}
                   className="w-full border border-gray-300 px-4 py-3 focus:outline-none focus:border-black transition-colors bg-white"
                 >
-                  {[1,2,3,4,5,6,7,8,9,10].map(n => (
-                    <option key={n} value={n}>{n} personne{n > 1 ? "s" : ""}</option>
+                  {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((n) => (
+                    <option key={n} value={n}>
+                      {n} personne{n > 1 ? 's' : ''}
+                    </option>
                   ))}
                 </select>
               </div>
@@ -131,7 +130,7 @@ export default function Reservation() {
                   type="date"
                   min={minDate}
                   value={form.date}
-                  onChange={e => setForm({ ...form, date: e.target.value })}
+                  onChange={(e) => setForm({ ...form, date: e.target.value })}
                   className="w-full border border-gray-300 px-4 py-3 focus:outline-none focus:border-black transition-colors"
                 />
               </div>
@@ -140,11 +139,15 @@ export default function Reservation() {
                 <select
                   required
                   value={form.time}
-                  onChange={e => setForm({ ...form, time: e.target.value })}
+                  onChange={(e) => setForm({ ...form, time: e.target.value })}
                   className="w-full border border-gray-300 px-4 py-3 focus:outline-none focus:border-black transition-colors bg-white"
                 >
                   <option value="">Choisir une heure</option>
-                  {TIMES.map(t => <option key={t} value={t}>{t}</option>)}
+                  {TIMES.map((t) => (
+                    <option key={t} value={t}>
+                      {t}
+                    </option>
+                  ))}
                 </select>
               </div>
             </div>
@@ -154,7 +157,7 @@ export default function Reservation() {
               <textarea
                 rows={3}
                 value={form.notes}
-                onChange={e => setForm({ ...form, notes: e.target.value })}
+                onChange={(e) => setForm({ ...form, notes: e.target.value })}
                 className="w-full border border-gray-300 px-4 py-3 focus:outline-none focus:border-black transition-colors resize-none"
                 placeholder="Allergies, occasion spéciale..."
               />
@@ -167,7 +170,7 @@ export default function Reservation() {
               disabled={loading}
               className="w-full py-4 bg-[#b5122a] text-white font-semibold text-lg hover:bg-[#8f0e21] transition-colors disabled:opacity-60"
             >
-              {loading ? "Envoi en cours..." : "Confirmer la réservation"}
+              {loading ? 'Envoi en cours...' : 'Confirmer la réservation'}
             </button>
           </form>
         )}

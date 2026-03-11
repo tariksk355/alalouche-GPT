@@ -1,6 +1,13 @@
 const { PrismaClient } = require('@prisma/client');
+const crypto = require('node:crypto');
 
 const prisma = new PrismaClient();
+
+function hashPassword(password) {
+  const salt = crypto.randomBytes(16).toString('hex');
+  const hash = crypto.scryptSync(password, salt, 64).toString('hex');
+  return `${salt}:${hash}`;
+}
 
 async function main() {
   const restaurantId = process.env.DEFAULT_RESTAURANT_ID || 'demo-restaurant';
@@ -12,6 +19,37 @@ async function main() {
     create: {
       id: restaurantId,
       name: 'À la Louche (Local)',
+    },
+  });
+
+  await prisma.adminUser.upsert({
+    where: { username: 'admin' },
+    update: {
+      displayName: 'Admin Local',
+      restaurantId: restaurant.id,
+      passwordHash: hashPassword('admin1234'),
+    },
+    create: {
+      username: 'admin',
+      displayName: 'Admin Local',
+      restaurantId: restaurant.id,
+      passwordHash: hashPassword('admin1234'),
+    },
+  });
+
+  await prisma.customer.upsert({
+    where: { restaurantId_email: { restaurantId: restaurant.id, email: 'demo.customer@alalouche.local' } },
+    update: {
+      fullName: 'Client Démo',
+      passwordHash: hashPassword('customer1234'),
+      phone: '0263034561',
+    },
+    create: {
+      restaurantId: restaurant.id,
+      fullName: 'Client Démo',
+      email: 'demo.customer@alalouche.local',
+      passwordHash: hashPassword('customer1234'),
+      phone: '0263034561',
     },
   });
 
@@ -84,6 +122,8 @@ async function main() {
 
   console.log('[seed] restaurant:', restaurant.id);
   console.log('[seed] sample orders:', withSampleOrders ? 'enabled' : 'disabled');
+  console.log('[seed] admin user: admin / admin1234');
+  console.log('[seed] demo customer: demo.customer@alalouche.local / customer1234');
 }
 
 main()

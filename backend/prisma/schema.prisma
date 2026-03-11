@@ -40,6 +40,33 @@ model Restaurant {
   reservations     Reservation[]
   pairingCodes     DevicePairingCode[]
   pairingRequests  DevicePairingRequest[]
+  adminUsers       AdminUser[]
+  customers        Customer[]
+}
+
+model AdminUser {
+  id            String     @id @default(cuid())
+  restaurantId  String
+  restaurant    Restaurant @relation(fields: [restaurantId], references: [id])
+  username      String     @unique
+  passwordHash  String
+  displayName   String
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+}
+
+model Customer {
+  id            String     @id @default(cuid())
+  restaurantId  String
+  restaurant    Restaurant @relation(fields: [restaurantId], references: [id])
+  fullName      String
+  email         String
+  phone         String?
+  passwordHash  String
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+
+  @@unique([restaurantId, email])
 }
 
 model DevicePairingCode {

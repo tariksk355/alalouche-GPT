@@ -1,32 +1,29 @@
-import { useState } from "react";
-import { createPageUrl } from "@/utils";
+import { useState } from 'react';
+import { createPageUrl } from '@/utils';
+import { backendClient } from '@/api/backendClient';
 
 export default function AdminLogin() {
-  const [form, setForm] = useState({ username: "", password: "" });
-  const [error, setError] = useState("");
+  const [form, setForm] = useState({ username: '', password: '' });
+  const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
-    setError("");
+    setError('');
     try {
-      const resp = await fetch("/functions/adminLoginPage", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username: form.username, password: form.password })
+      const resp = await backendClient.request('/admin/auth/login', {
+        method: 'POST',
+        body: JSON.stringify({ username: form.username, password: form.password }),
       });
-      const data = await resp.json();
-      if (data.ok && data.session) {
-        localStorage.setItem("alalouche_admin", JSON.stringify(data.session));
-        window.location.href = createPageUrl("AdminDashboard");
-      } else {
-        setError(data.error || "Identifiants incorrects.");
-      }
-    } catch {
-      setError("Une erreur est survenue.");
+
+      localStorage.setItem('alalouche_admin', JSON.stringify(resp.data));
+      window.location.href = createPageUrl('AdminDashboard');
+    } catch (err) {
+      setError(err.message || 'Identifiants incorrects.');
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   return (
@@ -48,7 +45,7 @@ export default function AdminLogin() {
             <input
               required
               value={form.username}
-              onChange={e => setForm({ ...form, username: e.target.value })}
+              onChange={(e) => setForm({ ...form, username: e.target.value })}
               className="w-full bg-gray-50 border border-gray-200 text-gray-900 px-4 py-3 rounded-lg focus:outline-none focus:border-gray-400 transition-colors"
               placeholder="admin"
               autoComplete="username"
@@ -60,25 +57,21 @@ export default function AdminLogin() {
               required
               type="password"
               value={form.password}
-              onChange={e => setForm({ ...form, password: e.target.value })}
+              onChange={(e) => setForm({ ...form, password: e.target.value })}
               className="w-full bg-gray-50 border border-gray-200 text-gray-900 px-4 py-3 rounded-lg focus:outline-none focus:border-gray-400 transition-colors"
               placeholder="••••••••"
               autoComplete="current-password"
             />
           </div>
 
-          {error && (
-            <div className="bg-red-50 border border-red-200 text-red-600 px-4 py-3 rounded-lg text-sm">
-              {error}
-            </div>
-          )}
+          {error && <div className="bg-red-50 border border-red-200 text-red-600 px-4 py-3 rounded-lg text-sm">{error}</div>}
 
           <button
             type="submit"
             disabled={loading}
             className="w-full py-3 bg-[#b5122a] text-white font-semibold rounded-lg hover:bg-[#8f0e21] transition-colors disabled:opacity-60"
           >
-            {loading ? "Connexion..." : "Se connecter"}
+            {loading ? 'Connexion...' : 'Se connecter'}
           </button>
         </form>
       </div>
