@@ -1,6 +1,5 @@
 generator client {
   provider = "prisma-client-js"
-  binaryTargets = ["native", "windows"]
 }
 
 datasource db {
@@ -25,76 +24,101 @@ enum OrderStatus {
   cancelled
 }
 
+enum ReservationStatus {
+  pending
+  confirmed
+  cancelled
+}
+
 model Restaurant {
-  id          String   @id @default(cuid())
-  name        String
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  devices     Device[]
-  orders      Order[]
-  pairingCodes DevicePairingCode[]
-  pairingRequests DevicePairingRequest[]
+  id               String                 @id @default(cuid())
+  name             String
+  createdAt        DateTime               @default(now())
+  updatedAt        DateTime               @updatedAt
+  devices          Device[]
+  orders           Order[]
+  reservations     Reservation[]
+  pairingCodes     DevicePairingCode[]
+  pairingRequests  DevicePairingRequest[]
 }
 
 model DevicePairingCode {
-  id          String                @id @default(cuid())
-  code        String                @unique
-  status      DeviceLifecycleStatus @default(code_created)
-  restaurantId String
-  restaurant  Restaurant            @relation(fields: [restaurantId], references: [id])
-  expiresAt   DateTime
-  createdBy   String?
-  createdAt   DateTime              @default(now())
-  updatedAt   DateTime              @updatedAt
-  requests    DevicePairingRequest[]
+  id            String                @id @default(cuid())
+  code          String                @unique
+  status        DeviceLifecycleStatus @default(code_created)
+  restaurantId  String
+  restaurant    Restaurant            @relation(fields: [restaurantId], references: [id])
+  expiresAt     DateTime
+  createdBy     String?
+  createdAt     DateTime              @default(now())
+  updatedAt     DateTime              @updatedAt
+  requests      DevicePairingRequest[]
 }
 
 model DevicePairingRequest {
-  id              String                @id @default(cuid())
-  pairingCodeId   String
-  pairingCode     DevicePairingCode     @relation(fields: [pairingCodeId], references: [id])
-  restaurantId    String
-  restaurant      Restaurant            @relation(fields: [restaurantId], references: [id])
-  status          DeviceLifecycleStatus @default(request_pending)
-  deviceName      String?
-  deviceModel     String?
-  platform        String?
-  appVersion      String?
-  installId       String?
-  confirmedAt     DateTime?
-  tokenIssuedAt   DateTime?
+  id                String                @id @default(cuid())
+  pairingCodeId     String
+  pairingCode       DevicePairingCode     @relation(fields: [pairingCodeId], references: [id])
+  restaurantId      String
+  restaurant        Restaurant            @relation(fields: [restaurantId], references: [id])
+  status            DeviceLifecycleStatus @default(request_pending)
+  deviceName        String?
+  deviceModel       String?
+  platform          String?
+  appVersion        String?
+  installId         String?
+  confirmedAt       DateTime?
+  tokenIssuedAt     DateTime?
   plainTokenPreview String?
-  createdAt       DateTime              @default(now())
-  updatedAt       DateTime              @updatedAt
-  device          Device?
+  createdAt         DateTime              @default(now())
+  updatedAt         DateTime              @updatedAt
+  device            Device?
 }
 
 model Device {
-  id              String                @id @default(cuid())
-  restaurantId    String
-  restaurant      Restaurant            @relation(fields: [restaurantId], references: [id])
-  pairingRequestId String?              @unique
-  pairingRequest  DevicePairingRequest? @relation(fields: [pairingRequestId], references: [id])
-  status          DeviceLifecycleStatus @default(device_active)
-  deviceName      String
-  deviceModel     String?
-  platform        String?
-  appVersion      String?
-  installId       String?
-  tokenHash       String?               @unique
-  lastSeenAt      DateTime?
-  createdAt       DateTime              @default(now())
-  updatedAt       DateTime              @updatedAt
+  id               String                @id @default(cuid())
+  restaurantId     String
+  restaurant       Restaurant            @relation(fields: [restaurantId], references: [id])
+  pairingRequestId String?               @unique
+  pairingRequest   DevicePairingRequest? @relation(fields: [pairingRequestId], references: [id])
+  status           DeviceLifecycleStatus @default(device_active)
+  deviceName       String
+  deviceModel      String?
+  platform         String?
+  appVersion       String?
+  installId        String?
+  tokenHash        String?               @unique
+  lastSeenAt       DateTime?
+  createdAt        DateTime              @default(now())
+  updatedAt        DateTime              @updatedAt
 }
 
 model Order {
-  id            String    @id @default(cuid())
+  id            String      @id @default(cuid())
   restaurantId  String
-  restaurant    Restaurant @relation(fields: [restaurantId], references: [id])
+  restaurant    Restaurant  @relation(fields: [restaurantId], references: [id])
   orderNumber   String
   customerName  String
+  customerEmail String?
   status        OrderStatus @default(new)
+  prepMinutes   Int?
+  totalAmount   Decimal     @default(0) @db.Decimal(10, 2)
   payload       Json?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+}
+
+model Reservation {
+  id              String            @id @default(cuid())
+  restaurantId    String
+  restaurant      Restaurant        @relation(fields: [restaurantId], references: [id])
+  customerName    String
+  customerEmail   String?
+  guestCount      Int
+  reservationDate DateTime
+  status          ReservationStatus @default(pending)
+  notes           String?
+  statusUpdatedAt DateTime?
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
 }

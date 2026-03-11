@@ -4,6 +4,7 @@ import { DeviceAuthGuard } from '../device-auth/device-auth.guard';
 import { DeviceCtx } from '../device-auth/device.decorator';
 import { OrdersService } from '../orders/orders.service';
 import { UpdateOrderStatusDto } from './dto/update-order-status.dto';
+import { UpdateReservationStatusDto } from './dto/update-reservation-status.dto';
 
 @Controller('receiver')
 @UseGuards(DeviceAuthGuard)
@@ -16,9 +17,21 @@ export class ReceiverController {
     return ok({ orders });
   }
 
+  @Get('reservations')
+  async getReservations(@DeviceCtx() device: any) {
+    const reservations = await this.ordersService.listOpenReservations(device.restaurantId);
+    return ok({ reservations });
+  }
+
   @Post('orders/:id/status')
   async updateOrderStatus(@DeviceCtx() device: any, @Param('id') id: string, @Body() dto: UpdateOrderStatusDto) {
-    const order = await this.ordersService.updateStatus(device.restaurantId, id, dto.status);
+    const order = await this.ordersService.updateStatus(device.restaurantId, id, dto.status, dto.prepMinutes);
     return ok({ order });
+  }
+
+  @Post('reservations/:id/status')
+  async updateReservationStatus(@DeviceCtx() device: any, @Param('id') id: string, @Body() dto: UpdateReservationStatusDto) {
+    const reservation = await this.ordersService.updateReservationStatus(device.restaurantId, id, dto.status);
+    return ok({ reservation });
   }
 }

@@ -40,11 +40,27 @@ export async function getReceiverOrders(token) {
   return orders;
 }
 
-export async function updateOrderStatus(token, orderId, status) {
+export async function getReceiverReservations(token) {
+  const data = await requestJson('/receiver/reservations', { headers: bearer(token) });
+  const reservations = data?.reservations || [];
+  debugLog('reservations_loaded', { count: reservations.length });
+  return reservations;
+}
+
+export async function updateOrderStatus(token, orderId, status, prepMinutes) {
   await requestJson(`/receiver/orders/${orderId}/status`, {
+    method: 'POST',
+    headers: bearer(token),
+    body: JSON.stringify({ status, ...(prepMinutes ? { prepMinutes } : {}) }),
+  });
+  debugLog('order_status_updated', { orderId, status, prepMinutes: prepMinutes || null });
+}
+
+export async function updateReservationStatus(token, reservationId, status) {
+  await requestJson(`/receiver/reservations/${reservationId}/status`, {
     method: 'POST',
     headers: bearer(token),
     body: JSON.stringify({ status }),
   });
-  debugLog('order_status_updated', { orderId, status });
+  debugLog('reservation_status_updated', { reservationId, status });
 }

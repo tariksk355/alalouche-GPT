@@ -2,7 +2,12 @@ import { POLL_INTERVAL_MS } from './config.js';
 import { debugLog } from './debug.js';
 import { formatOrderStatus, toPrintJob } from './boundaries/orderFormatter.js';
 import { createPrinterAdapter } from './boundaries/printerAdapter.js';
-import { changeOrderStatus, loadOrders, validateDeviceSession } from './services/receiverService.js';
+import {
+  changeOrderStatus,
+  changeReservationStatus,
+  loadOperationalData,
+  validateDeviceSession,
+} from './services/receiverService.js';
 import { checkPairingStatus, submitPairingCode } from './services/pairingService.js';
 import { tokenStore } from './storage/tokenStore.js';
 
@@ -16,6 +21,7 @@ const state = {
   pairingMessage: '',
   deviceName: '',
   orders: [],
+  reservations: [],
   error: '',
   receiverInFlight: false,
   pairingInFlight: false,
@@ -42,6 +48,21 @@ function stopReceiverPolling() {
     state.receiverPollId = null;
     debugLog('receiver_poll_stop');
   }
+}
+
+function formatReservationStatus(status) {
+  const labels = {
+    pending: 'En attente',
+    confirmed: 'Confirmée',
+    cancelled: 'Annulée',
+  };
+  return labels[status] || status;
+}
+
+function formatReservationDate(iso) {
+  if (!iso) return '-';
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? String(iso) : d.toLocaleString('fr-CH');
 }
 
 function renderPairingCard() {
@@ -112,11 +133,38 @@ function render() {
           <span class="status-pill">${formatOrderStatus(order.status)}</span>
         </div>
         <div class="subtle">${order.customerName || 'Client'}</div>
+        <div class="subtle">Préparation: ${order.prepMinutes ? `${order.prepMinutes} min` : 'non définie'}</div>
+        <div class="btn-row">
+          <label class="subtle" for="prep-${order.id}">Temps prep</label>
+          <select id="prep-${order.id}" class="input" style="max-width: 110px;">
+            <option value="15" ${order.prepMinutes === 15 ? 'selected' : ''}>15 min</option>
+            <option value="30" ${order.prepMinutes === 30 ? 'selected' : ''}>30 min</option>
+            <option value="45" ${order.prepMinutes === 45 ? 'selected' : ''}>45 min</option>
+            <option value="60" ${order.prepMinutes === 60 ? 'selected' : ''}>60 min</option>
+          </select>
+        </div>
         <div class="btn-row">
           <button class="btn-accept" data-action="accepted" data-id="${order.id}">Accepter</button>
           <button class="btn-ready" data-action="ready" data-id="${order.id}">Prêt</button>
           <button class="btn-done" data-action="completed" data-id="${order.id}">Terminé</button>
           <button class="btn-secondary-inline" data-action="print-test-order" data-id="${order.id}">Test print</button>
+        </div>
+      </div>
+    `).join('');
+
+  const reservationsHtml = state.reservations.length === 0
+    ? '<div class="card"><p class="subtle">Aucune réservation en cours.</p></div>'
+    : state.reservations.map((reservation) => `
+      <div class="card" data-reservation-id="${reservation.id}">
+        <div class="topbar">
+          <strong>${reservation.customerName || reservation.id}</strong>
+          <span class="status-pill">${formatReservationStatus(reservation.status)}</span>
+        </div>
+        <div class="subtle">${reservation.guestCount || '-'} couverts • ${formatReservationDate(reservation.reservationDate)}</div>
+        ${reservation.notes ? `<div class="subtle">Note: ${reservation.notes}</div>` : ''}
+        <div class="btn-row">
+          <button class="btn-accept" data-action="reservation_confirmed" data-id="${reservation.id}">Confirmer</button>
+          <button class="btn-secondary-inline" data-action="reservation_cancelled" data-id="${reservation.id}">Annuler</button>
         </div>
       </div>
     `).join('');
@@ -131,7 +179,19 @@ function render() {
       </div>
       <button id="unpair-btn" class="btn-secondary">Désassocier cet appareil</button>
     </div>
+
+    <div class="card">
+      <div class="title">Commandes</div>
+      <p class="subtle">Gestion opérationnelle des commandes</p>
+    </div>
     ${ordersHtml}
+
+    <div class="card">
+      <div class="title">Réservations</div>
+      <p class="subtle">Confirmer ou annuler les réservations</p>
+    </div>
+    ${reservationsHtml}
+
     ${state.printerMessage ? `<div class="card"><p class="subtle">${state.printerMessage}</p></div>` : ''}
     ${state.error ? `<div class="card"><p class="error">${state.error}</p></div>` : ''}
   `;
@@ -159,6 +219,7 @@ async function validateDeviceOnceAndEnterReceiver() {
     state.error = validation.error || '';
     state.deviceName = '';
     state.orders = [];
+    state.reservations = [];
     state.printerMessage = '';
     stopReceiverPolling();
     debugLog('device_validation_not_paired', { message: state.error || 'no_message' });
@@ -173,7 +234,7 @@ async function validateDeviceOnceAndEnterReceiver() {
   return false;
 }
 
-async function refreshOrders() {
+async function refreshOperations() {
   if (state.receiverInFlight) {
     debugLog('poll_skipped_inflight');
     return;
@@ -185,27 +246,32 @@ async function refreshOrders() {
   }
 
   state.receiverInFlight = true;
-  debugLog('orders_poll_tick');
+  debugLog('operations_poll_tick');
 
-  const result = await loadOrders();
+  const result = await loadOperationalData();
 
   if (result.state === 'loaded') {
     state.orders = result.orders || [];
+    state.reservations = result.reservations || [];
     state.error = '';
-    debugLog('orders_poll_success', { count: state.orders.length });
+    debugLog('operations_poll_success', {
+      orders: state.orders.length,
+      reservations: state.reservations.length,
+    });
   } else if (result.state === 'not_paired') {
     state.mode = 'not_paired';
     state.pairingMessage = '';
     state.error = result.error || '';
     state.deviceName = '';
     state.orders = [];
+    state.reservations = [];
     state.printerMessage = '';
     stopReceiverPolling();
-    debugLog('orders_poll_auth_failed', { message: state.error || 'token_invalid' });
+    debugLog('operations_poll_auth_failed', { message: state.error || 'token_invalid' });
   } else {
     // Keep receiver UI stable; only report background polling error.
     state.error = result.error || 'Erreur serveur.';
-    debugLog('orders_poll_server_error', { message: state.error || 'unknown_error' });
+    debugLog('operations_poll_server_error', { message: state.error || 'unknown_error' });
   }
 
   state.receiverInFlight = false;
@@ -217,7 +283,7 @@ function startReceiverPolling() {
   debugLog('receiver_poll_start', { intervalMs: POLL_INTERVAL_MS });
   state.receiverPollId = setInterval(() => {
     if (state.mode !== 'receiver_loaded') return;
-    refreshOrders();
+    refreshOperations();
   }, POLL_INTERVAL_MS);
 }
 
@@ -267,7 +333,7 @@ function startPairingPolling() {
       render();
       await validateDeviceOnceAndEnterReceiver();
       if (state.mode === 'receiver_loaded') {
-        await refreshOrders();
+        await refreshOperations();
         startReceiverPolling();
       }
     } else if (result.status === 'expired') {
@@ -356,6 +422,7 @@ app.addEventListener('click', async (event) => {
     state.mode = 'not_paired';
     state.deviceName = '';
     state.orders = [];
+    state.reservations = [];
     state.error = '';
     state.pairingMessage = '';
     state.printerMessage = '';
@@ -367,11 +434,11 @@ app.addEventListener('click', async (event) => {
 
   if (target.id === 'retry-btn') {
     if (state.mode === 'receiver_loaded') {
-      await refreshOrders();
+      await refreshOperations();
     } else {
       const validated = await validateDeviceOnceAndEnterReceiver();
       if (validated) {
-        await refreshOrders();
+        await refreshOperations();
         startReceiverPolling();
       }
     }
@@ -388,6 +455,25 @@ app.addEventListener('click', async (event) => {
     return;
   }
 
+  const reservationAction = target.dataset.action;
+  const reservationId = target.dataset.id;
+  if (reservationAction === 'reservation_confirmed' || reservationAction === 'reservation_cancelled') {
+    const status = reservationAction === 'reservation_confirmed' ? 'confirmed' : 'cancelled';
+    const res = await changeReservationStatus(reservationId, status);
+    if (!res.ok) {
+      state.error = res.message;
+      if (res.code === 'DEVICE_AUTH_REQUIRED') {
+        state.mode = 'not_paired';
+        stopReceiverPolling();
+      }
+      render();
+      return;
+    }
+
+    await refreshOperations();
+    return;
+  }
+
   const orderId = target.dataset.id;
   const status = target.dataset.action;
   if (!orderId || !status) return;
@@ -398,8 +484,18 @@ app.addEventListener('click', async (event) => {
     return;
   }
 
+  if (!['accepted', 'ready', 'completed'].includes(status)) {
+    return;
+  }
+
+  let prepMinutes;
+  if (status === 'accepted') {
+    const prepSelect = document.getElementById(`prep-${orderId}`);
+    prepMinutes = prepSelect ? Number(prepSelect.value) : undefined;
+  }
+
   target.setAttribute('disabled', 'true');
-  const res = await changeOrderStatus(orderId, status);
+  const res = await changeOrderStatus(orderId, status, prepMinutes);
   target.removeAttribute('disabled');
 
   if (!res.ok) {
@@ -412,7 +508,7 @@ app.addEventListener('click', async (event) => {
     return;
   }
 
-  await refreshOrders();
+  await refreshOperations();
 });
 
 window.addEventListener('beforeunload', () => {
@@ -433,7 +529,7 @@ async function boot() {
   const validated = await validateDeviceOnceAndEnterReceiver();
   if (!validated) return;
 
-  await refreshOrders();
+  await refreshOperations();
   if (state.mode === 'receiver_loaded') {
     startReceiverPolling();
   }
