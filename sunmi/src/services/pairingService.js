@@ -14,7 +14,7 @@ export async function submitPairingCode(pairingCode) {
       deviceModel: 'Unknown',
       platform: 'android',
       appVersion: 'v1',
-      installId: crypto.randomUUID(),
+      installId: globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`,
     });
 
     return { ok: true, pairingRequestId: data?.pairingRequestId || null };
