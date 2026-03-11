@@ -37,8 +37,7 @@ export class AuthService {
     };
   }
 
-  async customerSignup(dto: CustomerSignupDto) {
-    const restaurantId = process.env.DEFAULT_RESTAURANT_ID || 'demo-restaurant';
+  async customerSignup(restaurantId: string, dto: CustomerSignupDto) {
     const existing = await this.prisma.customer.findUnique({
       where: { restaurantId_email: { restaurantId, email: dto.email.toLowerCase() } },
     });
@@ -59,8 +58,7 @@ export class AuthService {
     return this.issueCustomerSession(customer.id, customer.restaurantId, customer.email, customer.fullName, customer.phone);
   }
 
-  async customerLogin(dto: CustomerLoginDto) {
-    const restaurantId = process.env.DEFAULT_RESTAURANT_ID || 'demo-restaurant';
+  async customerLogin(restaurantId: string, dto: CustomerLoginDto) {
     const customer = await this.prisma.customer.findUnique({
       where: { restaurantId_email: { restaurantId, email: dto.email.toLowerCase() } },
     });

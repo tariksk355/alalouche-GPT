@@ -9,43 +9,133 @@ function hashPassword(password) {
   return `${salt}:${hash}`;
 }
 
+function defaultBranding(name) {
+  return {
+    logoUrl: null,
+    primaryColor: '#b5122a',
+    secondaryColor: '#111827',
+    accentColor: '#b5122a',
+    tagline: `${name}`,
+  };
+}
+
+function defaultContact(email, phone) {
+  return {
+    phone,
+    email,
+    addressLine1: 'Rte de Chantemerle 58',
+    city: 'Granges-Paccot',
+    postalCode: '1763',
+    countryCode: 'CH',
+  };
+}
+
+function defaultCapabilities({ orderingEnabled = true, reservationEnabled = true, deviceReceiverEnabled = true } = {}) {
+  return {
+    orderingEnabled,
+    reservationEnabled,
+    deliveryEnabled: false,
+    takeawayEnabled: true,
+    deviceReceiverEnabled,
+  };
+}
+
+async function upsertRestaurant({ id, slug, name, primaryDomain, email, phone }) {
+  return prisma.restaurant.upsert({
+    where: { id },
+    update: {
+      name,
+      slug,
+      primaryDomain,
+      status: 'active',
+      branding: defaultBranding(name),
+      contactInfo: defaultContact(email, phone),
+      locale: 'fr-CH',
+      timezone: 'Europe/Zurich',
+      currency: 'CHF',
+      capabilities: defaultCapabilities(),
+      orderingSettings: { orderNumberPrefix: slug?.slice(0, 3)?.toUpperCase() || 'ORD', minPrepMinutesDefault: 15 },
+      reservationSettings: { slotIntervalMinutes: 30, maxPartySize: 12, advanceBookingDays: 30 },
+    },
+    create: {
+      id,
+      name,
+      slug,
+      primaryDomain,
+      status: 'active',
+      branding: defaultBranding(name),
+      contactInfo: defaultContact(email, phone),
+      locale: 'fr-CH',
+      timezone: 'Europe/Zurich',
+      currency: 'CHF',
+      capabilities: defaultCapabilities(),
+      orderingSettings: { orderNumberPrefix: slug?.slice(0, 3)?.toUpperCase() || 'ORD', minPrepMinutesDefault: 15 },
+      reservationSettings: { slotIntervalMinutes: 30, maxPartySize: 12, advanceBookingDays: 30 },
+    },
+  });
+}
+
 async function main() {
-  const restaurantId = process.env.DEFAULT_RESTAURANT_ID || 'demo-restaurant';
+  const primaryRestaurantId = process.env.DEFAULT_RESTAURANT_ID || 'demo-restaurant';
   const withSampleOrders = process.env.SEED_SAMPLE_ORDERS === 'true';
 
-  const restaurant = await prisma.restaurant.upsert({
-    where: { id: restaurantId },
-    update: { name: 'À la Louche (Local)' },
-    create: {
-      id: restaurantId,
-      name: 'À la Louche (Local)',
-    },
+  const primaryRestaurant = await upsertRestaurant({
+    id: primaryRestaurantId,
+    slug: 'alalouche',
+    name: 'À la Louche (Local)',
+    primaryDomain: null,
+    email: 'info@alalouche.local',
+    phone: '0263034561',
+  });
+
+  const secondaryRestaurant = await upsertRestaurant({
+    id: 'demo-second-restaurant',
+    slug: 'demo-bistro',
+    name: 'Demo Bistro',
+    primaryDomain: null,
+    email: 'hello@demobistro.local',
+    phone: '0215550101',
   });
 
   await prisma.adminUser.upsert({
     where: { username: 'admin' },
     update: {
       displayName: 'Admin Local',
-      restaurantId: restaurant.id,
+      restaurantId: primaryRestaurant.id,
       passwordHash: hashPassword('admin1234'),
     },
     create: {
       username: 'admin',
       displayName: 'Admin Local',
-      restaurantId: restaurant.id,
+      restaurantId: primaryRestaurant.id,
+      passwordHash: hashPassword('admin1234'),
+    },
+  });
+
+  await prisma.adminUser.upsert({
+    where: { username: 'admin_demo_bistro' },
+    update: {
+      displayName: 'Admin Demo Bistro',
+      restaurantId: secondaryRestaurant.id,
+      passwordHash: hashPassword('admin1234'),
+    },
+    create: {
+      username: 'admin_demo_bistro',
+      displayName: 'Admin Demo Bistro',
+      restaurantId: secondaryRestaurant.id,
       passwordHash: hashPassword('admin1234'),
     },
   });
 
   await prisma.customer.upsert({
-    where: { restaurantId_email: { restaurantId: restaurant.id, email: 'demo.customer@alalouche.local' } },
+    where: { restaurantId_email: { restaurantId: primaryRestaurant.id, email: 'demo.customer@alalouche.local' } },
     update: {
       fullName: 'Client Démo',
       passwordHash: hashPassword('customer1234'),
       phone: '0263034561',
     },
     create: {
-      restaurantId: restaurant.id,
+      restaurantId: primaryRestaurant.id,
       fullName: 'Client Démo',
       email: 'demo.customer@alalouche.local',
       passwordHash: hashPassword('customer1234'),
@@ -53,13 +143,29 @@ async function main() {
     },
   });
 
+  await prisma.customer.upsert({
+    where: { restaurantId_email: { restaurantId: secondaryRestaurant.id, email: 'demo.customer@demobistro.local' } },
+    update: {
+      fullName: 'Demo Bistro Customer',
+      passwordHash: hashPassword('customer1234'),
+      phone: '0215550101',
+    },
+    create: {
+      restaurantId: secondaryRestaurant.id,
+      fullName: 'Demo Bistro Customer',
+      email: 'demo.customer@demobistro.local',
+      passwordHash: hashPassword('customer1234'),
+      phone: '0215550101',
+    },
+  });
+
   if (withSampleOrders) {
-    const existing = await prisma.order.count({ where: { restaurantId: restaurant.id } });
+    const existing = await prisma.order.count({ where: { restaurantId: primaryRestaurant.id } });
     if (existing === 0) {
       await prisma.order.createMany({
         data: [
           {
-            restaurantId: restaurant.id,
+            restaurantId: primaryRestaurant.id,
             orderNumber: 'LOC-1001',
             customerName: 'Test Customer One',
             customerEmail: 'customer.one@example.com',
@@ -74,7 +180,7 @@ async function main() {
             },
           },
           {
-            restaurantId: restaurant.id,
+            restaurantId: primaryRestaurant.id,
             orderNumber: 'LOC-1002',
             customerName: 'Test Customer Two',
             customerEmail: 'customer.two@example.com',
@@ -90,7 +196,7 @@ async function main() {
       });
     }
 
-    const existingReservations = await prisma.reservation.count({ where: { restaurantId: restaurant.id } });
+    const existingReservations = await prisma.reservation.count({ where: { restaurantId: primaryRestaurant.id } });
     if (existingReservations === 0) {
       const now = new Date();
       const upcoming = new Date(now.getTime() + 2 * 60 * 60 * 1000);
@@ -99,7 +205,7 @@ async function main() {
       await prisma.reservation.createMany({
         data: [
           {
-            restaurantId: restaurant.id,
+            restaurantId: primaryRestaurant.id,
             customerName: 'Reservation Demo One',
             customerEmail: 'res.one@example.com',
             guestCount: 2,
@@ -108,7 +214,7 @@ async function main() {
             notes: 'Window seat',
           },
           {
-            restaurantId: restaurant.id,
+            restaurantId: primaryRestaurant.id,
             customerName: 'Reservation Demo Two',
             customerEmail: 'res.two@example.com',
             guestCount: 4,
@@ -120,10 +226,10 @@ async function main() {
     }
   }
 
-  console.log('[seed] restaurant:', restaurant.id);
+  console.log('[seed] restaurants:', primaryRestaurant.id, secondaryRestaurant.id);
   console.log('[seed] sample orders:', withSampleOrders ? 'enabled' : 'disabled');
-  console.log('[seed] admin user: admin / admin1234');
-  console.log('[seed] demo customer: demo.customer@alalouche.local / customer1234');
+  console.log('[seed] admin users: admin/admin1234, admin_demo_bistro/admin1234');
+  console.log('[seed] demo customers: demo.customer@alalouche.local, demo.customer@demobistro.local / customer1234');
 }
 
 main()

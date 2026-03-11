@@ -16,13 +16,14 @@ This repository is now structured as a monorepo with clear separation of concern
 
 ### Frontend (`frontend/.env`)
 - `VITE_API_BASE_URL` (e.g. `http://localhost:3000`)
-- `VITE_ADMIN_TOKEN` (temporary admin stub token for pairing admin actions)
+- `VITE_ADMIN_TOKEN` (temporary legacy admin stub token for pairing admin actions only)
 
 ### Backend (`backend/.env`)
 - `PORT` (default `3000`)
 - `DATABASE_URL` (PostgreSQL connection string)
-- `ADMIN_TOKEN` (temporary admin auth stub)
-- `DEFAULT_RESTAURANT_ID` (fallback restaurant id for pairing-code creation)
+- `ADMIN_TOKEN` (temporary legacy admin stub used only by compatibility paths such as pairing in local/dev)
+- `DEFAULT_RESTAURANT_ID` (seed/dev fallback restaurant id; not used by customer auth/reservation/admin KPI request flows)
+- `TENANT_BASE_DOMAIN` (optional, e.g. `restaurants.local`; helps subdomain tenant resolution)
 
 ## Local development
 

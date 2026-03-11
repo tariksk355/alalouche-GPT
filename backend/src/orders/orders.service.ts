@@ -95,8 +95,7 @@ export class OrdersService {
     return updated;
   }
 
-  async getDailyKpis() {
-    const restaurantId = process.env.DEFAULT_RESTAURANT_ID || 'demo-restaurant';
+  async getDailyKpis(restaurantId: string) {
 
     const start = new Date();
     start.setHours(0, 0, 0, 0);

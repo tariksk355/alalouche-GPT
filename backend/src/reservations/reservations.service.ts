@@ -10,8 +10,7 @@ export class ReservationsService {
     private readonly notificationService: NotificationService,
   ) {}
 
-  async createReservation(dto: CreateReservationDto) {
-    const restaurantId = process.env.DEFAULT_RESTAURANT_ID || 'demo-restaurant';
+  async createReservation(restaurantId: string, dto: CreateReservationDto) {
     const reservationDate = new Date(`${dto.date}T${dto.time}:00`);
 
     const reservation = await this.prisma.reservation.create({

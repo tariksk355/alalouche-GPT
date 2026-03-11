@@ -30,18 +30,35 @@ enum ReservationStatus {
   cancelled
 }
 
+enum RestaurantStatus {
+  active
+  inactive
+  onboarding
+}
+
 model Restaurant {
-  id               String                 @id @default(cuid())
-  name             String
-  createdAt        DateTime               @default(now())
-  updatedAt        DateTime               @updatedAt
-  devices          Device[]
-  orders           Order[]
-  reservations     Reservation[]
-  pairingCodes     DevicePairingCode[]
-  pairingRequests  DevicePairingRequest[]
-  adminUsers       AdminUser[]
-  customers        Customer[]
+  id                  String                 @id @default(cuid())
+  name                String
+  slug                String?                @unique
+  primaryDomain       String?                @unique
+  status              RestaurantStatus       @default(active)
+  branding            Json?
+  contactInfo         Json?
+  locale              String                 @default("fr-CH")
+  timezone            String                 @default("Europe/Zurich")
+  currency            String                 @default("CHF")
+  capabilities        Json?
+  orderingSettings    Json?
+  reservationSettings Json?
+  createdAt           DateTime               @default(now())
+  updatedAt           DateTime               @updatedAt
+  devices             Device[]
+  orders              Order[]
+  reservations        Reservation[]
+  pairingCodes        DevicePairingCode[]
+  pairingRequests     DevicePairingRequest[]
+  adminUsers          AdminUser[]
+  customers           Customer[]
 }
 
 model AdminUser {

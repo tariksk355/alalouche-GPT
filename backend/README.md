@@ -16,7 +16,21 @@ This document is for reproducible local setup of the backend only.
   - `GET /receiver/orders`
   - `POST /receiver/orders/:id/status`
 
-Admin auth is intentionally stubbed with `x-admin-token` for local flow execution.
+Admin bearer auth is preferred. `x-admin-token` remains as a legacy compatibility path for local/dev operations and requires explicit tenant context (`x-restaurant-id`).
+
+
+## Tenant resolution (Batch A)
+
+Request-driven customer auth and reservation flows now resolve tenant context by:
+- `primaryDomain` match from request host
+- subdomain slug match (`TENANT_BASE_DOMAIN` optional)
+- slug fallback (`:restaurantSlug`, `?restaurantSlug=...`, or `x-restaurant-slug`)
+
+`DEFAULT_RESTAURANT_ID` is now reserved for local seed/dev fallback only.
+
+Public config bootstrap endpoint:
+- `GET /public/restaurant-config`
+- `GET /public/restaurants/:restaurantSlug/config`
 
 ---
 

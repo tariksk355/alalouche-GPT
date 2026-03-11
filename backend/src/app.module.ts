@@ -8,6 +8,7 @@ import { HealthModule } from './health/health.module';
 import { NotificationModule } from './notifications/notification.module';
 import { OrdersModule } from './orders/orders.module';
 import { PrismaModule } from './prisma/prisma.module';
+import { PublicConfigModule } from './public-config/public-config.module';
 import { ReceiverModule } from './receiver/receiver.module';
 import { ReservationsModule } from './reservations/reservations.module';
 
@@ -24,6 +25,7 @@ import { ReservationsModule } from './reservations/reservations.module';
     ReservationsModule,
     ReceiverModule,
     AdminModule,
+    PublicConfigModule,
   ],
 })
 export class AppModule {}

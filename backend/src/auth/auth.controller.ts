@@ -1,5 +1,8 @@
-import { Body, Controller, Get, Headers, Post, UnauthorizedException } from '@nestjs/common';
+import { Body, Controller, Get, Headers, Post, UnauthorizedException, UseGuards } from '@nestjs/common';
 import { ok } from '../common/api-response';
+import { TenantContextGuard } from '../tenant/tenant-context.guard';
+import { TenantCtx } from '../tenant/tenant.decorator';
+import { TenantContext } from '../tenant/tenant.types';
 import { AuthService } from './auth.service';
 import { AdminLoginDto } from './dto/admin-login.dto';
 import { CustomerLoginDto } from './dto/customer-login.dto';
@@ -23,14 +26,16 @@ export class AuthController {
   }
 
   @Post('auth/signup')
-  async customerSignup(@Body() dto: CustomerSignupDto) {
-    const session = await this.authService.customerSignup(dto);
+  @UseGuards(TenantContextGuard)
+  async customerSignup(@TenantCtx() tenant: TenantContext, @Body() dto: CustomerSignupDto) {
+    const session = await this.authService.customerSignup(tenant.restaurantId, dto);
     return ok(session);
   }
 
   @Post('auth/login')
-  async customerLogin(@Body() dto: CustomerLoginDto) {
-    const session = await this.authService.customerLogin(dto);
+  @UseGuards(TenantContextGuard)
+  async customerLogin(@TenantCtx() tenant: TenantContext, @Body() dto: CustomerLoginDto) {
+    const session = await this.authService.customerLogin(tenant.restaurantId, dto);
     return ok(session);
   }
 

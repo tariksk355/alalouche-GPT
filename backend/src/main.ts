@@ -11,7 +11,7 @@ async function bootstrap() {
     origin: true,
     // credentials: false,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'x-admin-token'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'x-admin-token', 'x-restaurant-id', 'x-restaurant-slug'],
   });
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
   app.useGlobalFilters(new AllExceptionsFilter());
@@ -33,7 +33,7 @@ bootstrap();
 //   app.enableCors({
 //     origin: true,
 //     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-//     allowedHeaders: ['Content-Type', 'Authorization', 'x-admin-token'],
+//     allowedHeaders: ['Content-Type', 'Authorization', 'x-admin-token', 'x-restaurant-id', 'x-restaurant-slug'],
 //   });
 
 //   app.setGlobalPrefix('');
