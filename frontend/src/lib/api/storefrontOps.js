@@ -1,5 +1,8 @@
 import { backendClient } from '@/api/backendClient';
 import { fetchCustomerMe, getStoredCustomerSession } from '@/lib/customerAuth';
+import { storageKeyFor } from '@/lib/storageKeys';
+
+const CHECKOUT_DEFAULTS_KEY_TYPE = 'checkout_defaults';
 
 function customerAuthHeaders() {
   const session = getStoredCustomerSession();
@@ -74,7 +77,43 @@ export async function getStorefrontCustomerPrefill() {
       customer_address: '',
     };
   } catch {
+    const fallbackCustomer = session.customer;
+    if (!fallbackCustomer) return null;
+    return {
+      customer_name: fallbackCustomer.fullName || '',
+      customer_email: fallbackCustomer.email || '',
+      customer_phone: fallbackCustomer.phone || '',
+      customer_address: '',
+    };
+  }
+}
+
+export function getStoredCheckoutDefaults() {
+  try {
+    const raw = localStorage.getItem(storageKeyFor(CHECKOUT_DEFAULTS_KEY_TYPE));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return {
+      customer_address: parsed.customer_address || '',
+      order_type: parsed.order_type === 'delivery' ? 'delivery' : 'takeaway',
+      payment_method: parsed.payment_method === 'card' ? 'card' : 'cash',
+    };
+  } catch {
     return null;
+  }
+}
+
+export function saveCheckoutDefaults(payload) {
+  const defaults = {
+    customer_address: payload.customer_address || '',
+    order_type: payload.order_type === 'delivery' ? 'delivery' : 'takeaway',
+    payment_method: payload.payment_method === 'card' ? 'card' : 'cash',
+  };
+
+  try {
+    localStorage.setItem(storageKeyFor(CHECKOUT_DEFAULTS_KEY_TYPE), JSON.stringify(defaults));
+  } catch {
+    // noop
   }
 }
 

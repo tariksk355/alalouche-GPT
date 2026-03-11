@@ -3,14 +3,23 @@ import { useNavigate } from "react-router-dom";
 import { createPageUrl } from "@/utils";
 import { getCart, saveCart, clearCart } from "@/components/cartStore";
 import { Trash2 } from "lucide-react";
-import { createStorefrontOrder, getStorefrontCustomerPrefill, getStorefrontOrder } from "@/lib/api/storefrontOps";
+import { createStorefrontOrder, getStoredCheckoutDefaults, getStorefrontCustomerPrefill, getStorefrontOrder, saveCheckoutDefaults } from "@/lib/api/storefrontOps";
+
+const BASE_FORM = {
+  customer_name: "",
+  customer_phone: "",
+  customer_email: "",
+  customer_address: "",
+  order_type: "takeaway",
+  payment_method: "cash",
+  notes: "",
+};
 
 export default function Panier() {
   const [cart, setCart] = useState(getCart());
   const [step, setStep] = useState("cart"); // cart | details
   const [form, setForm] = useState({
-    customer_name: "", customer_phone: "", customer_email: "", customer_address: "",
-    order_type: "takeaway", payment_method: "cash", notes: ""
+    ...BASE_FORM,
   });
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(null);
@@ -19,6 +28,11 @@ export default function Panier() {
   const navigate = useNavigate();
 
   useEffect(() => {
+    const checkoutDefaults = getStoredCheckoutDefaults();
+    if (checkoutDefaults) {
+      setForm(prev => ({ ...prev, ...checkoutDefaults }));
+    }
+
     getStorefrontCustomerPrefill().then(user => {
       if (user) {
         setForm(prev => ({
@@ -61,6 +75,12 @@ export default function Panier() {
         paymentMethod: form.payment_method,
         notes: form.notes || undefined,
         items: cart.map(i => ({ id: i.id, name: i.name, price: Number(i.price || 0), quantity: i.quantity })),
+      });
+
+      saveCheckoutDefaults({
+        customer_address: form.customer_address,
+        order_type: form.order_type,
+        payment_method: form.payment_method,
       });
 
       clearCart();

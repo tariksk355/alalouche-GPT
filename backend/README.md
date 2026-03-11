@@ -145,6 +145,33 @@ This validates tenant isolation across two restaurants for:
 - pairing legacy compatibility constraints
 - explicit invalid tenant hint no-fallback behavior
 
+---
+
+## Legacy order customer-link backfill (safe, optional)
+
+Orders created before `Order.customerId` linkage may only have `customerEmail`.
+
+Use this script to backfill `Order.customerId` **only when mapping is unambiguous**
+within the same tenant (`restaurantId + email`).
+
+Dry-run (default):
+
+```bash
+npm run orders:backfill-customer-link
+```
+
+Apply updates:
+
+```bash
+npm run orders:backfill-customer-link -- --apply
+```
+
+Scope to one tenant:
+
+```bash
+npm run orders:backfill-customer-link -- --apply --restaurant-id=demo-restaurant
+```
+
 ### Option B: manual curl sequence
 
 ```bash

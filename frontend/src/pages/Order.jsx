@@ -1,5 +1,15 @@
 import { useState, useEffect } from "react";
-import { createStorefrontOrder, getStorefrontCustomerPrefill, getStorefrontOrder, listMenuCatalog } from "@/lib/api/storefrontOps";
+import { createStorefrontOrder, getStoredCheckoutDefaults, getStorefrontCustomerPrefill, getStorefrontOrder, listMenuCatalog, saveCheckoutDefaults } from "@/lib/api/storefrontOps";
+
+const BASE_FORM = {
+  customer_name: "",
+  customer_phone: "",
+  customer_email: "",
+  customer_address: "",
+  order_type: "takeaway",
+  payment_method: "cash",
+  notes: "",
+};
 
 const CATEGORIES = ["Sandwichs et menu", "Nos sauces chaudes", "Nos sauces froides", "Plats et Pide", "Boissons", "Bières & Alcools", "Vins", "Desserts"];
 
@@ -9,8 +19,7 @@ export default function Order() {
   const [step, setStep] = useState("menu"); // menu | details | confirm
   const [activeCategory, setActiveCategory] = useState("all");
   const [form, setForm] = useState({
-    customer_name: "", customer_phone: "", customer_email: "", customer_address: "",
-    order_type: "takeaway", payment_method: "cash", notes: ""
+    ...BASE_FORM,
   });
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(null); // { orderNumber, phone }
@@ -18,6 +27,11 @@ export default function Order() {
   const [checkingStatus, setCheckingStatus] = useState(false);
 
   useEffect(() => {
+    const checkoutDefaults = getStoredCheckoutDefaults();
+    if (checkoutDefaults) {
+      setForm(prev => ({ ...prev, ...checkoutDefaults }));
+    }
+
     listMenuCatalog().then(data => {
       const normalized = data.map(item => ({
         id: item.id,
@@ -80,10 +94,22 @@ export default function Order() {
         items: cart.map(i => ({ id: i.id, name: i.name, price: Number(i.price || 0), quantity: i.quantity })),
       });
 
+      saveCheckoutDefaults({
+        customer_address: form.customer_address,
+        order_type: form.order_type,
+        payment_method: form.payment_method,
+      });
+
       const successData = { orderNumber: created.order_number, phone: form.customer_phone };
       setSuccess(successData);
       setCart([]);
-      setForm({ customer_name: "", customer_phone: "", customer_email: "", customer_address: "", order_type: "takeaway", payment_method: "cash", notes: "" });
+      setForm({
+        ...BASE_FORM,
+        ...getStoredCheckoutDefaults(),
+        customer_name: form.customer_name,
+        customer_phone: form.customer_phone,
+        customer_email: form.customer_email,
+      });
       setStep("menu");
       setOrderStatus(null);
     } finally {
