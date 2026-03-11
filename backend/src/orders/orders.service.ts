@@ -85,6 +85,19 @@ export class OrdersService {
     return order;
   }
 
+  async listCustomerOrders(restaurantId: string, customerEmail?: string | null) {
+    const email = customerEmail?.trim().toLowerCase() || null;
+    if (!email) return [];
+
+    const orders = await this.prisma.order.findMany({
+      where: { restaurantId },
+      orderBy: { createdAt: 'desc' },
+      take: 300,
+    });
+
+    return orders.filter((order: { customerEmail: string | null }) => order.customerEmail?.toLowerCase() === email);
+  }
+
 
   async listAdminOrders(restaurantId: string) {
     return this.prisma.order.findMany({

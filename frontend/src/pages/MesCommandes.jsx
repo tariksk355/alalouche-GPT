@@ -1,7 +1,7 @@
-import { useState } from "react";
-import { base44 } from "@/api/base44Client";
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { createPageUrl } from "@/utils";
+import { listMyOrderHistory } from "@/lib/api/storefrontOps";
 
 const STATUS_LABELS = { new: "Nouveau", accepted: "En préparation", ready: "Prêt", completed: "Terminé", cancelled: "Annulé" };
 const STATUS_COLORS = {
@@ -13,44 +13,27 @@ const STATUS_COLORS = {
 };
 
 export default function MesCommandes() {
-  const [phone, setPhone] = useState("");
-  const [orders, setOrders] = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [searched, setSearched] = useState(false);
+  const [orders, setOrders] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [errorCode, setErrorCode] = useState(null);
 
-  // Normalize phone: strip spaces, dashes, dots
-  const normalizePhone = (p) => p.replace(/[\s\-\.]/g, "");
+  useEffect(() => {
+    const load = async () => {
+      setLoading(true);
+      setErrorCode(null);
+      try {
+        const data = await listMyOrderHistory();
+        setOrders(data);
+      } catch (error) {
+        setErrorCode(error.code || "UNKNOWN");
+        setOrders([]);
+      } finally {
+        setLoading(false);
+      }
+    };
 
-  const handleSearch = async (e) => {
-    e.preventDefault();
-    setLoading(true);
-
-    const raw = normalizePhone(phone);
-
-    // Build variants to search: raw input + with/without country code
-    const variants = new Set([raw]);
-    if (raw.startsWith("+")) {
-      // e.g. +41791234567 → also try 0791234567
-      variants.add("0" + raw.slice(3));
-    } else if (raw.startsWith("00")) {
-      // e.g. 0041791234567 → also try 0791234567
-      variants.add("0" + raw.slice(4));
-    } else if (raw.startsWith("0")) {
-      // e.g. 0791234567 → also try +41791234567
-      variants.add("+41" + raw.slice(1));
-    }
-
-    // Fetch all orders and filter client-side across all variants
-    const allOrders = await base44.entities.Order.list("-created_date", 200);
-    const results = allOrders.filter(o => {
-      const p = normalizePhone(o.customer_phone || "");
-      return [...variants].some(v => p === v);
-    });
-
-    setOrders(results);
-    setSearched(true);
-    setLoading(false);
-  };
+    load();
+  }, []);
 
   const formatDate = (dateStr) => {
     if (!dateStr) return "";
@@ -65,29 +48,32 @@ export default function MesCommandes() {
       </div>
 
       <div className="max-w-2xl mx-auto px-4 py-12">
-        <form onSubmit={handleSearch} className="mb-10">
-          <label className="block text-sm font-medium text-gray-700 mb-2">Votre numéro de téléphone</label>
-          <div className="flex gap-3">
-            <input
-              required
-              type="tel"
-              value={phone}
-              onChange={e => setPhone(e.target.value)}
-              placeholder="ex: 0791234567 ou +41791234567"
-              className="flex-1 border border-gray-300 px-4 py-3 focus:outline-none focus:border-black transition-colors"
-            />
-            <button type="submit" disabled={loading}
-              className="px-6 py-3 bg-[#b5122a] text-white font-medium hover:bg-[#8f0e21] transition-colors disabled:opacity-60 whitespace-nowrap">
-              {loading ? "..." : "Rechercher"}
-            </button>
-          </div>
-        </form>
+        {loading && (
+          <div className="text-center py-12 text-gray-400">Chargement...</div>
+        )}
 
-        {searched && orders !== null && (
+        {!loading && errorCode === 'AUTH_REQUIRED' && (
+          <div className="text-center py-12 text-gray-400">
+            <p className="text-lg mb-2 text-gray-700">Connectez-vous pour voir vos commandes</p>
+            <p className="text-sm mb-6">Votre historique est lié à votre compte client.</p>
+            <Link to={createPageUrl("Account")} className="inline-block px-6 py-3 bg-[#b5122a] text-white font-medium hover:bg-[#8f0e21] transition-colors">
+              Se connecter
+            </Link>
+          </div>
+        )}
+
+        {!loading && errorCode && errorCode !== 'AUTH_REQUIRED' && (
+          <div className="text-center py-12 text-gray-400">
+            <p className="text-lg mb-2">Impossible de charger vos commandes</p>
+            <p className="text-sm">Veuillez réessayer plus tard.</p>
+          </div>
+        )}
+
+        {!loading && !errorCode && (
           orders.length === 0 ? (
             <div className="text-center py-12 text-gray-400">
               <p className="text-lg mb-2">Aucune commande trouvée</p>
-              <p className="text-sm">Vérifiez votre numéro de téléphone ou <Link to={createPageUrl("Order")} className="text-[#b5122a] underline">passez une commande</Link>.</p>
+              <p className="text-sm">Vous n'avez pas encore de commande sur ce restaurant. <Link to={createPageUrl("Order")} className="text-[#b5122a] underline">Passer une commande</Link>.</p>
             </div>
           ) : (
             <div className="space-y-4">

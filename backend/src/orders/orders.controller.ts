@@ -36,6 +36,29 @@ export class OrdersController {
     return ok({ order });
   }
 
+  @Get('me/history')
+  @UseGuards(TenantContextGuard)
+  async getMyOrders(@TenantCtx() tenant: TenantContext, @Headers('authorization') authorization?: string) {
+    if (!authorization?.startsWith('Bearer ')) {
+      throw new UnauthorizedException({
+        error: 'AUTH_REQUIRED',
+        message: 'Customer bearer token required.',
+      });
+    }
+
+    const token = authorization.slice('Bearer '.length);
+    const customer = this.authService.verifyAccessToken(token, 'customer');
+    if (customer.restaurantId !== tenant.restaurantId) {
+      throw new UnauthorizedException({
+        error: 'TENANT_CONTEXT_MISMATCH',
+        message: 'Customer token restaurant does not match request tenant context.',
+      });
+    }
+
+    const orders = await this.ordersService.listCustomerOrders(tenant.restaurantId, customer.email || null);
+    return ok({ orders });
+  }
+
   @Get(':orderNumber')
   @UseGuards(TenantContextGuard)
   async getByOrderNumber(@TenantCtx() tenant: TenantContext, @Param('orderNumber') orderNumber: string) {

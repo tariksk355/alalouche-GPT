@@ -9,6 +9,19 @@ function customerAuthHeaders() {
   };
 }
 
+function requireCustomerAuthHeaders() {
+  const session = getStoredCustomerSession();
+  if (!session?.token) {
+    const error = new Error('Connexion client requise.');
+    error.code = 'AUTH_REQUIRED';
+    throw error;
+  }
+
+  return {
+    Authorization: `Bearer ${session.token}`,
+  };
+}
+
 export function normalizeStorefrontOrder(order) {
   const payload = order?.payload && typeof order.payload === 'object' ? order.payload : {};
   return {
@@ -63,4 +76,11 @@ export async function getStorefrontCustomerPrefill() {
   } catch {
     return null;
   }
+}
+
+export async function listMyOrderHistory() {
+  const data = await backendClient.request('/orders/me/history', {
+    headers: requireCustomerAuthHeaders(),
+  });
+  return (data.data.orders || []).map(normalizeStorefrontOrder);
 }
