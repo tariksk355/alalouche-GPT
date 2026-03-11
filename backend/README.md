@@ -32,6 +32,37 @@ Public config bootstrap endpoint:
 - `GET /public/restaurant-config`
 - `GET /public/restaurants/:restaurantSlug/config`
 
+## Production hardening basics (Batch G)
+
+### Required runtime env vars
+
+- `DATABASE_URL` (always required)
+- `AUTH_TOKEN_SECRET` (required in `NODE_ENV=production`)
+
+### Health endpoints
+
+- Liveness: `GET /health`
+- Readiness: `GET /ready` (includes a lightweight DB check)
+
+### Request correlation + logging
+
+- Incoming `x-request-id` is accepted and echoed; if missing, server generates one.
+- Responses include `x-request-id`.
+- Structured request logs (`event=http_request`) are emitted with method/path/status/duration.
+- Exception logs (`event=http_exception`) include requestId/method/path/status/error.
+
+### Error response shape
+
+Global exception filter now includes:
+- `ok: false`
+- `error`
+- `message`
+- `requestId`
+- `timestamp`
+- `path`
+
+In production, 5xx messages are sanitized to avoid leaking internals.
+
 ---
 
 ## Prerequisites
