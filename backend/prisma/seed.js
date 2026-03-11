@@ -40,6 +40,19 @@ function defaultCapabilities({ orderingEnabled = true, reservationEnabled = true
   };
 }
 
+function defaultMenuCatalog() {
+  return [
+    { id: 'menu-doner', name: 'Kebab Döner', description: 'Pain maison, viande kebab, crudités, sauce au choix.', price: 12.5, category: 'Sandwichs et menu', sortOrder: 10, available: true },
+    { id: 'menu-doner-menu', name: 'Menu Kebab Döner', description: 'Kebab + frites + boisson 33cl.', price: 17.5, category: 'Sandwichs et menu', sortOrder: 20, available: true },
+    { id: 'sauce-fromage', name: 'Sauce fromage', description: 'Sauce chaude au fromage.', price: 2.5, category: 'Nos sauces chaudes', sortOrder: 30, available: true },
+    { id: 'sauce-algerienne', name: 'Sauce algérienne', description: 'Sauce froide légèrement relevée.', price: 2, category: 'Nos sauces froides', sortOrder: 40, available: true },
+    { id: 'plat-assiette', name: 'Assiette kebab', description: 'Viande, salade, frites et pain.', price: 18.5, category: 'Plats et Pide', sortOrder: 50, available: true },
+    { id: 'boisson-coca', name: 'Coca-Cola 33cl', description: 'Boisson fraîche.', price: 3.5, category: 'Boissons', sortOrder: 60, available: true },
+    { id: 'biere-efes', name: 'Efes 33cl', description: 'Bière blonde turque.', price: 5, category: 'Bières & Alcools', sortOrder: 70, available: true },
+    { id: 'dessert-fondue', name: 'Fondue chocolat', description: 'Fondue chocolat avec fruits frais.', price: 9.5, category: 'Desserts', sortOrder: 80, available: true },
+  ];
+}
+
 async function upsertRestaurant({ id, slug, name, primaryDomain, email, phone }) {
   return prisma.restaurant.upsert({
     where: { id },
@@ -54,7 +67,7 @@ async function upsertRestaurant({ id, slug, name, primaryDomain, email, phone })
       timezone: 'Europe/Zurich',
       currency: 'CHF',
       capabilities: defaultCapabilities(),
-      orderingSettings: { orderNumberPrefix: slug?.slice(0, 3)?.toUpperCase() || 'ORD', minPrepMinutesDefault: 15 },
+      orderingSettings: { orderNumberPrefix: slug?.slice(0, 3)?.toUpperCase() || 'ORD', minPrepMinutesDefault: 15, menuCatalog: defaultMenuCatalog() },
       reservationSettings: { slotIntervalMinutes: 30, maxPartySize: 12, advanceBookingDays: 30 },
     },
     create: {
@@ -69,7 +82,7 @@ async function upsertRestaurant({ id, slug, name, primaryDomain, email, phone })
       timezone: 'Europe/Zurich',
       currency: 'CHF',
       capabilities: defaultCapabilities(),
-      orderingSettings: { orderNumberPrefix: slug?.slice(0, 3)?.toUpperCase() || 'ORD', minPrepMinutesDefault: 15 },
+      orderingSettings: { orderNumberPrefix: slug?.slice(0, 3)?.toUpperCase() || 'ORD', minPrepMinutesDefault: 15, menuCatalog: defaultMenuCatalog() },
       reservationSettings: { slotIntervalMinutes: 30, maxPartySize: 12, advanceBookingDays: 30 },
     },
   });

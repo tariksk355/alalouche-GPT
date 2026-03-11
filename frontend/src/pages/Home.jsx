@@ -1,13 +1,13 @@
 import { Link } from "react-router-dom";
 import { createPageUrl } from "@/utils";
 import { useState, useEffect } from "react";
-import { base44 } from "@/api/base44Client";
+import { listMenuCatalog } from "@/lib/api/storefrontOps";
 
 export default function Home() {
   const [menuItems, setMenuItems] = useState([]);
 
   useEffect(() => {
-    base44.entities.MenuItem.filter({ available: true }, "sort_order", 6).then(setMenuItems);
+    listMenuCatalog().then(items => setMenuItems(items.slice(0, 6))).catch(() => setMenuItems([]));
   }, []);
 
   return (

@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { NotificationService } from '../notifications/notification.service';
+import { CreateStorefrontOrderDto } from './dto/create-storefront-order.dto';
 
 @Injectable()
 export class OrdersService {
@@ -8,6 +9,81 @@ export class OrdersService {
     private readonly prisma: PrismaService,
     private readonly notificationService: NotificationService,
   ) {}
+
+  private generateOrderNumber(prefix: string) {
+    const suffix = Date.now().toString().slice(-6);
+    return `${prefix}-${suffix}`;
+  }
+
+  async createStorefrontOrder(restaurantId: string, dto: CreateStorefrontOrderDto) {
+    const restaurant = await this.prisma.restaurant.findUnique({ where: { id: restaurantId } });
+    const orderingSettings = (restaurant?.orderingSettings as Record<string, unknown> | null) || {};
+    const prefix = typeof orderingSettings.orderNumberPrefix === 'string' ? orderingSettings.orderNumberPrefix : 'ORD';
+    const orderNumber = this.generateOrderNumber(prefix);
+
+    const normalizedItems = dto.items.map((item) => ({
+      menuItemId: item.id,
+      name: item.name,
+      price: item.price,
+      quantity: item.quantity,
+    }));
+
+    const totalAmount = normalizedItems.reduce((sum, item) => sum + item.price * item.quantity, 0);
+
+    const order = await this.prisma.order.create({
+      data: {
+        restaurantId,
+        orderNumber,
+        customerName: dto.customerName,
+        customerEmail: dto.customerEmail?.toLowerCase() || null,
+        status: 'new',
+        totalAmount,
+        payload: {
+          customerPhone: dto.customerPhone,
+          customerAddress: dto.customerAddress || null,
+          orderType: dto.orderType,
+          paymentMethod: dto.paymentMethod,
+          notes: dto.notes || null,
+          items: normalizedItems,
+          totalAmount,
+        },
+      },
+    });
+
+    await this.notificationService.publish({
+      type: 'order.status_changed',
+      restaurantId,
+      customerEmail: order.customerEmail,
+      payload: {
+        orderId: order.id,
+        orderNumber: order.orderNumber,
+        status: order.status,
+        prepMinutes: order.prepMinutes,
+        customerName: order.customerName,
+        customerPhone: dto.customerPhone,
+      },
+    });
+
+    return order;
+  }
+
+  async getStorefrontOrderByNumber(restaurantId: string, orderNumber: string) {
+    const order = await this.prisma.order.findFirst({
+      where: {
+        restaurantId,
+        orderNumber,
+      },
+    });
+
+    if (!order) {
+      throw new NotFoundException({
+        error: 'ORDER_NOT_FOUND',
+        message: 'Order not found.',
+      });
+    }
+
+    return order;
+  }
 
 
   async listAdminOrders(restaurantId: string) {

@@ -22,4 +22,11 @@ export class PublicConfigController {
     const restaurant = await this.publicConfigService.getRestaurantConfig(tenant.restaurantId);
     return ok({ restaurant, tenantSource: tenant.source });
   }
+
+  @Get('menu-catalog')
+  @UseGuards(TenantContextGuard)
+  async getMenuCatalog(@TenantCtx() tenant: TenantContext) {
+    const items = await this.publicConfigService.getMenuCatalog(tenant.restaurantId);
+    return ok({ items, tenantSource: tenant.source });
+  }
 }

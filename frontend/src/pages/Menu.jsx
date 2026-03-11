@@ -1,8 +1,8 @@
 import { useState, useEffect } from "react";
-import { base44 } from "@/api/base44Client";
 import { Link, useNavigate } from "react-router-dom";
 import { createPageUrl } from "@/utils";
 import { addItem, getCart, cartCount as getCartCount } from "@/components/cartStore";
+import { listMenuCatalog } from "@/lib/api/storefrontOps";
 
 const CATEGORIES = [
   {
@@ -71,10 +71,19 @@ export default function Menu() {
   };
 
   useEffect(() => {
-    base44.entities.MenuItem.filter({ available: true }, "sort_order").then(data => {
-      setItems(data);
+    listMenuCatalog().then(data => {
+      const normalized = data.map(item => ({
+        id: item.id,
+        name: item.name,
+        description: item.description,
+        price: Number(item.price || 0),
+        category: item.category,
+        image_url: item.imageUrl,
+        allergens: item.allergens,
+      }));
+      setItems(normalized);
       setLoading(false);
-    });
+    }).catch(() => setLoading(false));
   }, []);
 
   const activeCategoryData = activeCategory

@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { base44 } from "@/api/base44Client";
+import { createStorefrontOrder, getStorefrontCustomerPrefill, getStorefrontOrder, listMenuCatalog } from "@/lib/api/storefrontOps";
 
 const CATEGORIES = ["Sandwichs et menu", "Nos sauces chaudes", "Nos sauces froides", "Plats et Pide", "Boissons", "Bières & Alcools", "Vins", "Desserts"];
 
@@ -18,17 +18,26 @@ export default function Order() {
   const [checkingStatus, setCheckingStatus] = useState(false);
 
   useEffect(() => {
-    base44.entities.MenuItem.filter({ available: true }, "sort_order").then(setMenuItems);
+    listMenuCatalog().then(data => {
+      const normalized = data.map(item => ({
+        id: item.id,
+        name: item.name,
+        description: item.description,
+        price: Number(item.price || 0),
+        category: item.category,
+        image_url: item.imageUrl,
+      }));
+      setMenuItems(normalized);
+    });
 
-    // Prefill form with logged-in user data
-    base44.auth.me().then(user => {
+    getStorefrontCustomerPrefill().then(user => {
       if (user) {
         setForm(prev => ({
           ...prev,
-          customer_name: user.full_name || "",
-          customer_email: user.email || "",
-          customer_phone: user.phone || "",
-          customer_address: user.address || "",
+          customer_name: user.customer_name || "",
+          customer_email: user.customer_email || "",
+          customer_phone: user.customer_phone || "",
+          customer_address: user.customer_address || "",
         }));
       }
     }).catch(() => {});
@@ -55,78 +64,41 @@ export default function Order() {
   const cartTotal = cart.reduce((sum, i) => sum + i.price * i.quantity, 0);
   const cartCount = cart.reduce((sum, i) => sum + i.quantity, 0);
 
-  const generateOrderNumber = () => `ALO-${Date.now().toString().slice(-6)}`;
-
   const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
 
-    const orderNumber = generateOrderNumber();
+    try {
+      const created = await createStorefrontOrder({
+        customerName: form.customer_name,
+        customerPhone: form.customer_phone,
+        customerEmail: form.customer_email || undefined,
+        customerAddress: form.customer_address || undefined,
+        orderType: form.order_type,
+        paymentMethod: form.payment_method,
+        notes: form.notes || undefined,
+        items: cart.map(i => ({ id: i.id, name: i.name, price: Number(i.price || 0), quantity: i.quantity })),
+      });
 
-    // Find or create customer
-    const customers = await base44.entities.Customer.filter({ phone: form.customer_phone });
-    if (customers.length > 0) {
-      const customer = customers[0];
-      await base44.entities.Customer.update(customer.id, {
-        total_orders: (customer.total_orders || 0) + 1,
-        name: form.customer_name,
-        email: form.customer_email || customer.email,
-        address: form.customer_address || customer.address
-      });
-    } else {
-      await base44.entities.Customer.create({
-        name: form.customer_name, phone: form.customer_phone,
-        email: form.customer_email, address: form.customer_address,
-        total_orders: 1, subscribed_email: true
-      });
+      const successData = { orderNumber: created.order_number, phone: form.customer_phone };
+      setSuccess(successData);
+      setCart([]);
+      setForm({ customer_name: "", customer_phone: "", customer_email: "", customer_address: "", order_type: "takeaway", payment_method: "cash", notes: "" });
+      setStep("menu");
+      setOrderStatus(null);
+    } finally {
+      setLoading(false);
     }
-
-    await base44.entities.Order.create({
-      order_number: orderNumber,
-      customer_name: form.customer_name,
-      customer_phone: form.customer_phone,
-      customer_email: form.customer_email,
-      customer_address: form.customer_address,
-      order_type: form.order_type,
-      payment_method: form.payment_method,
-      notes: form.notes,
-      items: cart.map(i => ({ menu_item_id: i.id, name: i.name, price: i.price, quantity: i.quantity })),
-      total_amount: cartTotal,
-      status: "new"
-    });
-
-    const itemsList = cart.map(i => `- ${i.name} x${i.quantity} - CHF ${(i.price * i.quantity).toFixed(2)}`).join("\n");
-
-    const itemsListStr = cart.map(i => `- ${i.name} x${i.quantity} - CHF ${(i.price * i.quantity).toFixed(2)}`).join("\n");
-
-    // Send emails via backend function
-    base44.functions.invoke("orderNotify", {
-      orderNumber,
-      customerName: form.customer_name,
-      customerPhone: form.customer_phone,
-      customerEmail: form.customer_email,
-      orderType: form.order_type,
-      paymentMethod: form.payment_method,
-      customerAddress: form.customer_address,
-      itemsList: itemsListStr,
-      totalAmount: cartTotal.toFixed(2),
-      notes: form.notes
-    });
-
-    const successData = { orderNumber, phone: form.customer_phone };
-    setSuccess(successData);
-    setCart([]);
-    setForm({ customer_name: "", customer_phone: "", customer_email: "", customer_address: "", order_type: "takeaway", payment_method: "cash", notes: "" });
-    setStep("menu");
-    setOrderStatus(null);
-    setLoading(false);
   };
 
   const checkOrderStatus = async () => {
     setCheckingStatus(true);
-    const orders = await base44.entities.Order.filter({ order_number: success.orderNumber });
-    if (orders.length > 0) setOrderStatus(orders[0]);
-    setCheckingStatus(false);
+    try {
+      const order = await getStorefrontOrder(success.orderNumber);
+      setOrderStatus(order);
+    } finally {
+      setCheckingStatus(false);
+    }
   };
 
   const statusLabels = {
