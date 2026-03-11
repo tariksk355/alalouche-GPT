@@ -17,7 +17,15 @@ export class AdminController {
       return this.authService.verifyAccessToken(bearer, 'admin');
     }
 
-    // Legacy compatibility path (local/dev): stub admin header token + explicit restaurant header.
+    const isProduction = process.env.NODE_ENV === 'production';
+    if (isProduction) {
+      throw new UnauthorizedException({
+        error: 'ADMIN_AUTH_REQUIRED',
+        message: 'Admin bearer token is required.',
+      });
+    }
+
+    // Legacy compatibility path (non-production only): stub admin header token + explicit restaurant header.
     const expected = process.env.ADMIN_TOKEN || 'dev-admin';
     if (!adminToken || adminToken !== expected || !legacyRestaurantId) {
       throw new UnauthorizedException({

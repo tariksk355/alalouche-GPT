@@ -33,6 +33,12 @@ export class TenantResolverService {
     const tenant = await this.resolveRequestTenant(req);
     if (tenant) return tenant;
 
+    // If caller explicitly provided a tenant hint but it could not be resolved,
+    // never silently fallback to default tenant.
+    if (this.hasExplicitTenantHint(req)) {
+      return null;
+    }
+
     if (process.env.NODE_ENV === 'production') {
       return null;
     }
@@ -52,6 +58,16 @@ export class TenantResolverService {
       slug: restaurant.slug,
       source: 'dev_default',
     };
+  }
+
+  private hasExplicitTenantHint(req: Request): boolean {
+    return Boolean(
+      (req.params?.restaurantSlug as string) ||
+        (req.params?.slug as string) ||
+        (req.headers['x-restaurant-slug'] as string) ||
+        (req.query?.restaurantSlug as string) ||
+        (req.query?.slug as string),
+    );
   }
 
   private getSlugHint(req: Request): string | null {

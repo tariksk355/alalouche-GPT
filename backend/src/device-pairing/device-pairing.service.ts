@@ -1,47 +1,39 @@
-import { BadRequestException, Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { createHash, randomBytes } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreatePairingCodeDto } from './dto/create-pairing-code.dto';
 import { CreatePairingRequestDto } from './dto/create-pairing-request.dto';
 
+interface PairingAdminContext {
+  restaurantId: string;
+  actor: string;
+}
+
 @Injectable()
 export class DevicePairingService {
   constructor(private readonly prisma: PrismaService) {}
-
-  private async ensureRestaurant(restaurantId: string) {
-    const existing = await this.prisma.restaurant.findUnique({ where: { id: restaurantId } });
-    if (existing) {
-      return existing;
-    }
-
-    return this.prisma.restaurant.create({
-      data: {
-        id: restaurantId,
-        name: 'Default Restaurant (local dev)',
-      },
-    });
-  }
 
   private generateShortCode() {
     const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
     return Array.from({ length: 6 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
   }
 
-  private requireAdmin(adminToken?: string) {
-    const expected = process.env.ADMIN_TOKEN || 'dev-admin';
-    if (adminToken !== expected) {
-      throw new UnauthorizedException({ error: 'ADMIN_AUTH_REQUIRED', message: 'Admin token missing or invalid.' });
-    }
-  }
-
-  async createPairingCode(dto: CreatePairingCodeDto, adminToken?: string) {
-    this.requireAdmin(adminToken);
-
+  async createPairingCode(dto: CreatePairingCodeDto, admin: PairingAdminContext) {
     const code = this.generateShortCode();
     const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
-    const restaurantId = dto.restaurantId || process.env.DEFAULT_RESTAURANT_ID || 'demo-restaurant';
 
-    await this.ensureRestaurant(restaurantId);
+    if (dto.restaurantId && dto.restaurantId !== admin.restaurantId) {
+      throw new BadRequestException({
+        error: 'TENANT_CONTEXT_MISMATCH',
+        message: 'Pairing code restaurantId does not match authenticated admin tenant scope.',
+      });
+    }
+
+    const restaurantId = admin.restaurantId;
+    const restaurant = await this.prisma.restaurant.findUnique({ where: { id: restaurantId } });
+    if (!restaurant) {
+      throw new NotFoundException({ error: 'RESTAURANT_NOT_FOUND', message: 'Restaurant not found for admin scope.' });
+    }
 
     const pairingCode = await this.prisma.devicePairingCode.create({
       data: {
@@ -49,7 +41,7 @@ export class DevicePairingService {
         status: 'code_created',
         expiresAt,
         restaurantId,
-        createdBy: 'admin_stub',
+        createdBy: admin.actor,
       },
     });
 
@@ -84,16 +76,17 @@ export class DevicePairingService {
     });
   }
 
-  async listRequests(adminToken?: string) {
-    this.requireAdmin(adminToken);
-    return this.prisma.devicePairingRequest.findMany({ orderBy: { createdAt: 'desc' }, take: 100 });
+  async listRequests(admin: PairingAdminContext) {
+    return this.prisma.devicePairingRequest.findMany({
+      where: { restaurantId: admin.restaurantId },
+      orderBy: { createdAt: 'desc' },
+      take: 100,
+    });
   }
 
-  async confirmRequest(id: string, adminToken?: string) {
-    this.requireAdmin(adminToken);
-
+  async confirmRequest(id: string, admin: PairingAdminContext) {
     const request = await this.prisma.devicePairingRequest.findUnique({ where: { id } });
-    if (!request) {
+    if (!request || request.restaurantId !== admin.restaurantId) {
       throw new NotFoundException({ error: 'PAIRING_REQUEST_NOT_FOUND', message: 'Pairing request not found.' });
     }
 

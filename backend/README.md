@@ -16,7 +16,7 @@ This document is for reproducible local setup of the backend only.
   - `GET /receiver/orders`
   - `POST /receiver/orders/:id/status`
 
-Admin bearer auth is preferred. `x-admin-token` remains as a legacy compatibility path for local/dev operations and requires explicit tenant context (`x-restaurant-id`).
+Admin bearer auth is required in production paths. `x-admin-token` remains as a deprecated non-production compatibility path and always requires explicit tenant context (`x-restaurant-id`).
 
 
 ## Tenant resolution (Batch A)
@@ -115,24 +115,42 @@ With backend running in another terminal:
 
 This executes:
 1. `GET /health`
-2. `POST /admin/device-pairing-codes`
-3. `POST /devices/pairing-requests`
-4. `POST /admin/device-pairing-requests/:id/confirm`
-5. `POST /devices/verify`
-6. `GET /devices/me`
-7. `GET /receiver/orders`
+2. `POST /admin/auth/login`
+3. `POST /admin/device-pairing-codes` (bearer auth)
+4. `POST /devices/pairing-requests`
+5. `GET /admin/device-pairing-requests`
+6. `POST /admin/device-pairing-requests/:id/confirm`
+7. `POST /devices/verify`
+8. `GET /devices/me` and `GET /receiver/orders`
 
 You can override defaults:
 
 ```bash
-API_URL=http://localhost:3000 ADMIN_TOKEN=dev-admin ./scripts/smoke-test.sh
+API_URL=http://localhost:3000 ADMIN_USERNAME=admin ADMIN_PASSWORD=admin1234 ./scripts/smoke-test.sh
 ```
+
+### Option B: multi-tenant smoke script
+
+With backend running in another terminal:
+
+```bash
+./scripts/smoke-test-multitenant.sh
+```
+
+This validates tenant isolation across two restaurants for:
+- public config
+- customer signup/login
+- reservation + KPI isolation
+- admin tenant scopes
+- pairing legacy compatibility constraints
+- explicit invalid tenant hint no-fallback behavior
 
 ### Option B: manual curl sequence
 
 ```bash
 export API=http://localhost:3000
-export ADMIN_TOKEN=dev-admin
+export ADMIN_USERNAME=admin
+export ADMIN_PASSWORD=admin1234
 ```
 
 1) Health
@@ -141,12 +159,18 @@ export ADMIN_TOKEN=dev-admin
 curl -s "$API/health" | jq
 ```
 
-2) Create pairing code
+2) Admin login + create pairing code
 
 ```bash
+ADMIN_LOGIN_RESP=$(curl -s -X POST "$API/admin/auth/login" \
+  -H "Content-Type: application/json" \
+  -d '{"username":"'$ADMIN_USERNAME'","password":"'$ADMIN_PASSWORD'"}')
+
+ADMIN_BEARER=$(echo "$ADMIN_LOGIN_RESP" | jq -r '.data.token')
+
 PAIRING_CODE_RESP=$(curl -s -X POST "$API/admin/device-pairing-codes" \
   -H "Content-Type: application/json" \
-  -H "x-admin-token: $ADMIN_TOKEN" \
+  -H "Authorization: Bearer $ADMIN_BEARER" \
   -d '{"deviceName":"Sunmi Local Dev"}')
 
 echo "$PAIRING_CODE_RESP" | jq
@@ -168,7 +192,7 @@ PAIRING_REQUEST_ID=$(echo "$PAIRING_REQUEST_RESP" | jq -r '.data.pairingRequestI
 
 ```bash
 curl -s -X POST "$API/admin/device-pairing-requests/$PAIRING_REQUEST_ID/confirm" \
-  -H "x-admin-token: $ADMIN_TOKEN" | jq
+  -H "Authorization: Bearer $ADMIN_BEARER" | jq
 ```
 
 5) Verify device and get token
