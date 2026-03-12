@@ -1,6 +1,5 @@
 import { useState, useEffect } from "react";
 import { createPageUrl } from "@/utils";
-import { base44 } from "@/api/base44Client";
 import { formatTime, formatDate, formatDateFull } from "@/components/formatDate";
 import AdminAnalytics from "@/components/admin/AdminAnalytics";
 import DeviceProvisioning from "@/components/admin/DeviceProvisioning";
@@ -9,6 +8,7 @@ import { getAdminKpis, listAdminOrders, listAdminReservations, updateAdminOrderS
 import { createAdminMenuItem, deleteAdminMenuItem, listAdminMenuCatalog, updateAdminMenuItem } from "@/lib/api/adminMenuCatalog";
 import { createAdminCustomer, deleteAdminCustomer, listAdminCustomers, updateAdminCustomer } from "@/lib/api/adminCustomers";
 import { getAdminPrinterSettings, updateAdminPrinterSettings } from "@/lib/api/adminSettings";
+import { getAdminMarketingRecipientCount, sendAdminMarketingBulkEmail } from "@/lib/api/adminMarketing";
 
 const NAV_ITEMS = [
   { id: "orders", label: "Commandes", icon: "🛒" },
@@ -733,10 +733,20 @@ function AdminMarketing() {
   const [emailForm, setEmailForm] = useState({ subject: "", body: "" });
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState("");
+  const [error, setError] = useState("");
   const [customerCount, setCustomerCount] = useState(0);
 
+  const loadRecipientCount = async () => {
+    try {
+      const count = await getAdminMarketingRecipientCount();
+      setCustomerCount(count);
+    } catch (e) {
+      setError(e.message || "Impossible de charger les destinataires marketing.");
+    }
+  };
+
   useEffect(() => {
-    base44.entities.Customer.filter({ subscribed_email: true }).then(data => setCustomerCount(data.length));
+    loadRecipientCount();
   }, []);
 
   const sendBulkEmail = async (e) => {
@@ -744,23 +754,37 @@ function AdminMarketing() {
     if (loading) return;
     setLoading(true);
     setSuccess("");
-    const customers = await base44.entities.Customer.filter({ subscribed_email: true });
-    const recipientEmails = customers.filter(c => c.email).map(c => c.email);
-    if (recipientEmails.length === 0) { setSuccess("Aucun client avec une adresse email abonné."); setLoading(false); return; }
-    const res = await base44.functions.invoke("sendBulkMarketingEmail", { emails: recipientEmails, subject: emailForm.subject, body: emailForm.body });
-    if (res.data?.success) {
-      setSuccess(`✅ Email envoyé à ${res.data.sentCount} client(s) !`);
+    setError("");
+
+    try {
+      const result = await sendAdminMarketingBulkEmail({
+        subject: emailForm.subject,
+        body: emailForm.body,
+      });
+
+      if (result.recipientsMatched === 0) {
+        setSuccess("Aucun client abonné à l'email marketing.");
+      } else {
+        setSuccess(`✅ Envoi traité pour ${result.recipientsDispatched} client(s) (sur ${result.recipientsMatched} abonné(s)).`);
+      }
+
       setEmailForm({ subject: "", body: "" });
-    } else {
-      setSuccess(`❌ Erreur : ${res.data?.error || "Échec"}`);
+      await loadRecipientCount();
+    } catch (e) {
+      setError(e.message || "Impossible d'envoyer la campagne marketing.");
+    } finally {
+      setLoading(false);
+      setTimeout(() => {
+        setSuccess("");
+        setError("");
+      }, 6000);
     }
-    setLoading(false);
-    setTimeout(() => setSuccess(""), 6000);
   };
 
   return (
     <div className="max-w-2xl">
       {success && <div className="mb-4 bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-lg text-sm">{success}</div>}
+      {error && <div className="mb-4 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">{error}</div>}
       <form onSubmit={sendBulkEmail} className="bg-white rounded-xl border border-gray-200 p-6 space-y-4 shadow-sm">
         <p className="text-gray-500 text-sm">{customerCount} clients abonnés aux emails</p>
         <div>
