@@ -2,6 +2,10 @@
 set -e
 
 if [ "${RUN_DB_MIGRATIONS:-true}" = "true" ]; then
+  if [ -z "${DATABASE_URL:-}" ]; then
+    echo "[entrypoint] DATABASE_URL is required when RUN_DB_MIGRATIONS=true" >&2
+    exit 1
+  fi
   echo "[entrypoint] Running prisma migrate deploy..."
   npx prisma migrate deploy
 else
