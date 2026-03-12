@@ -114,3 +114,42 @@ If it fails, inspect container logs:
 docker logs alalouche-backend-smoke
 docker logs alalouche-frontend-smoke
 ```
+
+
+## Single-server deployment with docker compose (Droplet/EC2)
+
+A root-level `docker-compose.yml` is included for practical single-server orchestration of:
+- `frontend` (nginx static SPA)
+- `backend` (NestJS + Prisma migrations at startup by default)
+- `postgres` (single-server DB container with persistent volume)
+
+Redis is intentionally omitted in this slice because the current architecture does not use Redis-backed caching/queues/sessions yet.
+
+### Prepare env
+
+```bash
+cp deploy/env/compose.env.example deploy/env/compose.env
+# then edit deploy/env/compose.env with real production values
+```
+
+### Start stack
+
+```bash
+docker compose --env-file deploy/env/compose.env up -d --build
+```
+
+### Smoke-check endpoints
+
+```bash
+curl -fsS http://127.0.0.1:${BACKEND_PORT:-3000}/health
+curl -fsS http://127.0.0.1:${BACKEND_PORT:-3000}/ready
+curl -fsS http://127.0.0.1:${FRONTEND_PORT:-80}/health
+```
+
+### Logs / status
+
+```bash
+docker compose --env-file deploy/env/compose.env ps
+docker compose --env-file deploy/env/compose.env logs -f backend frontend postgres
+```
+
