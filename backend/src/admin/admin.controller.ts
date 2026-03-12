@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Headers, Param, Patch, Post, UnauthorizedException } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Headers, Param, Patch, Post, Query, UnauthorizedException } from '@nestjs/common';
 import { AccessTokenPayload } from '../auth/token.service';
 import { ok } from '../common/api-response';
 import { AuthService } from '../auth/auth.service';
@@ -14,6 +14,8 @@ import { UpdateAdminMenuItemDto } from './dto/update-admin-menu-item.dto';
 import { AdminAnalyticsService } from './admin-analytics.service';
 import { AdminSettingsService } from './admin-settings.service';
 import { UpdateAdminPrinterSettingsDto } from './dto/update-admin-printer-settings.dto';
+import { AdminMarketingService } from './admin-marketing.service';
+import { SendAdminMarketingEmailDto } from './dto/send-admin-marketing-email.dto';
 
 @Controller('admin')
 export class AdminController {
@@ -24,6 +26,7 @@ export class AdminController {
     private readonly adminCustomersService: AdminCustomersService,
     private readonly adminAnalyticsService: AdminAnalyticsService,
     private readonly adminSettingsService: AdminSettingsService,
+    private readonly adminMarketingService: AdminMarketingService,
   ) {}
 
   private requireAdmin(authorization?: string, adminToken?: string, legacyRestaurantId?: string): AccessTokenPayload {
@@ -150,6 +153,44 @@ export class AdminController {
     const auth = this.requireAdmin(authorization, adminToken, legacyRestaurantId);
     const settings = await this.adminSettingsService.updatePrinterSettings(auth.restaurantId, dto);
     return ok({ settings });
+  }
+
+  @Get('marketing/recipients')
+  async listMarketingRecipients(
+    @Headers('authorization') authorization?: string,
+    @Headers('x-admin-token') adminToken?: string,
+    @Headers('x-restaurant-id') legacyRestaurantId?: string,
+    @Query('subscribed') subscribed?: string,
+  ) {
+    const auth = this.requireAdmin(authorization, adminToken, legacyRestaurantId);
+    const subscribedOnly = subscribed !== 'false';
+    const recipients = await this.adminMarketingService.listRecipients(auth.restaurantId, subscribedOnly);
+    return ok({ recipients, subscribed: subscribedOnly });
+  }
+
+  @Get('marketing/recipient-count')
+  async getMarketingRecipientCount(
+    @Headers('authorization') authorization?: string,
+    @Headers('x-admin-token') adminToken?: string,
+    @Headers('x-restaurant-id') legacyRestaurantId?: string,
+    @Query('subscribed') subscribed?: string,
+  ) {
+    const auth = this.requireAdmin(authorization, adminToken, legacyRestaurantId);
+    const subscribedOnly = subscribed !== 'false';
+    const count = await this.adminMarketingService.getRecipientCount(auth.restaurantId, subscribedOnly);
+    return ok({ count, subscribed: subscribedOnly });
+  }
+
+  @Post('marketing/send-bulk-email')
+  async sendMarketingBulkEmail(
+    @Body() dto: SendAdminMarketingEmailDto,
+    @Headers('authorization') authorization?: string,
+    @Headers('x-admin-token') adminToken?: string,
+    @Headers('x-restaurant-id') legacyRestaurantId?: string,
+  ) {
+    const auth = this.requireAdmin(authorization, adminToken, legacyRestaurantId);
+    const result = await this.adminMarketingService.sendBulkEmail(auth.restaurantId, dto);
+    return ok(result);
   }
 
   @Get('customers')

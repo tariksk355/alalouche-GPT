@@ -79,6 +79,7 @@ model Customer {
   fullName      String
   email         String
   phone         String?
+  subscribedEmail Boolean   @default(false)
   passwordHash  String
   orders        Order[]
   createdAt     DateTime   @default(now())

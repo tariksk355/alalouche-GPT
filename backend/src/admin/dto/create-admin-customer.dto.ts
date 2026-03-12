@@ -1,4 +1,4 @@
-import { IsEmail, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
+import { IsBoolean, IsEmail, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
 
 export class CreateAdminCustomerDto {
   @IsString()
@@ -20,4 +20,8 @@ export class CreateAdminCustomerDto {
   @MinLength(8)
   @MaxLength(120)
   password?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  subscribedEmail?: boolean;
 }
