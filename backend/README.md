@@ -76,6 +76,36 @@ In production, 5xx messages are sanitized to avoid leaking internals.
 - Legacy webhook provider path has been removed in favor of explicit Resend-only provider wiring for active sends.
 - Marketing sends and transactional status notifications both use Resend when enabled.
 
+
+## Production container usage
+
+### Docker image behavior
+
+- `backend/Dockerfile` builds and runs the NestJS app from `dist/`.
+- Container entrypoint (`scripts/docker-entrypoint.sh`) runs `prisma migrate deploy` by default before starting the app.
+- Set `RUN_DB_MIGRATIONS=false` to skip migrations at container startup (for dedicated migration/release jobs).
+
+### Required production env vars
+
+- `DATABASE_URL`
+- `AUTH_TOKEN_SECRET`
+- `NODE_ENV=production`
+- `EMAIL_PROVIDER` (`none` or `resend`)
+- `RESEND_API_KEY` + `EMAIL_FROM` when `EMAIL_PROVIDER=resend`
+
+### Example local container run
+
+```bash
+docker build -t alalouche-backend ./backend
+docker run --rm -p 3000:3000 \
+  -e NODE_ENV=production \
+  -e PORT=3000 \
+  -e DATABASE_URL='postgresql://user:pass@host:25060/db?sslmode=require' \
+  -e AUTH_TOKEN_SECRET='change-me' \
+  -e EMAIL_PROVIDER=none \
+  alalouche-backend
+```
+
 ## Prerequisites
 
 - Node.js 20+

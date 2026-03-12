@@ -13,7 +13,9 @@
     "prisma:migrate": "prisma migrate dev --name init",
     "prisma:seed": "node prisma/seed.js",
     "prisma:studio": "prisma studio",
-    "orders:backfill-customer-link": "node scripts/backfill-order-customer-id.js"
+    "orders:backfill-customer-link": "node scripts/backfill-order-customer-id.js",
+    "start:prod": "node dist/main.js",
+    "prisma:migrate:deploy": "prisma migrate deploy"
   },
   "prisma": {
     "seed": "node prisma/seed.js"
