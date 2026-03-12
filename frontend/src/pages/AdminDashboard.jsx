@@ -12,6 +12,7 @@ import { getAdminMarketingRecipientCount, sendAdminMarketingBulkEmail } from "@/
 
 const NAV_ITEMS = [
   { id: "orders", label: "Commandes", icon: "🛒" },
+  { id: "devices", label: "Appareils", icon: "📟" },
   { id: "menu", label: "Menu", icon: "🍽️" },
   { id: "reservations", label: "Réservations", icon: "📅" },
   { id: "customers", label: "Clients", icon: "👥" },
@@ -105,6 +106,7 @@ export default function AdminDashboard() {
 
         <main className="flex-1 p-4 lg:p-6 overflow-auto">
           {activeTab === "orders" && <AdminOrders />}
+          {activeTab === "devices" && <AdminDevices />}
           {activeTab === "menu" && <AdminMenu />}
           {activeTab === "reservations" && <AdminReservations />}
           {activeTab === "customers" && <AdminCustomers />}
@@ -112,6 +114,15 @@ export default function AdminDashboard() {
           {activeTab === "analytics" && <AdminAnalytics />}
         </main>
       </div>
+    </div>
+  );
+}
+
+function AdminDevices() {
+  return (
+    <div className="max-w-3xl space-y-4">
+      <AdminNotice type="info">Générez un code d'association puis confirmez la demande pour rattacher un terminal Sunmi à ce restaurant.</AdminNotice>
+      <DeviceProvisioning />
     </div>
   );
 }
