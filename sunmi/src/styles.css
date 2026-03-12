@@ -48,3 +48,16 @@ button:disabled { opacity: 0.6; }
   margin-top: 8px;
   font-size: 13px;
 }
+
+.debug-pre {
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: #0b1220;
+  border: 1px solid #374151;
+  border-radius: 8px;
+  padding: 8px;
+  margin-top: 6px;
+  max-height: 220px;
+  overflow: auto;
+  font-size: 12px;
+}
