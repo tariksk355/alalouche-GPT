@@ -44,6 +44,31 @@ function safeParseBridgeResponse(raw, fallback) {
 }
 
 function createNativeBridgePrinterAdapter(nativeBridge) {
+  function invokePrintWithFallbacks(printJob) {
+    const payload = JSON.stringify(printJob);
+
+    const attempts = [
+      () => nativeBridge.printReceipt?.(payload),
+      () => nativeBridge.printReceipt?.(JSON.stringify({ printJob })),
+      () => nativeBridge.printOrder?.(payload),
+      () => nativeBridge.print?.(payload),
+    ];
+
+    for (const attempt of attempts) {
+      const raw = attempt();
+      const parsed = safeParseBridgeResponse(raw, null);
+      if (parsed && typeof parsed === 'object') {
+        return parsed;
+      }
+    }
+
+    return {
+      ok: false,
+      code: 'BRIDGE_BAD_RESPONSE',
+      message: 'Invalid native bridge response for print operation.',
+    };
+  }
+
   return {
     async isAvailable() {
       const res = safeParseBridgeResponse(nativeBridge.isAvailable?.('{}'), {
@@ -54,12 +79,7 @@ function createNativeBridgePrinterAdapter(nativeBridge) {
     },
 
     async printReceipt(printJob) {
-      const raw = nativeBridge.printReceipt?.(JSON.stringify(printJob));
-      return safeParseBridgeResponse(raw, {
-        ok: false,
-        code: 'BRIDGE_BAD_RESPONSE',
-        message: 'Invalid native bridge response for printReceipt.',
-      });
+      return invokePrintWithFallbacks(printJob);
     },
 
     async openCashDrawer() {
@@ -126,7 +146,9 @@ export function createPrinterAdapter() {
   const hasBridge = nativeBridge
     && typeof nativeBridge.isAvailable === 'function'
     && typeof nativeBridge.getPrinterInfo === 'function'
-    && typeof nativeBridge.printReceipt === 'function'
+    && (typeof nativeBridge.printReceipt === 'function'
+      || typeof nativeBridge.printOrder === 'function'
+      || typeof nativeBridge.print === 'function')
     && typeof nativeBridge.openCashDrawer === 'function';
 
   if (hasBridge) {
