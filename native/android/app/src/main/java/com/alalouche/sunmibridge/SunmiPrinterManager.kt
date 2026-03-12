@@ -10,6 +10,7 @@ import android.os.RemoteException
 import android.util.Log
 import org.json.JSONArray
 import org.json.JSONObject
+import woyou.aidlservice.jiuiv5.ICallback
 import woyou.aidlservice.jiuiv5.IWoyouService
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -142,32 +143,50 @@ class SunmiPrinterManager(private val context: Context) {
         return try {
             Log.i(TAG, "printReceipt attempt order=$orderNumber lines=${lines.length()}")
             val renderedLines = mutableListOf<String>()
+            val callbackErrors = mutableListOf<String>()
+
+            fun callbackFor(op: String): ICallback {
+                return object : ICallback.Stub() {
+                    override fun onRunResult(isSuccess: Boolean) {
+                        Log.i(TAG, "low_level_callback op=$op onRunResult success=$isSuccess")
+                    }
+
+                    override fun onReturnString(result: String?) {
+                        Log.i(TAG, "low_level_callback op=$op onReturnString result=${result ?: ""}")
+                    }
+
+                    override fun onRaiseException(code: Int, msg: String?) {
+                        val err = "op=$op code=$code msg=${msg ?: ""}"
+                        callbackErrors += err
+                        Log.e(TAG, "low_level_callback onRaiseException $err")
+                    }
+                }
+            }
 
             fun pushRenderedLine(line: String) {
                 renderedLines += line
                 Log.i(TAG, "low_level_call printText text='${line.take(120)}'")
-                service.printText("$line\n", null)
+                service.printText("$line\n", callbackFor("printText"))
             }
 
-            Log.i(TAG, "low_level_call enterPrinterBuffer clean=true")
-            service.enterPrinterBuffer(true)
+            Log.i(TAG, "low_level_call enterPrinterBuffer skipped_for_v2s=true")
             // IMPORTANT: do NOT call printerInit() in live receipt flow.
             // On some Sunmi firmware/models this can trigger device/printer
             // diagnostic output instead of regular receipt text.
             Log.i(TAG, "low_level_call printerInit skipped_in_receipt_flow=true")
 
             Log.i(TAG, "low_level_call setAlignment alignment=1")
-            service.setAlignment(1, null)
+            service.setAlignment(1, callbackFor("setAlignment"))
             Log.i(TAG, "low_level_call setFontSize size=30.0")
-            service.setFontSize(30f, null)
+            service.setFontSize(30f, callbackFor("setFontSize"))
             val restaurantName = firstNonBlank(restaurant.optString("name"), printJob.optString("restaurantName"))
             if (restaurantName.isNotBlank()) {
                 pushRenderedLine(restaurantName)
             }
             Log.i(TAG, "low_level_call setFontSize size=22.0")
-            service.setFontSize(22f, null)
+            service.setFontSize(22f, callbackFor("setFontSize"))
             Log.i(TAG, "low_level_call setAlignment alignment=0")
-            service.setAlignment(0, null)
+            service.setAlignment(0, callbackFor("setAlignment"))
             pushRenderedLine("Order: $orderNumber")
             if (orderType.isNotBlank()) {
                 pushRenderedLine("Type: $orderType")
@@ -233,10 +252,10 @@ class SunmiPrinterManager(private val context: Context) {
             if (!total.isNaN()) {
                 val currency = if (hasTotalsObject) totals!!.optString("currency", "CHF") else "CHF"
                 Log.i(TAG, "low_level_call setAlignment alignment=2")
-                service.setAlignment(2, null)
+                service.setAlignment(2, callbackFor("setAlignment"))
                 pushRenderedLine("TOTAL: ${"%.2f".format(total)} $currency")
                 Log.i(TAG, "low_level_call setAlignment alignment=0")
-                service.setAlignment(0, null)
+                service.setAlignment(0, callbackFor("setAlignment"))
             }
 
             if (parsedNotes.extraNote.isNotBlank()) {
@@ -247,9 +266,16 @@ class SunmiPrinterManager(private val context: Context) {
             Log.i(TAG, "rendered_receipt_text_start\n$renderedReceiptText\nrendered_receipt_text_end")
 
             Log.i(TAG, "low_level_call lineWrap n=3")
-            service.lineWrap(3, null)
-            Log.i(TAG, "low_level_call exitPrinterBuffer commit=true")
-            service.exitPrinterBuffer(true)
+            service.lineWrap(3, callbackFor("lineWrap"))
+            Log.i(TAG, "low_level_call exitPrinterBuffer skipped_for_v2s=true")
+
+            if (callbackErrors.isNotEmpty()) {
+                return fail(
+                    "SUNMI_PRINT_CALLBACK_ERROR",
+                    "Printer service returned callback errors.",
+                    callbackErrors.joinToString(" | "),
+                )
+            }
 
             Log.i(TAG, "printReceipt success order=$orderNumber")
             JSONObject().apply {
@@ -260,6 +286,7 @@ class SunmiPrinterManager(private val context: Context) {
                 put("lineCount", lines.length())
                 put("renderedLineCount", renderedLines.size)
                 put("renderedReceiptText", renderedReceiptText)
+                put("callbackErrors", JSONArray(callbackErrors))
             }
         } catch (e: RemoteException) {
             Log.e(TAG, "printReceipt remote error", e)
