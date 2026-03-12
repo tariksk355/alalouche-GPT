@@ -1,0 +1,132 @@
+import { Injectable, NotFoundException } from '@nestjs/common';
+import { randomUUID } from 'crypto';
+import { PrismaService } from '../prisma/prisma.service';
+import { CreateAdminMenuItemDto } from './dto/create-admin-menu-item.dto';
+import { UpdateAdminMenuItemDto } from './dto/update-admin-menu-item.dto';
+
+type MenuCatalogItem = {
+  id: string;
+  name: string;
+  description: string | null;
+  price: number;
+  category: string;
+  imageUrl: string | null;
+  allergens: string | null;
+  available: boolean;
+  sortOrder: number;
+};
+
+@Injectable()
+export class AdminMenuCatalogService {
+  constructor(private readonly prisma: PrismaService) {}
+
+  async listMenuCatalog(restaurantId: string): Promise<MenuCatalogItem[]> {
+    const restaurant = await this.getRestaurant(restaurantId);
+    return this.readMenuCatalog(restaurant.orderingSettings);
+  }
+
+  async createMenuItem(restaurantId: string, dto: CreateAdminMenuItemDto): Promise<MenuCatalogItem> {
+    const restaurant = await this.getRestaurant(restaurantId);
+    const current = this.readMenuCatalog(restaurant.orderingSettings);
+    const sortOrder = current.length > 0 ? Math.max(...current.map((item) => item.sortOrder)) + 1 : 0;
+
+    const created: MenuCatalogItem = {
+      id: randomUUID(),
+      name: dto.name.trim(),
+      description: dto.description?.trim() || null,
+      price: Number(dto.price),
+      category: dto.category?.trim() || 'Autres',
+      imageUrl: dto.imageUrl?.trim() || null,
+      allergens: dto.allergens?.trim() || null,
+      available: dto.available !== false,
+      sortOrder,
+    };
+
+    await this.persistMenuCatalog(restaurantId, restaurant.orderingSettings, [...current, created]);
+    return created;
+  }
+
+  async updateMenuItem(restaurantId: string, itemId: string, dto: UpdateAdminMenuItemDto): Promise<MenuCatalogItem> {
+    const restaurant = await this.getRestaurant(restaurantId);
+    const current = this.readMenuCatalog(restaurant.orderingSettings);
+    const idx = current.findIndex((item) => item.id === itemId);
+    if (idx < 0) {
+      throw new NotFoundException({ error: 'MENU_ITEM_NOT_FOUND', message: 'Menu item not found.' });
+    }
+
+    const existing = current[idx];
+    const updated: MenuCatalogItem = {
+      ...existing,
+      ...(dto.name !== undefined ? { name: dto.name.trim() } : {}),
+      ...(dto.description !== undefined ? { description: dto.description.trim() || null } : {}),
+      ...(dto.price !== undefined ? { price: Number(dto.price) } : {}),
+      ...(dto.category !== undefined ? { category: dto.category.trim() || 'Autres' } : {}),
+      ...(dto.imageUrl !== undefined ? { imageUrl: dto.imageUrl.trim() || null } : {}),
+      ...(dto.allergens !== undefined ? { allergens: dto.allergens.trim() || null } : {}),
+      ...(dto.available !== undefined ? { available: dto.available } : {}),
+    };
+
+    const next = [...current];
+    next[idx] = updated;
+    await this.persistMenuCatalog(restaurantId, restaurant.orderingSettings, next);
+    return updated;
+  }
+
+  async deleteMenuItem(restaurantId: string, itemId: string): Promise<void> {
+    const restaurant = await this.getRestaurant(restaurantId);
+    const current = this.readMenuCatalog(restaurant.orderingSettings);
+    const next = current.filter((item) => item.id !== itemId);
+    if (next.length === current.length) {
+      throw new NotFoundException({ error: 'MENU_ITEM_NOT_FOUND', message: 'Menu item not found.' });
+    }
+
+    await this.persistMenuCatalog(restaurantId, restaurant.orderingSettings, next.map((item, index) => ({ ...item, sortOrder: index })));
+  }
+
+  private async getRestaurant(restaurantId: string) {
+    const restaurant = await this.prisma.restaurant.findUnique({ where: { id: restaurantId } });
+    if (!restaurant) {
+      throw new NotFoundException({ error: 'RESTAURANT_NOT_FOUND', message: 'Restaurant not found.' });
+    }
+
+    return restaurant;
+  }
+
+  private readMenuCatalog(orderingSettings: unknown): MenuCatalogItem[] {
+    const settings = (orderingSettings as Record<string, unknown> | null) || {};
+    const rawItems = Array.isArray(settings.menuCatalog) ? settings.menuCatalog : [];
+
+    return rawItems
+      .filter((item) => item && typeof item === 'object')
+      .map((item, index) => {
+        const row = item as Record<string, unknown>;
+        return {
+          id: String(row.id || ''),
+          name: String(row.name || ''),
+          description: row.description ? String(row.description) : null,
+          price: Number(row.price || 0),
+          category: row.category ? String(row.category) : 'Autres',
+          imageUrl: row.imageUrl ? String(row.imageUrl) : null,
+          allergens: row.allergens ? String(row.allergens) : null,
+          available: row.available !== false,
+          sortOrder: Number.isFinite(Number(row.sortOrder)) ? Number(row.sortOrder) : index,
+        };
+      })
+      .filter((item) => item.id && item.name)
+      .sort((a, b) => a.sortOrder - b.sortOrder);
+  }
+
+  private async persistMenuCatalog(restaurantId: string, orderingSettings: unknown, items: MenuCatalogItem[]) {
+    const current = (orderingSettings as Record<string, unknown> | null) || {};
+
+    await this.prisma.restaurant.update({
+      where: { id: restaurantId },
+      data: {
+        orderingSettings: {
+          ...current,
+          menuCatalog: items,
+        },
+      },
+    });
+  }
+}
