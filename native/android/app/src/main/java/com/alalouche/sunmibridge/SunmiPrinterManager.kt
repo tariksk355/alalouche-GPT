@@ -145,18 +145,28 @@ class SunmiPrinterManager(private val context: Context) {
 
             fun pushRenderedLine(line: String) {
                 renderedLines += line
+                Log.i(TAG, "low_level_call printText text='${line.take(120)}'")
                 service.printText("$line\n", null)
             }
 
+            Log.i(TAG, "low_level_call enterPrinterBuffer clean=true")
             service.enterPrinterBuffer(true)
-            service.printerInit(null)
+            // IMPORTANT: do NOT call printerInit() in live receipt flow.
+            // On some Sunmi firmware/models this can trigger device/printer
+            // diagnostic output instead of regular receipt text.
+            Log.i(TAG, "low_level_call printerInit skipped_in_receipt_flow=true")
+
+            Log.i(TAG, "low_level_call setAlignment alignment=1")
             service.setAlignment(1, null)
+            Log.i(TAG, "low_level_call setFontSize size=30.0")
             service.setFontSize(30f, null)
             val restaurantName = firstNonBlank(restaurant.optString("name"), printJob.optString("restaurantName"))
             if (restaurantName.isNotBlank()) {
                 pushRenderedLine(restaurantName)
             }
+            Log.i(TAG, "low_level_call setFontSize size=22.0")
             service.setFontSize(22f, null)
+            Log.i(TAG, "low_level_call setAlignment alignment=0")
             service.setAlignment(0, null)
             pushRenderedLine("Order: $orderNumber")
             if (orderType.isNotBlank()) {
@@ -222,8 +232,10 @@ class SunmiPrinterManager(private val context: Context) {
             }
             if (!total.isNaN()) {
                 val currency = if (hasTotalsObject) totals!!.optString("currency", "CHF") else "CHF"
+                Log.i(TAG, "low_level_call setAlignment alignment=2")
                 service.setAlignment(2, null)
                 pushRenderedLine("TOTAL: ${"%.2f".format(total)} $currency")
+                Log.i(TAG, "low_level_call setAlignment alignment=0")
                 service.setAlignment(0, null)
             }
 
@@ -234,7 +246,9 @@ class SunmiPrinterManager(private val context: Context) {
             val renderedReceiptText = renderedLines.joinToString("\n")
             Log.i(TAG, "rendered_receipt_text_start\n$renderedReceiptText\nrendered_receipt_text_end")
 
+            Log.i(TAG, "low_level_call lineWrap n=3")
             service.lineWrap(3, null)
+            Log.i(TAG, "low_level_call exitPrinterBuffer commit=true")
             service.exitPrinterBuffer(true)
 
             Log.i(TAG, "printReceipt success order=$orderNumber")
