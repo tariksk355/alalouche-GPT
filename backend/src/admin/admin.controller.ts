@@ -1,4 +1,19 @@
-import { Body, Controller, Delete, Get, Headers, Param, Patch, Post, Query, UnauthorizedException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Headers,
+  Param,
+  Patch,
+  Post,
+  Query,
+  UnauthorizedException,
+  UploadedFile,
+  UseInterceptors,
+} from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { AccessTokenPayload } from '../auth/token.service';
 import { ok } from '../common/api-response';
 import { AuthService } from '../auth/auth.service';
@@ -16,6 +31,7 @@ import { AdminSettingsService } from './admin-settings.service';
 import { UpdateAdminPrinterSettingsDto } from './dto/update-admin-printer-settings.dto';
 import { AdminMarketingService } from './admin-marketing.service';
 import { SendAdminMarketingEmailDto } from './dto/send-admin-marketing-email.dto';
+import { AdminMenuImageStorageService } from './admin-menu-image-storage.service';
 
 @Controller('admin')
 export class AdminController {
@@ -27,6 +43,7 @@ export class AdminController {
     private readonly adminAnalyticsService: AdminAnalyticsService,
     private readonly adminSettingsService: AdminSettingsService,
     private readonly adminMarketingService: AdminMarketingService,
+    private readonly adminMenuImageStorageService: AdminMenuImageStorageService,
   ) {}
 
   private requireAdmin(authorization?: string, adminToken?: string, legacyRestaurantId?: string): AccessTokenPayload {
@@ -262,6 +279,32 @@ export class AdminController {
     const auth = this.requireAdmin(authorization, adminToken, legacyRestaurantId);
     const item = await this.adminMenuCatalogService.createMenuItem(auth.restaurantId, dto);
     return ok({ item });
+  }
+
+  @Post('menu-catalog/images/upload')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      limits: {
+        fileSize: parseInt(process.env.S3_UPLOAD_MAX_BYTES || '', 10) || 5 * 1024 * 1024,
+      },
+    }),
+  )
+  async uploadMenuImage(
+    @UploadedFile() file: Express.Multer.File,
+    @Headers('authorization') authorization?: string,
+    @Headers('x-admin-token') adminToken?: string,
+    @Headers('x-restaurant-id') legacyRestaurantId?: string,
+  ) {
+    const auth = this.requireAdmin(authorization, adminToken, legacyRestaurantId);
+    if (!file) {
+      throw new BadRequestException({
+        error: 'IMAGE_FILE_REQUIRED',
+        message: 'No image file provided.',
+      });
+    }
+
+    const image = await this.adminMenuImageStorageService.uploadMenuImage(auth.restaurantId, file);
+    return ok({ imageUrl: image.url, key: image.key });
   }
 
   @Patch('menu-catalog/:id')

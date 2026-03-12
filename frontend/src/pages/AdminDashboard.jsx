@@ -5,7 +5,7 @@ import AdminAnalytics from "@/components/admin/AdminAnalytics";
 import DeviceProvisioning from "@/components/admin/DeviceProvisioning";
 import { clearStoredAdminSession, getStoredAdminSession } from "@/lib/customerAuth";
 import { getAdminKpis, listAdminOrders, listAdminReservations, updateAdminOrderStatus, updateAdminReservationStatus } from "@/lib/api/adminOps";
-import { createAdminMenuItem, deleteAdminMenuItem, listAdminMenuCatalog, updateAdminMenuItem } from "@/lib/api/adminMenuCatalog";
+import { createAdminMenuItem, deleteAdminMenuItem, listAdminMenuCatalog, updateAdminMenuItem, uploadAdminMenuImage } from "@/lib/api/adminMenuCatalog";
 import { createAdminCustomer, deleteAdminCustomer, listAdminCustomers, updateAdminCustomer } from "@/lib/api/adminCustomers";
 import { getAdminPrinterSettings, updateAdminPrinterSettings } from "@/lib/api/adminSettings";
 import { getAdminMarketingRecipientCount, sendAdminMarketingBulkEmail } from "@/lib/api/adminMarketing";
@@ -334,6 +334,7 @@ function AdminMenu() {
   const [editing, setEditing] = useState(null);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [uploadingImage, setUploadingImage] = useState(false);
   const [success, setSuccess] = useState("");
   const [error, setError] = useState("");
 
@@ -392,6 +393,26 @@ function AdminMenu() {
       setError(e.message || "Impossible d'enregistrer l'article.");
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleImageUpload = async (e) => {
+    const selectedFile = e.target.files?.[0];
+    if (!selectedFile) return;
+
+    setUploadingImage(true);
+    setError("");
+
+    try {
+      const uploaded = await uploadAdminMenuImage(selectedFile);
+      setForm((prev) => ({ ...prev, imageUrl: uploaded.imageUrl || "" }));
+      setSuccess("Image uploadée avec succès.");
+      setTimeout(() => setSuccess(""), 3000);
+    } catch (uploadError) {
+      setError(uploadError.message || "Impossible d'uploader l'image.");
+    } finally {
+      setUploadingImage(false);
+      e.target.value = "";
     }
   };
 
@@ -465,9 +486,19 @@ function AdminMenu() {
                 className="w-full bg-gray-50 border border-gray-200 text-gray-900 px-3 py-2 rounded-lg focus:outline-none focus:border-gray-400 resize-none" />
             </div>
             <div className="col-span-2">
-              <label className="block text-sm text-gray-500 mb-1">Image (URL)</label>
+              <label className="block text-sm text-gray-500 mb-1">Image</label>
+              <input
+                type="file"
+                accept="image/png,image/jpeg,image/webp,image/gif"
+                onChange={handleImageUpload}
+                disabled={uploadingImage}
+                className="w-full bg-gray-50 border border-gray-200 text-gray-900 px-3 py-2 rounded-lg focus:outline-none focus:border-gray-400 file:mr-3 file:rounded file:border-0 file:bg-gray-200 file:px-2 file:py-1 file:text-gray-700"
+              />
+              <p className="text-xs text-gray-400 mt-1">PNG, JPG, WEBP ou GIF (max 5 MB par défaut).</p>
+              <label className="block text-sm text-gray-500 mt-3 mb-1">URL image (optionnel, remplacement manuel)</label>
               <input value={form.imageUrl} onChange={e => setForm({ ...form, imageUrl: e.target.value })}
                 className="w-full bg-gray-50 border border-gray-200 text-gray-900 px-3 py-2 rounded-lg focus:outline-none focus:border-gray-400" placeholder="https://..." />
+              {uploadingImage && <p className="mt-2 text-sm text-gray-500">Upload en cours...</p>}
               {form.imageUrl && <img src={form.imageUrl} alt="" className="mt-2 w-20 h-20 object-cover rounded" />}
             </div>
             <div className="col-span-2">
@@ -481,9 +512,9 @@ function AdminMenu() {
             </div>
           </div>
           <div className="flex gap-3">
-            <button type="submit" disabled={saving}
+            <button type="submit" disabled={saving || uploadingImage}
               className="flex-1 py-2 bg-[#b5122a] text-white rounded-lg font-medium hover:bg-[#8f0e21] disabled:opacity-60 transition-colors">
-              {saving ? "..." : editing ? "Modifier" : "Ajouter"}
+              {saving ? "..." : uploadingImage ? "Upload image..." : editing ? "Modifier" : "Ajouter"}
             </button>
             {editing && (
               <button type="button" onClick={resetForm}

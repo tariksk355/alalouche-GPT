@@ -42,6 +42,20 @@ Public config bootstrap endpoint:
 - `RESEND_API_KEY` (required when `EMAIL_PROVIDER=resend`)
 - `EMAIL_FROM` (required when `EMAIL_PROVIDER=resend`)
 
+For admin menu image upload (`POST /admin/menu-catalog/images/upload`), also configure:
+- `S3_BUCKET`
+- `S3_REGION`
+- `S3_ENDPOINT`
+- `S3_ACCESS_KEY_ID`
+- `S3_SECRET_ACCESS_KEY`
+
+Optional upload/storage envs:
+- `S3_PUBLIC_BASE_URL` (preferred stable public base; falls back to `https://<bucket>.<endpoint>/<key>`)
+- `S3_FORCE_PATH_STYLE` (`true|false`, default `false`)
+- `S3_UPLOAD_MAX_BYTES` (default `5242880` = 5MB)
+- `S3_OBJECT_ACL` (default `public-read`)
+- `S3_CACHE_CONTROL` (default `public, max-age=31536000, immutable`)
+
 ### Health endpoints
 
 - Liveness: `GET /health`
