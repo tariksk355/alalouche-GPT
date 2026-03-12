@@ -398,7 +398,15 @@ async function printAcceptedOrder(order) {
     name: 'À la Louche',
   });
 
+  debugLog('print_job_dispatch', {
+    orderId: printJob.orderId,
+    orderNumber: printJob.orderNumber,
+    lineCount: Array.isArray(printJob.lines) ? printJob.lines.length : 0,
+    hasTotals: Boolean(printJob.totals && printJob.totals.total != null),
+  });
+
   const res = await printerAdapter.printReceipt(printJob);
+  debugLog('print_job_result', res);
 
   if (res.ok) {
     state.printerMessage = `Impression envoyée pour ${order.orderNumber || order.id}.`;

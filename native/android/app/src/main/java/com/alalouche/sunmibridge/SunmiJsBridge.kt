@@ -30,6 +30,7 @@ class SunmiJsBridge(context: Context) {
 
     @JavascriptInterface
     fun printReceipt(printJobJson: String?): String {
+        Log.i(TAG, "JS bridge printReceipt invoked payloadLength=${printJobJson?.length ?: 0}")
         return safeResponse("printReceipt") {
             printerManager.printReceipt(printJobJson)
         }
@@ -40,11 +41,13 @@ class SunmiJsBridge(context: Context) {
     // the same printReceipt pipeline to avoid default/demo native print paths.
     @JavascriptInterface
     fun printOrder(printJobJson: String?): String {
+        Log.i(TAG, "JS bridge printOrder alias invoked payloadLength=${printJobJson?.length ?: 0}")
         return printReceipt(printJobJson)
     }
 
     @JavascriptInterface
     fun print(printJobJson: String?): String {
+        Log.i(TAG, "JS bridge print alias invoked payloadLength=${printJobJson?.length ?: 0}")
         return printReceipt(printJobJson)
     }
 
