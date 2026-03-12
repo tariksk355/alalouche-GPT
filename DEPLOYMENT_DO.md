@@ -86,3 +86,31 @@ docker run --rm -p 8080:80 alalouche-frontend
 - Add separate liveness/readiness probes in manifests.
 - Add secret manager integration and rotation policies.
 - Add HPA/autoscaling and rolling update policies.
+
+
+## First deployment smoke test (operator checklist)
+
+Use the helper script from repo root:
+
+```bash
+BACKEND_ENV_FILE=/absolute/path/to/backend.prod.env ./scripts/smoke-test-docker-deploy.sh
+```
+
+The env file should include at least:
+- `DATABASE_URL`
+- `AUTH_TOKEN_SECRET`
+- `EMAIL_PROVIDER` (and Resend vars when using `resend`)
+
+The smoke script validates:
+- backend image builds
+- frontend image builds
+- backend container boots and passes `/health` and `/ready`
+- frontend container serves `/health`
+- frontend SPA fallback returns HTTP 200 for non-existent routes
+
+If it fails, inspect container logs:
+
+```bash
+docker logs alalouche-backend-smoke
+docker logs alalouche-frontend-smoke
+```
