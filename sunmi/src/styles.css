@@ -36,3 +36,15 @@ button:disabled { opacity: 0.6; }
   background: #2563eb;
   border-color: #2563eb;
 }
+
+.debug-card {
+  border-color: #7c3aed;
+}
+
+.debug-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 6px;
+  margin-top: 8px;
+  font-size: 13px;
+}

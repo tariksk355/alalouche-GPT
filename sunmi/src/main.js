@@ -30,7 +30,26 @@ const state = {
   pairingTimeoutId: null,
   printerMessage: '',
   prepMinutesByOrderId: {},
+  printDebug: {
+    at: null,
+    mode: 'idle',
+    method: null,
+    payloadBuilt: false,
+    orderNumber: null,
+    lineCount: 0,
+    ok: null,
+    message: '',
+    fallbackUsed: false,
+  },
 };
+
+function setPrintDebug(patch) {
+  state.printDebug = {
+    ...state.printDebug,
+    ...patch,
+    at: new Date().toISOString(),
+  };
+}
 
 function stopPairingPolling() {
   if (state.pairingPollId) {
@@ -188,6 +207,26 @@ function render() {
       </div>
     `).join('');
 
+  const printDebug = state.printDebug;
+  const printDebugHtml = `
+    <div class="card debug-card">
+      <div class="title">Debug impression (temporaire)</div>
+      <p class="subtle">Utiliser pour diagnostic on-device sans logcat.</p>
+      <div class="debug-grid">
+        <div><span class="subtle">Heure:</span> <strong>${printDebug.at ? formatOrderDate(printDebug.at) : '-'}</strong></div>
+        <div><span class="subtle">État:</span> <strong>${printDebug.mode || '-'}</strong></div>
+        <div><span class="subtle">Bridge method:</span> <strong>${printDebug.method || '-'}</strong></div>
+        <div><span class="subtle">Payload construit:</span> <strong>${printDebug.payloadBuilt ? 'oui' : 'non'}</strong></div>
+        <div><span class="subtle">Commande:</span> <strong>${printDebug.orderNumber || '-'}</strong></div>
+        <div><span class="subtle">Lignes:</span> <strong>${Number(printDebug.lineCount || 0)}</strong></div>
+        <div><span class="subtle">Résultat natif:</span> <strong>${printDebug.ok === null ? '-' : (printDebug.ok ? 'succès' : 'erreur')}</strong></div>
+        <div><span class="subtle">Fallback:</span> <strong>${printDebug.fallbackUsed ? 'oui' : 'non'}</strong></div>
+      </div>
+      ${printDebug.message ? `<p class="subtle">Message: ${printDebug.message}</p>` : ''}
+      <button id="clear-print-debug-btn" class="btn-secondary-inline">Effacer debug impression</button>
+    </div>
+  `;
+
   app.innerHTML = `
     <div class="card">
       <div class="title">Sunmi Receiver</div>
@@ -209,6 +248,8 @@ function render() {
       <p class="subtle">Confirmer ou annuler les réservations</p>
     </div>
     ${reservationsHtml}
+
+    ${printDebugHtml}
 
     ${state.printerMessage ? `<div class="card"><p class="subtle">${state.printerMessage}</p></div>` : ''}
     ${state.error ? `<div class="card"><p class="error">${state.error}</p></div>` : ''}
@@ -398,6 +439,26 @@ async function printAcceptedOrder(order) {
     name: 'À la Louche',
   });
 
+  const resolvedMethod = typeof window.SunmiBridge?.printReceipt === 'function'
+    ? 'printReceipt'
+    : typeof window.SunmiBridge?.printOrder === 'function'
+      ? 'printOrder'
+      : typeof window.SunmiBridge?.print === 'function'
+        ? 'print'
+        : null;
+
+  setPrintDebug({
+    mode: 'dispatching',
+    method: resolvedMethod,
+    payloadBuilt: Boolean(printJob),
+    orderNumber: printJob?.orderNumber || order.orderNumber || order.id || null,
+    lineCount: Array.isArray(printJob?.lines) ? printJob.lines.length : 0,
+    ok: null,
+    message: '',
+    fallbackUsed: false,
+  });
+  render();
+
   debugLog('print_job_dispatch', {
     orderId: printJob.orderId,
     orderNumber: printJob.orderNumber,
@@ -407,6 +468,17 @@ async function printAcceptedOrder(order) {
 
   const res = await printerAdapter.printReceipt(printJob);
   debugLog('print_job_result', res);
+
+  setPrintDebug({
+    mode: 'native_response',
+    method: res?.bridgeMethod || resolvedMethod,
+    payloadBuilt: true,
+    orderNumber: printJob?.orderNumber || order.orderNumber || order.id || null,
+    lineCount: Array.isArray(printJob?.lines) ? printJob.lines.length : 0,
+    ok: Boolean(res?.ok),
+    message: `${res?.code || 'UNKNOWN'}${res?.message ? ` - ${res.message}` : ''}`,
+    fallbackUsed: false,
+  });
 
   if (res.ok) {
     state.printerMessage = `Impression envoyée pour ${order.orderNumber || order.id}.`;
@@ -473,6 +545,22 @@ app.addEventListener('click', async (event) => {
 
   if (target.id === 'printer-info-btn') {
     await showPrinterInfo();
+    return;
+  }
+
+  if (target.id === 'clear-print-debug-btn') {
+    state.printDebug = {
+      at: null,
+      mode: 'idle',
+      method: null,
+      payloadBuilt: false,
+      orderNumber: null,
+      lineCount: 0,
+      ok: null,
+      message: '',
+      fallbackUsed: false,
+    };
+    render();
     return;
   }
 
