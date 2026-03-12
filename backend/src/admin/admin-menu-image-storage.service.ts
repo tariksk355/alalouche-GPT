@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, InternalServerErrorException, ServiceUnavailableException } from '@nestjs/common';
 import { createHash, createHmac, randomUUID } from 'node:crypto';
 import { extname } from 'node:path';
+import { UploadedMenuImageFile } from './menu-image-upload.types';
 
 const ALLOWED_MIME_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif']);
 const DEFAULT_MAX_UPLOAD_BYTES = 5 * 1024 * 1024;
@@ -18,7 +19,7 @@ function sanitizePathSegment(value: string): string {
   return value.replace(/[^a-zA-Z0-9_-]/g, '_');
 }
 
-function extensionFromFile(file: Express.Multer.File): string {
+function extensionFromFile(file: UploadedMenuImageFile): string {
   const fromOriginal = extname(file.originalname || '').toLowerCase().replace(/[^a-z0-9.]/g, '');
   if (fromOriginal) {
     return fromOriginal;
@@ -56,11 +57,11 @@ export class AdminMenuImageStorageService {
     return parsePositiveInt(process.env.S3_UPLOAD_MAX_BYTES, DEFAULT_MAX_UPLOAD_BYTES);
   }
 
-  isSupportedImage(file: Express.Multer.File): boolean {
+  isSupportedImage(file: UploadedMenuImageFile): boolean {
     return ALLOWED_MIME_TYPES.has(file.mimetype);
   }
 
-  async uploadMenuImage(restaurantId: string, file: Express.Multer.File): Promise<{ key: string; url: string }> {
+  async uploadMenuImage(restaurantId: string, file: UploadedMenuImageFile): Promise<{ key: string; url: string }> {
     if (!file) {
       throw new BadRequestException({ error: 'IMAGE_FILE_REQUIRED', message: 'No image file provided.' });
     }
@@ -145,7 +146,7 @@ export class AdminMenuImageStorageService {
         ...(sessionToken ? { 'x-amz-security-token': sessionToken } : {}),
         authorization,
       },
-      body: file.buffer,
+      body: new Uint8Array(file.buffer),
     });
 
     if (!response.ok) {

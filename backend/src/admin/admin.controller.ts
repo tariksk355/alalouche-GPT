@@ -32,6 +32,7 @@ import { UpdateAdminPrinterSettingsDto } from './dto/update-admin-printer-settin
 import { AdminMarketingService } from './admin-marketing.service';
 import { SendAdminMarketingEmailDto } from './dto/send-admin-marketing-email.dto';
 import { AdminMenuImageStorageService } from './admin-menu-image-storage.service';
+import { UploadedMenuImageFile } from './menu-image-upload.types';
 
 @Controller('admin')
 export class AdminController {
@@ -290,7 +291,7 @@ export class AdminController {
     }),
   )
   async uploadMenuImage(
-    @UploadedFile() file: Express.Multer.File,
+    @UploadedFile() file: UploadedMenuImageFile,
     @Headers('authorization') authorization?: string,
     @Headers('x-admin-token') adminToken?: string,
     @Headers('x-restaurant-id') legacyRestaurantId?: string,
