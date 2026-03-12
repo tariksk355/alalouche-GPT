@@ -170,12 +170,13 @@ class SunmiPrinterManager(private val context: Context) {
                 service.printText("$line\n", callbackFor("printText"))
             }
 
-            Log.i(TAG, "low_level_call enterPrinterBuffer clean=true")
-            service.enterPrinterBuffer(true)
-            // IMPORTANT: do NOT call printerInit() in live receipt flow.
-            // On some Sunmi firmware/models this can trigger device/printer
-            // diagnostic output instead of regular receipt text.
-            Log.i(TAG, "low_level_call printerInit skipped_in_receipt_flow=true")
+            // IMPORTANT: no printerInit() and no buffer enter/exit in live receipt flow.
+            // Some Sunmi V2s firmware/service paths are unstable with enterPrinterBuffer(...)
+            // and can fail before any printText reaches paper.
+            Log.i(
+                TAG,
+                "receipt_path mode=no_buffer_live_text printerInit=false bufferApi=false sequence=setAlignment/setFontSize/printText/lineWrap",
+            )
 
             Log.i(TAG, "low_level_call setAlignment alignment=1")
             service.setAlignment(1, callbackFor("setAlignment"))
@@ -269,8 +270,10 @@ class SunmiPrinterManager(private val context: Context) {
 
             Log.i(TAG, "low_level_call lineWrap n=3")
             service.lineWrap(3, callbackFor("lineWrap"))
-            Log.i(TAG, "low_level_call exitPrinterBuffer commit=true")
-            service.exitPrinterBuffer(true)
+            Log.i(
+                TAG,
+                "receipt_path mode=no_buffer_live_text completed_calls=setAlignment,setFontSize,printText,lineWrap",
+            )
 
             if (callbackErrors.isNotEmpty()) {
                 return fail(
