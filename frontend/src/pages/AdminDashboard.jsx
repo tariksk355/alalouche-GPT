@@ -20,6 +20,24 @@ const NAV_ITEMS = [
   { id: "settings", label: "Paramètres", icon: "⚙️" },
 ];
 
+function AdminNotice({ type = "success", children }) {
+  const styles = type === "error"
+    ? "bg-red-50 border-red-200 text-red-700"
+    : type === "info"
+      ? "bg-blue-50 border-blue-200 text-blue-700"
+      : "bg-green-50 border-green-200 text-green-700";
+  return <div className={`mb-4 border px-4 py-3 rounded-lg text-sm ${styles}`}>{children}</div>;
+}
+
+function AdminLoadingState({ label = "Chargement..." }) {
+  return <div className="text-center text-gray-400 py-12">{label}</div>;
+}
+
+function AdminEmptyState({ label }) {
+  return <div className="text-center text-gray-400 py-12 border border-dashed border-gray-200 rounded-xl bg-white">{label}</div>;
+}
+
+
 export default function AdminDashboard() {
   const [admin, setAdmin] = useState(null);
   const [activeTab, setActiveTab] = useState("orders");
@@ -181,8 +199,8 @@ function AdminOrders() {
 
   return (
     <div>
-      {successMsg && <div className="mb-4 bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-lg text-sm font-medium">{successMsg}</div>}
-      {errorMsg && <div className="mb-4 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm font-medium">{errorMsg}</div>}
+      {successMsg && <AdminNotice>{successMsg}</AdminNotice>}
+      {errorMsg && <AdminNotice type="error">{errorMsg}</AdminNotice>}
 
       {kpis && (
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-6">
@@ -214,7 +232,7 @@ function AdminOrders() {
       </div>
 
       {loading ? (
-        <div className="text-center text-gray-400 py-12">Chargement...</div>
+        <AdminLoadingState />
       ) : (
         <div className="space-y-3">
           {filtered.map(order => (
@@ -302,7 +320,7 @@ function AdminOrders() {
               )}
             </div>
           ))}
-          {filtered.length === 0 && <div className="text-center text-gray-400 py-12">Aucune commande.</div>}
+          {filtered.length === 0 && <AdminEmptyState label="Aucune commande pour ce filtre." />} 
         </div>
       )}
     </div>
@@ -391,12 +409,14 @@ function AdminMenu() {
   };
 
   const handleDelete = async (id) => {
-    if (!confirm("Supprimer cet article ?")) return;
+    if (!confirm("Supprimer cet article du menu ? Cette action est irréversible.")) return;
 
     setError("");
     try {
       await deleteAdminMenuItem(id);
       setItems((prev) => prev.filter((item) => item.id !== id));
+      setSuccess("Article supprimé avec succès.");
+      setTimeout(() => setSuccess(""), 3000);
     } catch (e) {
       setError(e.message || "Impossible de supprimer l'article.");
     }
@@ -407,6 +427,8 @@ function AdminMenu() {
     try {
       const updated = await updateAdminMenuItem(item.id, { available: !(item.available !== false) });
       setItems((prev) => prev.map((row) => (row.id === updated.id ? updated : row)));
+      setSuccess(`Disponibilité mise à jour : ${updated.available !== false ? "article activé" : "article désactivé"}.`);
+      setTimeout(() => setSuccess(""), 3000);
     } catch (e) {
       setError(e.message || "Impossible de modifier la disponibilité.");
     }
@@ -416,8 +438,8 @@ function AdminMenu() {
     <div className="grid lg:grid-cols-2 gap-8">
       <div className="bg-white rounded-xl p-6 border border-gray-200 shadow-sm">
         <h2 className="font-semibold text-lg mb-5 text-gray-900">{editing ? "Modifier l'article" : "Ajouter un article"}</h2>
-        {success && <div className="mb-4 bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-lg text-sm">{success}</div>}
-        {error && <div className="mb-4 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">{error}</div>}
+        {success && <AdminNotice>{success}</AdminNotice>}
+        {error && <AdminNotice type="error">{error}</AdminNotice>}
         <form onSubmit={handleSave} className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
             <div className="col-span-2">
@@ -476,7 +498,7 @@ function AdminMenu() {
       <div className="space-y-3">
         <h2 className="font-semibold text-lg text-gray-900">Articles ({items.length})</h2>
         <div className="space-y-2 max-h-[600px] overflow-y-auto">
-          {loading ? <div className="text-center text-gray-400 py-12">Chargement...</div> : items.map(item => (
+          {loading ? <AdminLoadingState /> : items.map(item => (
             <div key={item.id} className="bg-white rounded-lg border border-gray-200 p-4 flex items-center gap-3 shadow-sm">
               {item.imageUrl && <img src={item.imageUrl} alt="" className="w-12 h-12 object-cover rounded flex-shrink-0" />}
               <div className="flex-1 min-w-0">
@@ -551,10 +573,10 @@ function AdminReservations() {
 
   return (
     <div>
-      {successMsg && <div className="mb-4 bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-lg text-sm font-medium">{successMsg}</div>}
-      {errorMsg && <div className="mb-4 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm font-medium">{errorMsg}</div>}
+      {successMsg && <AdminNotice>{successMsg}</AdminNotice>}
+      {errorMsg && <AdminNotice type="error">{errorMsg}</AdminNotice>}
       <div className="space-y-3">
-        {loading ? <div className="text-center text-gray-400 py-12">Chargement...</div> :
+        {loading ? <AdminLoadingState /> :
           reservations.map(r => (
             <div key={r.id} className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm">
               <div className="flex flex-wrap justify-between items-start gap-3">
@@ -578,7 +600,7 @@ function AdminReservations() {
             </div>
           ))
         }
-        {!loading && reservations.length === 0 && <div className="text-center text-gray-400 py-12">Aucune réservation.</div>}
+        {!loading && reservations.length === 0 && <AdminEmptyState label="Aucune réservation." />}
       </div>
     </div>
   );
@@ -655,12 +677,14 @@ function AdminCustomers() {
   };
 
   const handleDelete = async (customer) => {
-    if (!confirm(`Supprimer "${customer.fullName}" ?`)) return;
+    if (!confirm(`Supprimer définitivement le client "${customer.fullName}" ?`)) return;
 
     setError("");
     try {
       await deleteAdminCustomer(customer.id);
       setCustomers((prev) => prev.filter((row) => row.id !== customer.id));
+      setSuccess("Client supprimé avec succès.");
+      setTimeout(() => setSuccess(""), 3000);
     } catch (e) {
       setError(e.message || 'Impossible de supprimer le client.');
     }
@@ -674,8 +698,8 @@ function AdminCustomers() {
 
   return (
     <div>
-      {success && <div className="mb-4 bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-lg text-sm">{success}</div>}
-      {error && <div className="mb-4 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">{error}</div>}
+      {success && <AdminNotice>{success}</AdminNotice>}
+      {error && <AdminNotice type="error">{error}</AdminNotice>}
       <div className="flex gap-3 mb-6">
         <input
           value={search}
@@ -709,7 +733,7 @@ function AdminCustomers() {
       )}
 
       <div className="space-y-3">
-        {loading ? <div className="text-center text-gray-400 py-12">Chargement...</div> : filtered.map(c => (
+        {loading ? <AdminLoadingState /> : filtered.map(c => (
           <div key={c.id} className="bg-white rounded-xl border border-gray-200 p-4 flex items-center justify-between shadow-sm">
             <div className="min-w-0">
               <div className="font-semibold text-gray-900 truncate">{c.fullName}</div>
@@ -723,7 +747,7 @@ function AdminCustomers() {
             </div>
           </div>
         ))}
-        {!loading && filtered.length === 0 && <div className="text-center text-gray-400 py-12">Aucun client trouvé.</div>}
+        {!loading && filtered.length === 0 && <AdminEmptyState label="Aucun client trouvé." />}
       </div>
     </div>
   );
@@ -783,10 +807,13 @@ function AdminMarketing() {
 
   return (
     <div className="max-w-2xl">
-      {success && <div className="mb-4 bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-lg text-sm">{success}</div>}
-      {error && <div className="mb-4 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">{error}</div>}
+      {success && <AdminNotice>{success}</AdminNotice>}
+      {error && <AdminNotice type="error">{error}</AdminNotice>}
       <form onSubmit={sendBulkEmail} className="bg-white rounded-xl border border-gray-200 p-6 space-y-4 shadow-sm">
         <p className="text-gray-500 text-sm">{customerCount} clients abonnés aux emails</p>
+        <AdminNotice type="info">
+          Cette action envoie immédiatement la campagne à tous les clients abonnés. Vérifiez le sujet et le message avant validation.
+        </AdminNotice>
         <div>
           <label className="block text-sm text-gray-500 mb-1">Sujet *</label>
           <input required value={emailForm.subject} onChange={e => setEmailForm({ ...emailForm, subject: e.target.value })}
@@ -842,12 +869,12 @@ function AdminSettings() {
     }
   };
 
-  if (!settings) return <div className="text-gray-400">Chargement...</div>;
+  if (!settings) return <AdminLoadingState />;
 
   return (
     <div className="max-w-lg">
-      {success && <div className="mb-4 bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-lg text-sm">{success}</div>}
-      {error && <div className="mb-4 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">{error}</div>}
+      {success && <AdminNotice>{success}</AdminNotice>}
+      {error && <AdminNotice type="error">{error}</AdminNotice>}
       <div className="bg-white rounded-xl border border-gray-200 p-6 space-y-6 shadow-sm">
         <DeviceProvisioning />
         <div>
