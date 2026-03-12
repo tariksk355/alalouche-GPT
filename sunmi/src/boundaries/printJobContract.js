@@ -80,6 +80,7 @@ export function buildPrintJobFromOrder(order, restaurant) {
 
   return {
     printJobId: `job_${order.id}_${Date.now()}`,
+    schemaVersion: '1.1',
     createdAtIso,
     restaurant: {
       id: restaurant.id,
@@ -88,8 +89,11 @@ export function buildPrintJobFromOrder(order, restaurant) {
       phone: restaurant.phone,
     },
     orderId: order.id,
+    order_id: order.id,
     orderNumber: order.orderNumber || order.id,
+    order_number: order.orderNumber || order.id,
     customerName: order.customerName,
+    customer_name: order.customerName,
     lines,
     items: lines,
     totals: (payload.totalAmount != null || payload.total != null) ? {

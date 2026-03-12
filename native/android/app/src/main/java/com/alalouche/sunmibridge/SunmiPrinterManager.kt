@@ -84,11 +84,13 @@ class SunmiPrinterManager(private val context: Context) {
             return fail("INVALID_PRINT_JOB", "printJob JSON is required.")
         }
 
-        val printJob = try {
+        val printJobRoot = try {
             JSONObject(printJobJson)
         } catch (t: Throwable) {
             return fail("INVALID_PRINT_JOB_JSON", "printJob JSON is malformed.", t.message)
         }
+
+        val printJob = printJobRoot.optJSONObject("printJob") ?: printJobRoot
 
         val serviceBound = ensureServiceBound(2000)
         val service = printerService
@@ -97,12 +99,27 @@ class SunmiPrinterManager(private val context: Context) {
             return fail("SUNMI_SERVICE_UNAVAILABLE", "Sunmi printer service is unavailable or not bound.")
         }
 
-        val orderNumber = printJob.optString("orderNumber", printJob.optString("orderId", "-"))
+        val orderNumber = firstNonBlank(
+            printJob.optString("orderNumber"),
+            printJob.optString("order_number"),
+            printJob.optString("orderId"),
+            printJob.optString("order_id"),
+        )
+
         val restaurant = printJob.optJSONObject("restaurant") ?: JSONObject()
-        val lines = printJob.optJSONArray("lines") ?: JSONArray()
+        val lines = when {
+            printJob.has("lines") -> printJob.optJSONArray("lines") ?: JSONArray()
+            printJob.has("items") -> printJob.optJSONArray("items") ?: JSONArray()
+            else -> JSONArray()
+        }
         val totals = printJob.optJSONObject("totals")
         val notes = printJob.optString("notes")
-        val customerName = printJob.optString("customerName")
+        val customerName = firstNonBlank(printJob.optString("customerName"), printJob.optString("customer_name"))
+        val createdAt = firstNonBlank(printJob.optString("createdAtIso"), printJob.optString("created_at_iso"), printJob.optString("createdAt"))
+
+        if (orderNumber.isBlank() || lines.length() == 0) {
+            return fail("INVALID_PRINT_JOB_CONTENT", "printJob must include order number and at least one line item.")
+        }
 
         return try {
             Log.i(TAG, "printReceipt attempt order=$orderNumber lines=${lines.length()}")
@@ -111,14 +128,19 @@ class SunmiPrinterManager(private val context: Context) {
             service.printerInit(null)
             service.setAlignment(1, null)
             service.setFontSize(30f, null)
-            service.printText("${restaurant.optString("name", "Restaurant")}\n", null)
+            val restaurantName = firstNonBlank(restaurant.optString("name"), printJob.optString("restaurantName"))
+            if (restaurantName.isNotBlank()) {
+                service.printText("${restaurantName}\n", null)
+            }
             service.setFontSize(22f, null)
             service.setAlignment(0, null)
             service.printText("Order: $orderNumber\n", null)
             if (customerName.isNotBlank()) {
                 service.printText("Client: $customerName\n", null)
             }
-            service.printText("Date: ${printJob.optString("createdAtIso", "-")}\n", null)
+            if (createdAt.isNotBlank()) {
+                service.printText("Date: $createdAt\n", null)
+            }
             service.printText("------------------------------\n", null)
 
             for (i in 0 until lines.length()) {
@@ -257,6 +279,13 @@ class SunmiPrinterManager(private val context: Context) {
             put("message", message)
             if (!details.isNullOrBlank()) put("details", details)
         }
+    }
+
+    private fun firstNonBlank(vararg values: String?): String {
+        for (value in values) {
+            if (!value.isNullOrBlank()) return value
+        }
+        return ""
     }
 
     private fun isClassPresent(className: String): Boolean {
