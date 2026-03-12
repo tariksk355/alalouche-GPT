@@ -118,11 +118,21 @@ class SunmiPrinterManager(private val context: Context) {
         val notes = printJob.optString("notes")
         val customerName = firstNonBlank(printJob.optString("customerName"), printJob.optString("customer_name"))
         val createdAt = firstNonBlank(printJob.optString("createdAtIso"), printJob.optString("created_at_iso"), printJob.optString("createdAt"))
+        val customerPhone = firstNonBlank(printJob.optString("customerPhone"), printJob.optString("customer_phone"))
+        val customerAddress = firstNonBlank(printJob.optString("customerAddress"), printJob.optString("customer_address"))
+        val orderTypeRaw = firstNonBlank(printJob.optString("orderType"), printJob.optString("order_type"))
+        val paymentMethodRaw = firstNonBlank(printJob.optString("paymentMethod"), printJob.optString("payment_method"))
         val totalAmountFallback = when {
             printJob.has("total_amount") -> printJob.optDouble("total_amount", Double.NaN)
             printJob.has("totalAmount") -> printJob.optDouble("totalAmount", Double.NaN)
             else -> Double.NaN
         }
+
+        val parsedNotes = parseStructuredNotes(notes)
+        val orderType = formatOrderType(firstNonBlank(orderTypeRaw, parsedNotes.type))
+        val paymentMethod = formatPaymentMethod(firstNonBlank(paymentMethodRaw, parsedNotes.paymentMethod))
+        val finalPhone = firstNonBlank(customerPhone, parsedNotes.phone)
+        val finalAddress = firstNonBlank(customerAddress, parsedNotes.address)
 
         if (orderNumber.isBlank() || lines.length() == 0) {
             Log.e(TAG, "native printReceipt invalid payload orderNumber='$orderNumber' lines=${lines.length()}")
@@ -143,8 +153,20 @@ class SunmiPrinterManager(private val context: Context) {
             service.setFontSize(22f, null)
             service.setAlignment(0, null)
             service.printText("Order: $orderNumber\n", null)
+            if (orderType.isNotBlank()) {
+                service.printText("Type: $orderType\n", null)
+            }
+            if (paymentMethod.isNotBlank()) {
+                service.printText("Paiement: $paymentMethod\n", null)
+            }
             if (customerName.isNotBlank()) {
                 service.printText("Client: $customerName\n", null)
+            }
+            if (finalPhone.isNotBlank()) {
+                service.printText("Tel: $finalPhone\n", null)
+            }
+            if (finalAddress.isNotBlank()) {
+                service.printText("Adresse: $finalAddress\n", null)
             }
             if (createdAt.isNotBlank()) {
                 service.printText("Date: $createdAt\n", null)
@@ -178,6 +200,11 @@ class SunmiPrinterManager(private val context: Context) {
                         }
                     }
                 }
+
+                val itemNote = firstNonBlank(item.optString("note"), item.optString("notes"))
+                if (itemNote.isNotBlank()) {
+                    service.printText("  note: $itemNote\n", null)
+                }
             }
 
             service.printText("------------------------------\n", null)
@@ -194,8 +221,8 @@ class SunmiPrinterManager(private val context: Context) {
                 service.setAlignment(0, null)
             }
 
-            if (notes.isNotBlank()) {
-                service.printText("Notes: $notes\n", null)
+            if (parsedNotes.extraNote.isNotBlank()) {
+                service.printText("Notes: ${parsedNotes.extraNote}\n", null)
             }
 
             service.lineWrap(3, null)
@@ -312,6 +339,57 @@ class SunmiPrinterManager(private val context: Context) {
             true
         } catch (_: Throwable) {
             false
+        }
+    }
+
+    private data class ParsedStructuredNotes(
+        val type: String,
+        val phone: String,
+        val address: String,
+        val paymentMethod: String,
+        val extraNote: String,
+    )
+
+    private fun parseStructuredNotes(raw: String?): ParsedStructuredNotes {
+        if (raw.isNullOrBlank()) {
+            return ParsedStructuredNotes("", "", "", "", "")
+        }
+
+        var type = ""
+        var phone = ""
+        var address = ""
+        var paymentMethod = ""
+        val extras = mutableListOf<String>()
+
+        raw.split("|")
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+            .forEach { token ->
+                when {
+                    token.startsWith("Type:", ignoreCase = true) -> type = token.substringAfter(':').trim()
+                    token.startsWith("Tel:", ignoreCase = true) -> phone = token.substringAfter(':').trim()
+                    token.startsWith("Adresse:", ignoreCase = true) -> address = token.substringAfter(':').trim()
+                    token.startsWith("Paiement:", ignoreCase = true) -> paymentMethod = token.substringAfter(':').trim()
+                    else -> extras += token
+                }
+            }
+
+        return ParsedStructuredNotes(type, phone, address, paymentMethod, extras.joinToString(" | "))
+    }
+
+    private fun formatOrderType(raw: String): String {
+        return when (raw.trim().lowercase()) {
+            "delivery", "livraison" -> "Livraison"
+            "takeaway", "à emporter", "a emporter" -> "À emporter"
+            else -> raw.trim()
+        }
+    }
+
+    private fun formatPaymentMethod(raw: String): String {
+        return when (raw.trim().lowercase()) {
+            "cash", "especes", "espèces" -> "Espèces"
+            "card", "carte" -> "Carte"
+            else -> raw.trim()
         }
     }
 
