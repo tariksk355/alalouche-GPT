@@ -55,7 +55,7 @@ export class AdminSettingsService {
 
     const nextOrderingSettings: Prisma.InputJsonObject = {
       ...orderingSettings,
-      printerSettings: next,
+      printerSettings: { ...next } as Prisma.InputJsonObject,
     };
 
     await this.prisma.restaurant.update({
