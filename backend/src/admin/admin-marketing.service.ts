@@ -49,7 +49,7 @@ export class AdminMarketingService {
       take: 5000,
     });
 
-    const recipientEmails = recipients.map((row) => row.email).filter((email) => Boolean(email));
+    const recipientEmails = recipients.map((row: (typeof recipients)[number]) => row.email).filter((email: string) => Boolean(email));
     const result = await this.notificationService.sendMarketingBulkEmail({
       restaurantId,
       subject: dto.subject,

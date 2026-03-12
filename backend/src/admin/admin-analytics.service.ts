@@ -40,18 +40,18 @@ export class AdminAnalyticsService {
 
     const totals = {
       orders: allOrders.length,
-      revenue: allOrders.reduce((sum, order) => sum + Number(order.totalAmount || 0), 0),
+      revenue: allOrders.reduce((sum: number, order: (typeof allOrders)[number]) => sum + Number(order.totalAmount || 0), 0),
       visits: null as number | null,
     };
 
     const today = {
       orders: todayOrders.length,
-      revenue: todayOrders.reduce((sum, order) => sum + Number(order.totalAmount || 0), 0),
+      revenue: todayOrders.reduce((sum: number, order: (typeof todayOrders)[number]) => sum + Number(order.totalAmount || 0), 0),
       visits: null as number | null,
     };
 
     const orderTypeStats = allOrders.reduce(
-      (acc, order) => {
+      (acc: { takeaway: number; delivery: number; other: number }, order: (typeof allOrders)[number]) => {
         const payload = (order.payload && typeof order.payload === 'object' ? order.payload : {}) as Record<string, unknown>;
         const orderType = String(payload.orderType || '').toLowerCase();
         if (orderType === 'delivery') {
@@ -67,11 +67,11 @@ export class AdminAnalyticsService {
     );
 
     const last7 = last7Days.map((day) => {
-      const orders = allOrders.filter((order) => order.createdAt >= day.start && order.createdAt < day.end);
+      const orders = allOrders.filter((order: (typeof allOrders)[number]) => order.createdAt >= day.start && order.createdAt < day.end);
       return {
         date: day.date,
         orders: orders.length,
-        revenue: orders.reduce((sum, order) => sum + Number(order.totalAmount || 0), 0),
+        revenue: orders.reduce((sum: number, order: (typeof orders)[number]) => sum + Number(order.totalAmount || 0), 0),
         visits: null as number | null,
       };
     });

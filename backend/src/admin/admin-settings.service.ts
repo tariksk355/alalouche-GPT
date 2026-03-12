@@ -1,5 +1,4 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { UpdateAdminPrinterSettingsDto } from './dto/update-admin-printer-settings.dto';
 
@@ -58,8 +57,8 @@ export class AdminSettingsService {
       data: {
         orderingSettings: {
           ...orderingSettings,
-          printerSettings: next as unknown as Prisma.InputJsonValue,
-        } as Prisma.InputJsonValue,
+          printerSettings: next as unknown,
+        } as unknown,
       },
     });
 
