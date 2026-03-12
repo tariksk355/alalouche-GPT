@@ -6,6 +6,7 @@ import AdminAnalytics from "@/components/admin/AdminAnalytics";
 import DeviceProvisioning from "@/components/admin/DeviceProvisioning";
 import { clearStoredAdminSession, getStoredAdminSession } from "@/lib/customerAuth";
 import { getAdminKpis, listAdminOrders, listAdminReservations, updateAdminOrderStatus, updateAdminReservationStatus } from "@/lib/api/adminOps";
+import { createAdminMenuItem, deleteAdminMenuItem, listAdminMenuCatalog, updateAdminMenuItem } from "@/lib/api/adminMenuCatalog";
 
 const NAV_ITEMS = [
   { id: "orders", label: "Commandes", icon: "🛒" },
@@ -309,60 +310,104 @@ function AdminOrders() {
 // ─── Menu Panel ───────────────────────────────────────────────────────────────
 function AdminMenu() {
   const [items, setItems] = useState([]);
-  const [form, setForm] = useState({ name: "", description: "", price: "", category: "Sandwichs et menu", image_url: "", available: true, allergens: "" });
+  const [form, setForm] = useState({ name: "", description: "", price: "", category: "Sandwichs et menu", imageUrl: "", available: true, allergens: "" });
   const [editing, setEditing] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [success, setSuccess] = useState("");
-  const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState("");
 
   const CATEGORIES = ["Sandwichs et menu", "Nos sauces chaudes", "Nos sauces froides", "Plats et Pide", "Boissons", "Bières & Alcools", "Vins", "Desserts"];
 
-  useEffect(() => {
-    base44.entities.MenuItem.list("sort_order").then(setItems);
-  }, []);
-
-  const handleImageUpload = async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    setUploading(true);
-    const { file_url } = await base44.integrations.Core.UploadFile({ file });
-    setForm(f => ({ ...f, image_url: file_url }));
-    setUploading(false);
+  const resetForm = () => {
+    setEditing(null);
+    setForm({ name: "", description: "", price: "", category: "Sandwichs et menu", imageUrl: "", available: true, allergens: "" });
   };
+
+  const loadItems = async () => {
+    setLoading(true);
+    setError("");
+    try {
+      const data = await listAdminMenuCatalog();
+      setItems(data);
+    } catch (e) {
+      setError(e.message || "Impossible de charger le catalogue menu.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadItems();
+  }, []);
 
   const handleSave = async (e) => {
     e.preventDefault();
-    setLoading(true);
-    const data = { ...form, price: parseFloat(form.price) };
-    if (editing) {
-      await base44.entities.MenuItem.update(editing.id, data);
-      setItems(prev => prev.map(i => i.id === editing.id ? { ...i, ...data } : i));
-      setSuccess("Article modifié avec succès !");
-    } else {
-      const created = await base44.entities.MenuItem.create(data);
-      setItems(prev => [...prev, created]);
-      setSuccess("Article ajouté avec succès !");
+    setSaving(true);
+    setError("");
+
+    const payload = {
+      name: form.name,
+      description: form.description,
+      price: parseFloat(form.price),
+      category: form.category,
+      imageUrl: form.imageUrl,
+      available: form.available,
+      allergens: form.allergens,
+    };
+
+    try {
+      if (editing) {
+        const updated = await updateAdminMenuItem(editing.id, payload);
+        setItems((prev) => prev.map((item) => (item.id === updated.id ? updated : item)));
+        setSuccess("Article modifié avec succès !");
+      } else {
+        const created = await createAdminMenuItem(payload);
+        setItems((prev) => [...prev, created]);
+        setSuccess("Article ajouté avec succès !");
+      }
+      resetForm();
+      setTimeout(() => setSuccess(""), 3000);
+    } catch (e) {
+      setError(e.message || "Impossible d'enregistrer l'article.");
+    } finally {
+      setSaving(false);
     }
-    setForm({ name: "", description: "", price: "", category: "Sandwichs et menu", image_url: "", available: true, allergens: "" });
-    setEditing(null);
-    setLoading(false);
-    setTimeout(() => setSuccess(""), 3000);
   };
 
   const handleEdit = (item) => {
     setEditing(item);
-    setForm({ name: item.name, description: item.description || "", price: String(item.price), category: item.category, image_url: item.image_url || "", available: item.available !== false, allergens: item.allergens || "" });
+    setForm({
+      name: item.name,
+      description: item.description || "",
+      price: String(item.price),
+      category: item.category,
+      imageUrl: item.imageUrl || "",
+      available: item.available !== false,
+      allergens: item.allergens || "",
+    });
   };
 
   const handleDelete = async (id) => {
     if (!confirm("Supprimer cet article ?")) return;
-    await base44.entities.MenuItem.delete(id);
-    setItems(prev => prev.filter(i => i.id !== id));
+
+    setError("");
+    try {
+      await deleteAdminMenuItem(id);
+      setItems((prev) => prev.filter((item) => item.id !== id));
+    } catch (e) {
+      setError(e.message || "Impossible de supprimer l'article.");
+    }
   };
 
   const toggleAvailable = async (item) => {
-    await base44.entities.MenuItem.update(item.id, { available: !item.available });
-    setItems(prev => prev.map(i => i.id === item.id ? { ...i, available: !i.available } : i));
+    setError("");
+    try {
+      const updated = await updateAdminMenuItem(item.id, { available: !(item.available !== false) });
+      setItems((prev) => prev.map((row) => (row.id === updated.id ? updated : row)));
+    } catch (e) {
+      setError(e.message || "Impossible de modifier la disponibilité.");
+    }
   };
 
   return (
@@ -370,6 +415,7 @@ function AdminMenu() {
       <div className="bg-white rounded-xl p-6 border border-gray-200 shadow-sm">
         <h2 className="font-semibold text-lg mb-5 text-gray-900">{editing ? "Modifier l'article" : "Ajouter un article"}</h2>
         {success && <div className="mb-4 bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-lg text-sm">{success}</div>}
+        {error && <div className="mb-4 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">{error}</div>}
         <form onSubmit={handleSave} className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
             <div className="col-span-2">
@@ -379,7 +425,7 @@ function AdminMenu() {
             </div>
             <div>
               <label className="block text-sm text-gray-500 mb-1">Prix (CHF) *</label>
-              <input required type="number" step="0.5" value={form.price} onChange={e => setForm({ ...form, price: e.target.value })}
+              <input required type="number" min="0" step="0.5" value={form.price} onChange={e => setForm({ ...form, price: e.target.value })}
                 className="w-full bg-gray-50 border border-gray-200 text-gray-900 px-3 py-2 rounded-lg focus:outline-none focus:border-gray-400" />
             </div>
             <div>
@@ -395,10 +441,10 @@ function AdminMenu() {
                 className="w-full bg-gray-50 border border-gray-200 text-gray-900 px-3 py-2 rounded-lg focus:outline-none focus:border-gray-400 resize-none" />
             </div>
             <div className="col-span-2">
-              <label className="block text-sm text-gray-500 mb-1">Image</label>
-              <input type="file" accept="image/*" onChange={handleImageUpload} className="w-full text-gray-500 text-sm" />
-              {uploading && <p className="text-xs text-gray-400 mt-1">Upload en cours...</p>}
-              {form.image_url && <img src={form.image_url} alt="" className="mt-2 w-20 h-20 object-cover rounded" />}
+              <label className="block text-sm text-gray-500 mb-1">Image (URL)</label>
+              <input value={form.imageUrl} onChange={e => setForm({ ...form, imageUrl: e.target.value })}
+                className="w-full bg-gray-50 border border-gray-200 text-gray-900 px-3 py-2 rounded-lg focus:outline-none focus:border-gray-400" placeholder="https://..." />
+              {form.imageUrl && <img src={form.imageUrl} alt="" className="mt-2 w-20 h-20 object-cover rounded" />}
             </div>
             <div className="col-span-2">
               <label className="block text-sm text-gray-500 mb-1">Allergènes</label>
@@ -411,12 +457,12 @@ function AdminMenu() {
             </div>
           </div>
           <div className="flex gap-3">
-            <button type="submit" disabled={loading}
+            <button type="submit" disabled={saving}
               className="flex-1 py-2 bg-[#b5122a] text-white rounded-lg font-medium hover:bg-[#8f0e21] disabled:opacity-60 transition-colors">
-              {loading ? "..." : editing ? "Modifier" : "Ajouter"}
+              {saving ? "..." : editing ? "Modifier" : "Ajouter"}
             </button>
             {editing && (
-              <button type="button" onClick={() => { setEditing(null); setForm({ name: "", description: "", price: "", category: "Sandwichs et menu", image_url: "", available: true, allergens: "" }); }}
+              <button type="button" onClick={resetForm}
                 className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors">
                 Annuler
               </button>
@@ -428,15 +474,15 @@ function AdminMenu() {
       <div className="space-y-3">
         <h2 className="font-semibold text-lg text-gray-900">Articles ({items.length})</h2>
         <div className="space-y-2 max-h-[600px] overflow-y-auto">
-          {items.map(item => (
+          {loading ? <div className="text-center text-gray-400 py-12">Chargement...</div> : items.map(item => (
             <div key={item.id} className="bg-white rounded-lg border border-gray-200 p-4 flex items-center gap-3 shadow-sm">
-              {item.image_url && <img src={item.image_url} alt="" className="w-12 h-12 object-cover rounded flex-shrink-0" />}
+              {item.imageUrl && <img src={item.imageUrl} alt="" className="w-12 h-12 object-cover rounded flex-shrink-0" />}
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
                   <span className="font-medium truncate text-gray-900">{item.name}</span>
                   <span className={`w-2 h-2 rounded-full flex-shrink-0 ${item.available !== false ? "bg-green-500" : "bg-gray-300"}`} />
                 </div>
-                <div className="text-gray-500 text-sm">{item.category} — CHF {item.price?.toFixed(2)}</div>
+                <div className="text-gray-500 text-sm">{item.category} — CHF {Number(item.price || 0).toFixed(2)}</div>
               </div>
               <div className="flex gap-2 flex-shrink-0">
                 <button onClick={() => toggleAvailable(item)} className="text-xs text-gray-500 hover:text-gray-900 border border-gray-200 px-2 py-1 rounded">
