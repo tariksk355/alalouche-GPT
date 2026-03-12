@@ -528,8 +528,14 @@ app.addEventListener('click', async (event) => {
 
   if (status === 'accepted') {
     const acceptedOrder = state.orders.find((item) => item.id === orderId);
-    if (acceptedOrder) {
-      await printAcceptedOrder({ ...acceptedOrder, prepMinutes: prepMinutes || acceptedOrder.prepMinutes });
+    const liveAcceptedOrder = res.order || acceptedOrder;
+    if (liveAcceptedOrder) {
+      await printAcceptedOrder({
+        ...(acceptedOrder || {}),
+        ...(liveAcceptedOrder || {}),
+        payload: (liveAcceptedOrder && liveAcceptedOrder.payload) || acceptedOrder?.payload,
+        prepMinutes: prepMinutes || (liveAcceptedOrder?.prepMinutes ?? acceptedOrder?.prepMinutes),
+      });
     }
   }
 

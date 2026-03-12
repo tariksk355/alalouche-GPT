@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { NotificationService } from '../notifications/notification.service';
 import { CreateStorefrontOrderDto } from './dto/create-storefront-order.dto';
@@ -20,6 +20,16 @@ export class OrdersService {
     dto: CreateStorefrontOrderDto,
     options?: { customerId?: string | null; customerEmail?: string | null },
   ) {
+    const normalizedAddress = dto.customerAddress?.trim() || null;
+    const normalizedNotes = dto.notes?.trim() || null;
+
+    if (dto.orderType === 'delivery' && !normalizedAddress) {
+      throw new BadRequestException({
+        error: 'DELIVERY_ADDRESS_REQUIRED',
+        message: 'Delivery orders require a non-empty customer address.',
+      });
+    }
+
     const restaurant = await this.prisma.restaurant.findUnique({ where: { id: restaurantId } });
     const orderingSettings = (restaurant?.orderingSettings as Record<string, unknown> | null) || {};
     const prefix = typeof orderingSettings.orderNumberPrefix === 'string' ? orderingSettings.orderNumberPrefix : 'ORD';
@@ -45,10 +55,10 @@ export class OrdersService {
         totalAmount,
         payload: {
           customerPhone: dto.customerPhone,
-          customerAddress: dto.customerAddress || null,
+          customerAddress: normalizedAddress,
           orderType: dto.orderType,
           paymentMethod: dto.paymentMethod,
-          notes: dto.notes || null,
+          notes: normalizedNotes,
           items: normalizedItems,
           totalAmount,
         },
