@@ -12,6 +12,8 @@ import { AdminMenuCatalogService } from './admin-menu-catalog.service';
 import { CreateAdminMenuItemDto } from './dto/create-admin-menu-item.dto';
 import { UpdateAdminMenuItemDto } from './dto/update-admin-menu-item.dto';
 import { AdminAnalyticsService } from './admin-analytics.service';
+import { AdminSettingsService } from './admin-settings.service';
+import { UpdateAdminPrinterSettingsDto } from './dto/update-admin-printer-settings.dto';
 
 @Controller('admin')
 export class AdminController {
@@ -21,6 +23,7 @@ export class AdminController {
     private readonly adminMenuCatalogService: AdminMenuCatalogService,
     private readonly adminCustomersService: AdminCustomersService,
     private readonly adminAnalyticsService: AdminAnalyticsService,
+    private readonly adminSettingsService: AdminSettingsService,
   ) {}
 
   private requireAdmin(authorization?: string, adminToken?: string, legacyRestaurantId?: string): AccessTokenPayload {
@@ -123,6 +126,30 @@ export class AdminController {
     const auth = this.requireAdmin(authorization, adminToken, legacyRestaurantId);
     const reservation = await this.ordersService.updateReservationStatus(auth.restaurantId, id, dto.status);
     return ok({ reservation });
+  }
+
+
+  @Get('settings/printer')
+  async getPrinterSettings(
+    @Headers('authorization') authorization?: string,
+    @Headers('x-admin-token') adminToken?: string,
+    @Headers('x-restaurant-id') legacyRestaurantId?: string,
+  ) {
+    const auth = this.requireAdmin(authorization, adminToken, legacyRestaurantId);
+    const settings = await this.adminSettingsService.getPrinterSettings(auth.restaurantId);
+    return ok({ settings });
+  }
+
+  @Patch('settings/printer')
+  async updatePrinterSettings(
+    @Body() dto: UpdateAdminPrinterSettingsDto,
+    @Headers('authorization') authorization?: string,
+    @Headers('x-admin-token') adminToken?: string,
+    @Headers('x-restaurant-id') legacyRestaurantId?: string,
+  ) {
+    const auth = this.requireAdmin(authorization, adminToken, legacyRestaurantId);
+    const settings = await this.adminSettingsService.updatePrinterSettings(auth.restaurantId, dto);
+    return ok({ settings });
   }
 
   @Get('customers')

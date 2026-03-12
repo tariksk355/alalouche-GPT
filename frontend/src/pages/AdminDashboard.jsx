@@ -8,6 +8,7 @@ import { clearStoredAdminSession, getStoredAdminSession } from "@/lib/customerAu
 import { getAdminKpis, listAdminOrders, listAdminReservations, updateAdminOrderStatus, updateAdminReservationStatus } from "@/lib/api/adminOps";
 import { createAdminMenuItem, deleteAdminMenuItem, listAdminMenuCatalog, updateAdminMenuItem } from "@/lib/api/adminMenuCatalog";
 import { createAdminCustomer, deleteAdminCustomer, listAdminCustomers, updateAdminCustomer } from "@/lib/api/adminCustomers";
+import { getAdminPrinterSettings, updateAdminPrinterSettings } from "@/lib/api/adminSettings";
 
 const NAV_ITEMS = [
   { id: "orders", label: "Commandes", icon: "🛒" },
@@ -784,26 +785,37 @@ function AdminMarketing() {
 function AdminSettings() {
   const [settings, setSettings] = useState(null);
   const [success, setSuccess] = useState("");
+  const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    base44.entities.PrinterSettings.list().then(data => {
-      if (data.length > 0) setSettings(data[0]);
-      else setSettings({ auto_print: true, paper_width: "58mm", copies: 1, default_prep_time: 30, require_prep_time: true });
-    });
+    loadSettings();
   }, []);
+
+  const loadSettings = async () => {
+    setError("");
+    try {
+      const data = await getAdminPrinterSettings();
+      setSettings(data);
+    } catch (e) {
+      setError(e.message || "Impossible de charger les paramètres.");
+      setSettings({ auto_print: true, paper_width: "58mm", copies: 1, default_prep_time: 30, require_prep_time: true });
+    }
+  };
 
   const handleSave = async () => {
     setLoading(true);
-    if (settings.id) {
-      await base44.entities.PrinterSettings.update(settings.id, settings);
-    } else {
-      const created = await base44.entities.PrinterSettings.create(settings);
-      setSettings(created);
+    setError("");
+    try {
+      const updated = await updateAdminPrinterSettings(settings);
+      setSettings(updated);
+      setSuccess("Paramètres sauvegardés !");
+      setTimeout(() => setSuccess(""), 3000);
+    } catch (e) {
+      setError(e.message || "Impossible de sauvegarder les paramètres.");
+    } finally {
+      setLoading(false);
     }
-    setSuccess("Paramètres sauvegardés !");
-    setTimeout(() => setSuccess(""), 3000);
-    setLoading(false);
   };
 
   if (!settings) return <div className="text-gray-400">Chargement...</div>;
@@ -811,6 +823,7 @@ function AdminSettings() {
   return (
     <div className="max-w-lg">
       {success && <div className="mb-4 bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-lg text-sm">{success}</div>}
+      {error && <div className="mb-4 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">{error}</div>}
       <div className="bg-white rounded-xl border border-gray-200 p-6 space-y-6 shadow-sm">
         <DeviceProvisioning />
         <div>
