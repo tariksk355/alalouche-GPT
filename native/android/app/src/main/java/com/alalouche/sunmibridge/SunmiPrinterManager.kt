@@ -12,6 +12,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import woyou.aidlservice.jiuiv5.ICallback
 import woyou.aidlservice.jiuiv5.IWoyouService
+import java.text.Normalizer
 import java.util.concurrent.atomic.AtomicBoolean
 
 class SunmiPrinterManager(private val context: Context) {
@@ -166,13 +167,6 @@ class SunmiPrinterManager(private val context: Context) {
 
             fun pushRenderedLine(line: String) {
                 renderedLines += line
-                val printableLine = line.trimEnd('\r', '\n') + "\n"
-                val escapedPrintablePreview = printableLine
-                    .replace("\r", "\\r")
-                    .replace("\n", "\\n")
-                    .take(140)
-                Log.i(TAG, "low_level_call printText newline_appended=true text='${escapedPrintablePreview}'")
-                service.printText(printableLine, callbackFor("printText"))
             }
 
             // IMPORTANT: no printerInit() and no buffer enter/exit in live receipt flow.
@@ -180,7 +174,7 @@ class SunmiPrinterManager(private val context: Context) {
             // and can fail before any printText reaches paper.
             Log.i(
                 TAG,
-                "receipt_path mode=no_buffer_live_text printerInit=false bufferApi=false fontSizeStyling=skipped_v2s_compat sequence=setAlignment/printText/lineWrap",
+                "receipt_path mode=no_buffer_live_text printerInit=false bufferApi=false fontSizeStyling=skipped_v2s_compat sequence=setAlignment/printTextSingleBlock",
             )
 
             Log.i(TAG, "low_level_call setAlignment alignment=1")
@@ -270,13 +264,22 @@ class SunmiPrinterManager(private val context: Context) {
             val renderedReceiptText = renderedLines.joinToString("\n")
             Log.i(TAG, "rendered_receipt_text_start\n$renderedReceiptText\nrendered_receipt_text_end")
 
-            Log.i(TAG, "low_level_call printText explicit_feed_newline_count=2")
-            service.printText("\n\n", callbackFor("printTextFeedFlush"))
-            Log.i(TAG, "low_level_call lineWrap n=6")
-            service.lineWrap(6, callbackFor("lineWrap"))
+            val asciiReceiptText = toAsciiSafeReceiptText(renderedReceiptText)
+            val asciiNormalized = asciiReceiptText != renderedReceiptText
+            val finalReceiptBlock = asciiReceiptText.trimEnd('\r', '\n') + "\n\n\n\n\n\n"
             Log.i(
                 TAG,
-                "receipt_path mode=no_buffer_live_text completed_calls=setAlignment,printText,printTextFeedFlush,lineWrap fontSizeStyling=skipped_v2s_compat",
+                "receipt_path single_block_plain_text enabled=true asciiNormalized=$asciiNormalized blockLength=${finalReceiptBlock.length}",
+            )
+            val blockPreview = finalReceiptBlock
+                .replace("\r", "\\r")
+                .replace("\n", "\\n")
+                .take(220)
+            Log.i(TAG, "low_level_call printText single_block_preview='${blockPreview}'")
+            service.printText(finalReceiptBlock, callbackFor("printTextSingleBlock"))
+            Log.i(
+                TAG,
+                "receipt_path mode=no_buffer_live_text completed_calls=setAlignment,printTextSingleBlock fontSizeStyling=skipped_v2s_compat",
             )
 
             if (callbackErrors.isNotEmpty()) {
@@ -464,6 +467,18 @@ class SunmiPrinterManager(private val context: Context) {
             "card", "carte" -> "Carte"
             else -> raw.trim()
         }
+    }
+
+    private fun toAsciiSafeReceiptText(input: String): String {
+        val normalized = Normalizer.normalize(input, Normalizer.Form.NFD)
+        val withoutDiacritics = normalized.replace("\\p{M}+".toRegex(), "")
+        return withoutDiacritics
+            .replace('’', '\'')
+            .replace('–', '-')
+            .replace('—', '-')
+            .replace('…', '.')
+            .map { ch -> if (ch.code in 32..126 || ch == '\n' || ch == '\r' || ch == '\t') ch else '?' }
+            .joinToString("")
     }
 
     companion object {
