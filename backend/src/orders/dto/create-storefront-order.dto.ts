@@ -1,5 +1,5 @@
 import { Type } from 'class-transformer';
-import { IsArray, IsEmail, IsIn, IsNotEmpty, IsNumber, IsOptional, IsString, Min, ValidateNested } from 'class-validator';
+import { IsArray, IsEmail, IsIn, IsNotEmpty, IsNumber, IsOptional, IsString, Min, ValidateIf, ValidateNested } from 'class-validator';
 
 class StorefrontOrderItemDto {
   @IsString()
@@ -34,8 +34,9 @@ export class CreateStorefrontOrderDto {
   @IsEmail()
   customerEmail?: string;
 
-  @IsOptional()
+  @ValidateIf((dto: CreateStorefrontOrderDto) => dto.orderType === 'delivery' || dto.customerAddress !== undefined)
   @IsString()
+  @IsNotEmpty()
   customerAddress?: string;
 
   @IsIn(['takeaway', 'delivery'])

@@ -65,8 +65,8 @@ export async function changeOrderStatus(orderId, status, prepMinutes) {
   }
 
   try {
-    await updateOrderStatus(token, orderId, status, prepMinutes);
-    return { ok: true };
+    const order = await updateOrderStatus(token, orderId, status, prepMinutes);
+    return { ok: true, order };
   } catch (error) {
     if (isAuthError(error)) {
       tokenStore.clear();

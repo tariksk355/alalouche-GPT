@@ -48,12 +48,13 @@ export async function getReceiverReservations(token) {
 }
 
 export async function updateOrderStatus(token, orderId, status, prepMinutes) {
-  await requestJson(`/receiver/orders/${orderId}/status`, {
+  const data = await requestJson(`/receiver/orders/${orderId}/status`, {
     method: 'POST',
     headers: bearer(token),
     body: JSON.stringify({ status, ...(prepMinutes ? { prepMinutes } : {}) }),
   });
   debugLog('order_status_updated', { orderId, status, prepMinutes: prepMinutes || null });
+  return data?.order || null;
 }
 
 export async function updateReservationStatus(token, reservationId, status) {

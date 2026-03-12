@@ -91,6 +91,7 @@ export function buildPrintJobFromOrder(order, restaurant) {
     orderNumber: order.orderNumber || order.id,
     customerName: order.customerName,
     lines,
+    items: lines,
     totals: (payload.totalAmount != null || payload.total != null) ? {
       total: Number(payload.totalAmount ?? payload.total),
       currency: payload.currency || 'CHF',
