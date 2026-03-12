@@ -71,6 +71,12 @@ function formatOrderType(orderType) {
   return orderType === 'delivery' ? 'Livraison' : 'À emporter';
 }
 
+function formatOrderDate(iso) {
+  if (!iso) return '-';
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? String(iso) : d.toLocaleString('fr-CH');
+}
+
 function prepMinutesForOrder(order) {
   const selected = state.prepMinutesByOrderId[order.id];
   if ([15, 30, 45, 60].includes(Number(selected))) return Number(selected);
@@ -146,6 +152,9 @@ function render() {
           <span class="status-pill">${formatOrderStatus(order.status)}</span>
         </div>
         <div class="subtle">${order.customerName || 'Client'} • ${formatOrderType(order.orderType)}</div>
+        ${order.customerAddress ? `<div class="subtle">Adresse: ${order.customerAddress}</div>` : ''}
+        ${order.paymentMethod ? `<div class="subtle">Paiement: ${order.paymentMethod}</div>` : ''}
+        <div class="subtle">Commande: ${formatOrderDate(order.createdAt)}</div>
         <div class="subtle">Historique client: ${Number(order.customerOrderCount || 0)} commande${Number(order.customerOrderCount || 0) > 1 ? 's' : ''} précédente${Number(order.customerOrderCount || 0) > 1 ? 's' : ''}</div>
         <div class="subtle">Préparation: ${order.prepMinutes ? `${order.prepMinutes} min` : `${prepMinutesForOrder(order)} min (proposé)`}</div>
         <div class="prep-row">

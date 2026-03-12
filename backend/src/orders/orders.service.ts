@@ -146,6 +146,10 @@ export class OrdersService {
         return {
           ...order,
           orderType,
+          customerPhone: typeof payload.customerPhone === 'string' ? payload.customerPhone : null,
+          customerAddress: typeof payload.customerAddress === 'string' ? payload.customerAddress : null,
+          paymentMethod: typeof payload.paymentMethod === 'string' ? payload.paymentMethod : null,
+          notes: typeof payload.notes === 'string' ? payload.notes : null,
           customerOrderCount: Math.max(customerOrderCount - 1, 0),
         };
       }),
