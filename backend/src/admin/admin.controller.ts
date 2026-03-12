@@ -1,16 +1,20 @@
-import { Body, Controller, Get, Headers, Param, Post, UnauthorizedException } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Headers, Param, Patch, Post, UnauthorizedException } from '@nestjs/common';
 import { AccessTokenPayload } from '../auth/token.service';
 import { ok } from '../common/api-response';
 import { AuthService } from '../auth/auth.service';
 import { OrdersService } from '../orders/orders.service';
 import { UpdateAdminOrderStatusDto } from './dto/update-admin-order-status.dto';
 import { UpdateAdminReservationStatusDto } from './dto/update-admin-reservation-status.dto';
+import { AdminMenuCatalogService } from './admin-menu-catalog.service';
+import { CreateAdminMenuItemDto } from './dto/create-admin-menu-item.dto';
+import { UpdateAdminMenuItemDto } from './dto/update-admin-menu-item.dto';
 
 @Controller('admin')
 export class AdminController {
   constructor(
     private readonly ordersService: OrdersService,
     private readonly authService: AuthService,
+    private readonly adminMenuCatalogService: AdminMenuCatalogService,
   ) {}
 
   private requireAdmin(authorization?: string, adminToken?: string, legacyRestaurantId?: string): AccessTokenPayload {
@@ -101,5 +105,53 @@ export class AdminController {
     const auth = this.requireAdmin(authorization, adminToken, legacyRestaurantId);
     const reservation = await this.ordersService.updateReservationStatus(auth.restaurantId, id, dto.status);
     return ok({ reservation });
+  }
+
+  @Get('menu-catalog')
+  async listMenuCatalog(
+    @Headers('authorization') authorization?: string,
+    @Headers('x-admin-token') adminToken?: string,
+    @Headers('x-restaurant-id') legacyRestaurantId?: string,
+  ) {
+    const auth = this.requireAdmin(authorization, adminToken, legacyRestaurantId);
+    const items = await this.adminMenuCatalogService.listMenuCatalog(auth.restaurantId);
+    return ok({ items });
+  }
+
+  @Post('menu-catalog')
+  async createMenuItem(
+    @Body() dto: CreateAdminMenuItemDto,
+    @Headers('authorization') authorization?: string,
+    @Headers('x-admin-token') adminToken?: string,
+    @Headers('x-restaurant-id') legacyRestaurantId?: string,
+  ) {
+    const auth = this.requireAdmin(authorization, adminToken, legacyRestaurantId);
+    const item = await this.adminMenuCatalogService.createMenuItem(auth.restaurantId, dto);
+    return ok({ item });
+  }
+
+  @Patch('menu-catalog/:id')
+  async updateMenuItem(
+    @Param('id') id: string,
+    @Body() dto: UpdateAdminMenuItemDto,
+    @Headers('authorization') authorization?: string,
+    @Headers('x-admin-token') adminToken?: string,
+    @Headers('x-restaurant-id') legacyRestaurantId?: string,
+  ) {
+    const auth = this.requireAdmin(authorization, adminToken, legacyRestaurantId);
+    const item = await this.adminMenuCatalogService.updateMenuItem(auth.restaurantId, id, dto);
+    return ok({ item });
+  }
+
+  @Delete('menu-catalog/:id')
+  async deleteMenuItem(
+    @Param('id') id: string,
+    @Headers('authorization') authorization?: string,
+    @Headers('x-admin-token') adminToken?: string,
+    @Headers('x-restaurant-id') legacyRestaurantId?: string,
+  ) {
+    const auth = this.requireAdmin(authorization, adminToken, legacyRestaurantId);
+    await this.adminMenuCatalogService.deleteMenuItem(auth.restaurantId, id);
+    return ok({ deleted: true });
   }
 }
