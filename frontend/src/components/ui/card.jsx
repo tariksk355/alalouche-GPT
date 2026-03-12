@@ -1,7 +1,9 @@
+// @ts-nocheck
 import * as React from "react"
 
 import { cn } from "@/lib/utils"
 
+/** @type {any} */
 const Card = React.forwardRef(({ className, ...props }, ref) => (
   <div
     ref={ref}
@@ -10,6 +12,7 @@ const Card = React.forwardRef(({ className, ...props }, ref) => (
 ))
 Card.displayName = "Card"
 
+/** @type {any} */
 const CardHeader = React.forwardRef(({ className, ...props }, ref) => (
   <div
     ref={ref}
@@ -18,6 +21,7 @@ const CardHeader = React.forwardRef(({ className, ...props }, ref) => (
 ))
 CardHeader.displayName = "CardHeader"
 
+/** @type {any} */
 const CardTitle = React.forwardRef(({ className, ...props }, ref) => (
   <div
     ref={ref}
@@ -26,6 +30,7 @@ const CardTitle = React.forwardRef(({ className, ...props }, ref) => (
 ))
 CardTitle.displayName = "CardTitle"
 
+/** @type {any} */
 const CardDescription = React.forwardRef(({ className, ...props }, ref) => (
   <div
     ref={ref}
@@ -34,11 +39,13 @@ const CardDescription = React.forwardRef(({ className, ...props }, ref) => (
 ))
 CardDescription.displayName = "CardDescription"
 
+/** @type {any} */
 const CardContent = React.forwardRef(({ className, ...props }, ref) => (
   <div ref={ref} className={cn("p-6 pt-0", className)} {...props} />
 ))
 CardContent.displayName = "CardContent"
 
+/** @type {any} */
 const CardFooter = React.forwardRef(({ className, ...props }, ref) => (
   <div
     ref={ref}

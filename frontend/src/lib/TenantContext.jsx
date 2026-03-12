@@ -25,7 +25,7 @@ const FALLBACK_TENANT = {
   reservationSettings: {},
 };
 
-const TenantContext = createContext();
+const TenantContext = createContext(null);
 
 export function TenantProvider({ children }) {
   const [tenant, setTenant] = useState(null);
