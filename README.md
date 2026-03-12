@@ -55,3 +55,15 @@ This repo now includes production Docker packaging:
   - `/health` endpoint for container probes
 
 See `DEPLOYMENT_DO.md` for App Platform / Droplet usage.
+
+
+## Single-server compose option
+
+For Droplet/EC2 style deployment, use root `docker-compose.yml` with:
+
+```bash
+cp deploy/env/compose.env.example deploy/env/compose.env
+docker compose --env-file deploy/env/compose.env up -d --build
+```
+
+See `DEPLOYMENT_DO.md` for required environment variables and smoke checks.
