@@ -29,6 +29,7 @@ const state = {
   pairingPollId: null,
   pairingTimeoutId: null,
   printerMessage: '',
+  prepMinutesByOrderId: {},
 };
 
 function stopPairingPolling() {
@@ -63,6 +64,18 @@ function formatReservationDate(iso) {
   if (!iso) return '-';
   const d = new Date(iso);
   return Number.isNaN(d.getTime()) ? String(iso) : d.toLocaleString('fr-CH');
+}
+
+
+function formatOrderType(orderType) {
+  return orderType === 'delivery' ? 'Livraison' : 'À emporter';
+}
+
+function prepMinutesForOrder(order) {
+  const selected = state.prepMinutesByOrderId[order.id];
+  if ([15, 30, 45, 60].includes(Number(selected))) return Number(selected);
+  if ([15, 30, 45, 60].includes(Number(order.prepMinutes))) return Number(order.prepMinutes);
+  return 30;
 }
 
 function renderPairingCard() {
@@ -132,22 +145,19 @@ function render() {
           <strong>${order.orderNumber || order.id}</strong>
           <span class="status-pill">${formatOrderStatus(order.status)}</span>
         </div>
-        <div class="subtle">${order.customerName || 'Client'}</div>
-        <div class="subtle">Préparation: ${order.prepMinutes ? `${order.prepMinutes} min` : 'non définie'}</div>
-        <div class="btn-row">
-          <label class="subtle" for="prep-${order.id}">Temps prep</label>
-          <select id="prep-${order.id}" class="input" style="max-width: 110px;">
-            <option value="15" ${order.prepMinutes === 15 ? 'selected' : ''}>15 min</option>
-            <option value="30" ${order.prepMinutes === 30 ? 'selected' : ''}>30 min</option>
-            <option value="45" ${order.prepMinutes === 45 ? 'selected' : ''}>45 min</option>
-            <option value="60" ${order.prepMinutes === 60 ? 'selected' : ''}>60 min</option>
-          </select>
+        <div class="subtle">${order.customerName || 'Client'} • ${formatOrderType(order.orderType)}</div>
+        <div class="subtle">Historique client: ${Number(order.customerOrderCount || 0)} commande${Number(order.customerOrderCount || 0) > 1 ? 's' : ''} précédente${Number(order.customerOrderCount || 0) > 1 ? 's' : ''}</div>
+        <div class="subtle">Préparation: ${order.prepMinutes ? `${order.prepMinutes} min` : `${prepMinutesForOrder(order)} min (proposé)`}</div>
+        <div class="prep-row">
+          <span class="subtle">Temps prep</span>
+          <div class="chip-row">
+            ${[15, 30, 45, 60].map((minutes) => `<button class="prep-chip ${prepMinutesForOrder(order) === minutes ? 'active' : ''}" data-action="set-prep" data-id="${order.id}" data-minutes="${minutes}">${minutes} min</button>`).join('')}
+          </div>
         </div>
         <div class="btn-row">
-          <button class="btn-accept" data-action="accepted" data-id="${order.id}">Accepter</button>
+          <button class="btn-accept" data-action="accepted" data-id="${order.id}">Accepter & imprimer</button>
           <button class="btn-ready" data-action="ready" data-id="${order.id}">Prêt</button>
           <button class="btn-done" data-action="completed" data-id="${order.id}">Terminé</button>
-          <button class="btn-secondary-inline" data-action="print-test-order" data-id="${order.id}">Test print</button>
         </div>
       </div>
     `).join('');
@@ -175,8 +185,7 @@ function render() {
       <p class="subtle">Connecté: ${state.deviceName || 'Périphérique'}</p>
       <div class="btn-row">
         <button id="printer-info-btn" class="btn-secondary-inline">Info imprimante</button>
-        <button id="printer-test-btn" class="btn-secondary-inline">Test impression</button>
-      </div>
+              </div>
       <button id="unpair-btn" class="btn-secondary">Désassocier cet appareil</button>
     </div>
 
@@ -221,6 +230,7 @@ async function validateDeviceOnceAndEnterReceiver() {
     state.orders = [];
     state.reservations = [];
     state.printerMessage = '';
+    state.prepMinutesByOrderId = {};
     stopReceiverPolling();
     debugLog('device_validation_not_paired', { message: state.error || 'no_message' });
     render();
@@ -253,6 +263,12 @@ async function refreshOperations() {
   if (result.state === 'loaded') {
     state.orders = result.orders || [];
     state.reservations = result.reservations || [];
+    const nextPrep = {};
+    for (const order of state.orders) {
+      const existing = state.prepMinutesByOrderId[order.id];
+      nextPrep[order.id] = [15, 30, 45, 60].includes(Number(existing)) ? Number(existing) : ([15, 30, 45, 60].includes(Number(order.prepMinutes)) ? Number(order.prepMinutes) : 30);
+    }
+    state.prepMinutesByOrderId = nextPrep;
     state.error = '';
     debugLog('operations_poll_success', {
       orders: state.orders.length,
@@ -266,6 +282,7 @@ async function refreshOperations() {
     state.orders = [];
     state.reservations = [];
     state.printerMessage = '';
+    state.prepMinutesByOrderId = {};
     stopReceiverPolling();
     debugLog('operations_poll_auth_failed', { message: state.error || 'token_invalid' });
   } else {
@@ -367,26 +384,17 @@ async function showPrinterInfo() {
   render();
 }
 
-async function runPrintTest(order) {
-  const printJob = toPrintJob(order || {
-    id: 'test-order',
-    orderNumber: 'TEST-001',
-    customerName: 'Test Client',
-    payload: {
-      items: [{ name: 'Article test', quantity: 1, price: 0 }],
-      total: 0,
-      currency: 'CHF',
-    },
-  }, {
+async function printAcceptedOrder(order) {
+  const printJob = toPrintJob(order, {
     name: 'À la Louche',
   });
 
   const res = await printerAdapter.printReceipt(printJob);
 
   if (res.ok) {
-    state.printerMessage = 'Impression envoyée avec succès.';
+    state.printerMessage = `Impression envoyée pour ${order.orderNumber || order.id}.`;
   } else {
-    state.printerMessage = `Impression indisponible: ${res.code || 'UNKNOWN'} - ${res.message || ''}`;
+    state.printerMessage = `Commande acceptée, mais impression indisponible: ${res.code || 'UNKNOWN'} - ${res.message || ''}`;
   }
   render();
 }
@@ -426,6 +434,7 @@ app.addEventListener('click', async (event) => {
     state.error = '';
     state.pairingMessage = '';
     state.printerMessage = '';
+    state.prepMinutesByOrderId = {};
     stopReceiverPolling();
     stopPairingPolling();
     render();
@@ -450,11 +459,17 @@ app.addEventListener('click', async (event) => {
     return;
   }
 
-  if (target.id === 'printer-test-btn') {
-    await runPrintTest(state.orders[0]);
+
+
+  if (target.dataset.action === 'set-prep' && target.dataset.id) {
+    const minutes = Number(target.dataset.minutes || 0);
+    if ([15, 30, 45, 60].includes(minutes)) {
+      state.prepMinutesByOrderId[target.dataset.id] = minutes;
+      state.error = '';
+      render();
+    }
     return;
   }
-
   const reservationAction = target.dataset.action;
   const reservationId = target.dataset.id;
   if (reservationAction === 'reservation_confirmed' || reservationAction === 'reservation_cancelled') {
@@ -478,11 +493,6 @@ app.addEventListener('click', async (event) => {
   const status = target.dataset.action;
   if (!orderId || !status) return;
 
-  if (status === 'print-test-order') {
-    const order = state.orders.find((item) => item.id === orderId);
-    await runPrintTest(order);
-    return;
-  }
 
   if (!['accepted', 'ready', 'completed'].includes(status)) {
     return;
@@ -490,8 +500,7 @@ app.addEventListener('click', async (event) => {
 
   let prepMinutes;
   if (status === 'accepted') {
-    const prepSelect = document.getElementById(`prep-${orderId}`);
-    prepMinutes = prepSelect ? Number(prepSelect.value) : undefined;
+    prepMinutes = state.prepMinutesByOrderId[orderId] || undefined;
   }
 
   target.setAttribute('disabled', 'true');
@@ -506,6 +515,13 @@ app.addEventListener('click', async (event) => {
     }
     render();
     return;
+  }
+
+  if (status === 'accepted') {
+    const acceptedOrder = state.orders.find((item) => item.id === orderId);
+    if (acceptedOrder) {
+      await printAcceptedOrder({ ...acceptedOrder, prepMinutes: prepMinutes || acceptedOrder.prepMinutes });
+    }
   }
 
   await refreshOperations();

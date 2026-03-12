@@ -19,3 +19,20 @@ button:disabled { opacity: 0.6; }
 .input { width: 100%; box-sizing: border-box; margin-top: 10px; border-radius: 10px; border: 1px solid #475569; background: #0b1220; color: #f8fafc; padding: 12px; font-size: 20px; letter-spacing: 1px; text-transform: uppercase; }
 
 .btn-secondary-inline { background: #334155; }
+
+.prep-row { margin-top: 10px; }
+.chip-row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+.prep-chip {
+  background: #1f2937;
+  border: 1px solid #4b5563;
+  color: #f8fafc;
+  border-radius: 999px;
+  padding: 8px 12px;
+  margin-top: 0;
+  min-height: 0;
+  font-size: 14px;
+}
+.prep-chip.active {
+  background: #2563eb;
+  border-color: #2563eb;
+}

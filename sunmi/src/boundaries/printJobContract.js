@@ -85,11 +85,15 @@ export function buildPrintJobFromOrder(order, restaurant) {
     orderNumber: order.orderNumber || order.id,
     customerName: order.customerName,
     lines,
-    totals: payload.total != null ? {
-      total: Number(payload.total),
+    totals: (payload.totalAmount != null || payload.total != null) ? {
+      total: Number(payload.totalAmount ?? payload.total),
       currency: payload.currency || 'CHF',
     } : undefined,
-    notes: order.notes || payload.notes,
+    notes: [
+      payload.orderType ? `Type: ${payload.orderType === 'delivery' ? 'Livraison' : 'À emporter'}` : null,
+      payload.customerPhone ? `Tel: ${payload.customerPhone}` : null,
+      order.notes || payload.notes || null,
+    ].filter(Boolean).join(' | ') || undefined,
     formattingHints: {
       paperWidth: '58mm',
       locale: 'fr-CH',
