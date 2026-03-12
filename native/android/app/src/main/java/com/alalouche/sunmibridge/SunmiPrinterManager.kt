@@ -166,8 +166,13 @@ class SunmiPrinterManager(private val context: Context) {
 
             fun pushRenderedLine(line: String) {
                 renderedLines += line
-                Log.i(TAG, "low_level_call printText text='${line.take(120)}'")
-                service.printText("$line\n", callbackFor("printText"))
+                val printableLine = line.trimEnd('\r', '\n') + "\n"
+                val escapedPrintablePreview = printableLine
+                    .replace("\r", "\\r")
+                    .replace("\n", "\\n")
+                    .take(140)
+                Log.i(TAG, "low_level_call printText newline_appended=true text='${escapedPrintablePreview}'")
+                service.printText(printableLine, callbackFor("printText"))
             }
 
             // IMPORTANT: no printerInit() and no buffer enter/exit in live receipt flow.
@@ -265,11 +270,13 @@ class SunmiPrinterManager(private val context: Context) {
             val renderedReceiptText = renderedLines.joinToString("\n")
             Log.i(TAG, "rendered_receipt_text_start\n$renderedReceiptText\nrendered_receipt_text_end")
 
-            Log.i(TAG, "low_level_call lineWrap n=3")
-            service.lineWrap(3, callbackFor("lineWrap"))
+            Log.i(TAG, "low_level_call printText explicit_feed_newline_count=2")
+            service.printText("\n\n", callbackFor("printTextFeedFlush"))
+            Log.i(TAG, "low_level_call lineWrap n=6")
+            service.lineWrap(6, callbackFor("lineWrap"))
             Log.i(
                 TAG,
-                "receipt_path mode=no_buffer_live_text completed_calls=setAlignment,printText,lineWrap fontSizeStyling=skipped_v2s_compat",
+                "receipt_path mode=no_buffer_live_text completed_calls=setAlignment,printText,printTextFeedFlush,lineWrap fontSizeStyling=skipped_v2s_compat",
             )
 
             if (callbackErrors.isNotEmpty()) {
