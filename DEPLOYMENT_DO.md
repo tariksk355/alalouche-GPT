@@ -51,6 +51,7 @@ Current baseline strategy is `prisma migrate deploy` at container startup via en
 
 - keep `RUN_DB_MIGRATIONS=true` for simple single-instance deployments
 - set `RUN_DB_MIGRATIONS=false` when you introduce a separate pre-deploy/release migration job
+- for multiple app replicas, prefer a separate one-off migration job to avoid concurrent startup migration attempts
 
 ## Frontend deployment (App Platform or Droplet)
 
