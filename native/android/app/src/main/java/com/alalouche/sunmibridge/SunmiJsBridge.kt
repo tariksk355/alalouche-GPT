@@ -35,6 +35,19 @@ class SunmiJsBridge(context: Context) {
         }
     }
 
+    // Compatibility aliases for older/variant web clients that may call
+    // printOrder(...) or print(...). Route all production print calls through
+    // the same printReceipt pipeline to avoid default/demo native print paths.
+    @JavascriptInterface
+    fun printOrder(printJobJson: String?): String {
+        return printReceipt(printJobJson)
+    }
+
+    @JavascriptInterface
+    fun print(printJobJson: String?): String {
+        return printReceipt(printJobJson)
+    }
+
     @JavascriptInterface
     fun openCashDrawer(requestJson: String?): String {
         return safeResponse("openCashDrawer") {

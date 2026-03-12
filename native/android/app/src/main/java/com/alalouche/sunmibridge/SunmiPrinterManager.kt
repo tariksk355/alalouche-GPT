@@ -116,6 +116,11 @@ class SunmiPrinterManager(private val context: Context) {
         val notes = printJob.optString("notes")
         val customerName = firstNonBlank(printJob.optString("customerName"), printJob.optString("customer_name"))
         val createdAt = firstNonBlank(printJob.optString("createdAtIso"), printJob.optString("created_at_iso"), printJob.optString("createdAt"))
+        val totalAmountFallback = when {
+            printJob.has("total_amount") -> printJob.optDouble("total_amount", Double.NaN)
+            printJob.has("totalAmount") -> printJob.optDouble("totalAmount", Double.NaN)
+            else -> Double.NaN
+        }
 
         if (orderNumber.isBlank() || lines.length() == 0) {
             return fail("INVALID_PRINT_JOB_CONTENT", "printJob must include order number and at least one line item.")
@@ -146,10 +151,15 @@ class SunmiPrinterManager(private val context: Context) {
             for (i in 0 until lines.length()) {
                 val item = lines.optJSONObject(i) ?: continue
                 val quantity = item.optInt("quantity", 1)
-                val name = item.optString("name", "Article")
-                val totalPrice = if (item.has("totalPrice")) item.optDouble("totalPrice", 0.0) else null
+                val name = firstNonBlank(item.optString("name"), item.optString("title"), "Article")
+                val totalPrice = when {
+                    item.has("totalPrice") -> item.optDouble("totalPrice", 0.0)
+                    item.has("total_price") -> item.optDouble("total_price", 0.0)
+                    item.has("price") -> item.optDouble("price", 0.0) * quantity
+                    else -> Double.NaN
+                }
 
-                val lineText = if (totalPrice != null) {
+                val lineText = if (!totalPrice.isNaN()) {
                     "$quantity x $name  ${"%.2f".format(totalPrice)}\n"
                 } else {
                     "$quantity x $name\n"
@@ -168,9 +178,14 @@ class SunmiPrinterManager(private val context: Context) {
             }
 
             service.printText("------------------------------\n", null)
-            if (totals != null && totals.has("total")) {
-                val total = totals.optDouble("total", 0.0)
-                val currency = totals.optString("currency", "CHF")
+            val hasTotalsObject = totals != null && totals.has("total")
+            val total = when {
+                hasTotalsObject -> totals!!.optDouble("total", 0.0)
+                !totalAmountFallback.isNaN() -> totalAmountFallback
+                else -> Double.NaN
+            }
+            if (!total.isNaN()) {
+                val currency = if (hasTotalsObject) totals!!.optString("currency", "CHF") else "CHF"
                 service.setAlignment(2, null)
                 service.printText("TOTAL: ${"%.2f".format(total)} $currency\n", null)
                 service.setAlignment(0, null)
