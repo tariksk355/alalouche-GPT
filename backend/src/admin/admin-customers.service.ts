@@ -25,7 +25,7 @@ export class AdminCustomersService {
       },
     });
 
-    const customerIds = customers.map((customer) => customer.id);
+    const customerIds = customers.map((customer: (typeof customers)[number]) => customer.id);
     const orderCounts = customerIds.length
       ? await this.prisma.order.groupBy({
           by: ['customerId'],
@@ -37,9 +37,9 @@ export class AdminCustomersService {
         })
       : [];
 
-    const orderCountByCustomerId = new Map(orderCounts.map((row) => [row.customerId, row._count._all]));
+    const orderCountByCustomerId = new Map(orderCounts.map((row: (typeof orderCounts)[number]) => [row.customerId, row._count._all]));
 
-    return customers.map((customer) => ({
+    return customers.map((customer: (typeof customers)[number]) => ({
       ...customer,
       orderCount: orderCountByCustomerId.get(customer.id) || 0,
     }));
