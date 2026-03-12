@@ -18,6 +18,7 @@ export default function Account() {
   const [loading, setLoading] = useState(false);
   const [profileForm, setProfileForm] = useState({ fullName: '', phone: '' });
   const [savingProfile, setSavingProfile] = useState(false);
+  const [profileSuccess, setProfileSuccess] = useState('');
 
   const handleLogin = async (e) => {
     e.preventDefault();
@@ -58,6 +59,7 @@ export default function Account() {
     const handleProfileSave = async (e) => {
       e.preventDefault();
       setError('');
+      setProfileSuccess('');
       setSavingProfile(true);
 
       try {
@@ -69,6 +71,8 @@ export default function Account() {
           phone: effectiveProfile.phone,
         });
         await refreshSession();
+        setProfileSuccess('Profil mis à jour avec succès.');
+        setTimeout(() => setProfileSuccess(''), 3000);
       } catch (err) {
         setError(err.message || 'Mise à jour impossible.');
       } finally {
@@ -82,7 +86,8 @@ export default function Account() {
           <Card className="p-6 space-y-4">
             <h1 className="text-2xl font-semibold">Mon compte</h1>
             <p className="text-sm text-gray-600">Connecté en tant que {user.fullName}</p>
-            {error && <p className="text-sm text-red-600">{error}</p>}
+            {profileSuccess && <div className="text-sm text-green-700 bg-green-50 border border-green-200 rounded-md px-3 py-2">{profileSuccess}</div>}
+            {error && <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-md px-3 py-2">{error}</div>}
             <div className="space-y-2 text-sm">
               <p>
                 <strong>Email:</strong> {user.email}
@@ -110,7 +115,7 @@ export default function Account() {
               </Button>
             </form>
 
-            <div className="flex gap-2">
+            <div className="flex flex-col sm:flex-row gap-2">
               <Button onClick={() => navigate(createPageUrl('MesCommandes'))}>Mes commandes</Button>
               <Button variant="outline" onClick={logout}>
                 Déconnexion
@@ -127,7 +132,8 @@ export default function Account() {
       <div className="max-w-xl mx-auto pt-10">
         <Card className="p-6">
           <h1 className="text-2xl font-semibold mb-4">Connexion / Inscription</h1>
-          {error && <p className="text-sm text-red-600 mb-4">{error}</p>}
+          <p className="text-sm text-gray-500 mb-4">Connectez-vous pour suivre vos commandes et gagner du temps lors des prochains achats.</p>
+          {error && <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-md px-3 py-2 mb-4">{error}</div>}
 
           <Tabs defaultValue="login">
             <TabsList className="grid grid-cols-2 mb-4">
@@ -152,7 +158,7 @@ export default function Account() {
                   onChange={(e) => setLoginForm({ ...loginForm, password: e.target.value })}
                 />
                 <Button type="submit" disabled={loading} className="w-full">
-                  {loading ? 'Connexion...' : 'Se connecter'}
+                  {loading ? 'Connexion en cours...' : 'Se connecter'}
                 </Button>
               </form>
             </TabsContent>
@@ -186,7 +192,7 @@ export default function Account() {
                   onChange={(e) => setSignupForm({ ...signupForm, password: e.target.value })}
                 />
                 <Button type="submit" disabled={loading} className="w-full">
-                  {loading ? 'Création...' : "Créer mon compte"}
+                  {loading ? 'Création du compte...' : "Créer mon compte"}
                 </Button>
               </form>
             </TabsContent>
