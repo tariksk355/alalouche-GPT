@@ -1,7 +1,7 @@
-import { useState, useEffect } from "react";
-import { base44 } from "@/api/base44Client";
+import { useEffect, useState } from 'react';
+import { getAdminAnalyticsOverview } from '@/lib/api/adminAnalytics';
 
-function StatCard({ label, value, sub, color = "text-gray-900" }) {
+function StatCard({ label, value, sub, color = 'text-gray-900' }) {
   return (
     <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm">
       <p className="text-gray-500 text-sm mb-1">{label}</p>
@@ -11,18 +11,20 @@ function StatCard({ label, value, sub, color = "text-gray-900" }) {
   );
 }
 
+function formatFrDay(dateStr) {
+  const date = new Date(`${dateStr}T00:00:00`);
+  return date.toLocaleDateString('fr-CH', { weekday: 'short', day: 'numeric', month: 'numeric' });
+}
+
 export default function AdminAnalytics() {
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
   const [data, setData] = useState({
-    totalVisits: 0,
-    todayVisits: 0,
-    totalOrders: 0,
-    todayOrders: 0,
-    todayRevenue: 0,
-    totalRevenue: 0,
-    orderTypeStats: { takeaway: 0, delivery: 0 },
-    dailyVisits: [],
-    dailyOrders: [],
+    today: { visits: null, orders: 0, revenue: 0 },
+    totals: { visits: null, orders: 0, revenue: 0 },
+    orderTypeStats: { takeaway: 0, delivery: 0, other: 0 },
+    last7: [],
+    notes: { visits: '' },
   });
 
   useEffect(() => {
@@ -30,78 +32,45 @@ export default function AdminAnalytics() {
   }, []);
 
   const loadAnalytics = async () => {
-    const today = new Date().toISOString().split("T")[0];
-
-    const [visits, orders] = await Promise.all([
-      base44.entities.Visit.list("-created_date", 1000),
-      base44.entities.Order.list("-created_date", 1000),
-    ]);
-
-    const todayVisits = visits.filter(v => v.date === today).length;
-    const todayOrders = orders.filter(o => o.created_date?.startsWith(today));
-    const todayRevenue = todayOrders.reduce((s, o) => s + (o.total_amount || 0), 0);
-    const totalRevenue = orders.reduce((s, o) => s + (o.total_amount || 0), 0);
-
-    const orderTypeStats = {
-      takeaway: orders.filter(o => o.order_type === "takeaway").length,
-      delivery: orders.filter(o => o.order_type === "delivery").length,
-    };
-
-    // Last 7 days
-    const last7 = [];
-    for (let i = 6; i >= 0; i--) {
-      const d = new Date();
-      d.setDate(d.getDate() - i);
-      const dateStr = d.toISOString().split("T")[0];
-      const label = d.toLocaleDateString("fr-CH", { weekday: "short", day: "numeric", month: "numeric" });
-      last7.push({
-        date: dateStr,
-        label,
-        visits: visits.filter(v => v.date === dateStr).length,
-        orders: orders.filter(o => o.created_date?.startsWith(dateStr)).length,
-        revenue: orders.filter(o => o.created_date?.startsWith(dateStr)).reduce((s, o) => s + (o.total_amount || 0), 0),
-      });
+    setLoading(true);
+    setError('');
+    try {
+      const overview = await getAdminAnalyticsOverview();
+      setData(overview);
+    } catch (e) {
+      setError(e.message || 'Impossible de charger les analytiques.');
+    } finally {
+      setLoading(false);
     }
-
-    setData({
-      totalVisits: visits.length,
-      todayVisits,
-      totalOrders: orders.length,
-      todayOrders: todayOrders.length,
-      todayRevenue,
-      totalRevenue,
-      orderTypeStats,
-      last7,
-    });
-    setLoading(false);
   };
 
   if (loading) return <div className="text-center text-gray-400 py-12">Chargement...</div>;
+  if (error) return <div className="text-center text-red-500 py-12">{error}</div>;
 
-  const maxVisits = Math.max(...data.last7.map(d => d.visits), 1);
-  const maxOrders = Math.max(...data.last7.map(d => d.orders), 1);
-  const maxRevenue = Math.max(...data.last7.map(d => d.revenue), 1);
+  const maxVisits = Math.max(...data.last7.map((d) => d.visits || 0), 1);
+  const maxOrders = Math.max(...data.last7.map((d) => d.orders || 0), 1);
+  const maxRevenue = Math.max(...data.last7.map((d) => d.revenue || 0), 1);
 
-  const totalOrderTypes = data.orderTypeStats.takeaway + data.orderTypeStats.delivery || 1;
+  const totalOrderTypes = data.orderTypeStats.takeaway + data.orderTypeStats.delivery + data.orderTypeStats.other || 1;
 
   return (
     <div className="space-y-8">
-      {/* KPIs */}
       <div>
-        <h2 className="text-lg font-semibold text-gray-700 mb-4">Aujourd'hui</h2>
+        <h2 className="text-lg font-semibold text-gray-700 mb-4">Aujourd&apos;hui</h2>
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          <StatCard label="Visiteurs aujourd'hui" value={data.todayVisits} color="text-blue-600" />
-          <StatCard label="Commandes aujourd'hui" value={data.todayOrders} color="text-[#b5122a]" />
-          <StatCard label="Chiffre d'affaires du jour" value={`CHF ${data.todayRevenue.toFixed(2)}`} color="text-green-600" />
-          <StatCard label="Visiteurs totaux" value={data.totalVisits} sub="depuis le début" />
+          <StatCard label="Visiteurs aujourd&apos;hui" value={data.today.visits ?? '—'} color="text-blue-600" />
+          <StatCard label="Commandes aujourd&apos;hui" value={data.today.orders} color="text-[#b5122a]" />
+          <StatCard label="Chiffre d&apos;affaires du jour" value={`CHF ${Number(data.today.revenue || 0).toFixed(2)}`} color="text-green-600" />
+          <StatCard label="Visiteurs totaux" value={data.totals.visits ?? '—'} sub="depuis le début" />
         </div>
+        {data.notes?.visits && <p className="text-xs text-gray-400 mt-2">{data.notes.visits}</p>}
       </div>
 
       <div>
         <h2 className="text-lg font-semibold text-gray-700 mb-4">Total</h2>
         <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
-          <StatCard label="Commandes totales" value={data.totalOrders} />
-          <StatCard label="Chiffre d'affaires total" value={`CHF ${data.totalRevenue.toFixed(2)}`} color="text-green-700" />
+          <StatCard label="Commandes totales" value={data.totals.orders} />
+          <StatCard label="Chiffre d&apos;affaires total" value={`CHF ${Number(data.totals.revenue || 0).toFixed(2)}`} color="text-green-700" />
           <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm">
             <p className="text-gray-500 text-sm mb-3">Type de commande</p>
             <div className="flex gap-4 text-sm">
@@ -113,64 +82,70 @@ export default function AdminAnalytics() {
                 <span className="text-2xl font-bold text-gray-900">{data.orderTypeStats.delivery}</span>
                 <p className="text-gray-400 text-xs">Livraison</p>
               </div>
+              <div>
+                <span className="text-2xl font-bold text-gray-900">{data.orderTypeStats.other}</span>
+                <p className="text-gray-400 text-xs">Autres</p>
+              </div>
             </div>
-            {/* Simple bar */}
             <div className="mt-3 flex h-2 rounded-full overflow-hidden bg-gray-100">
-              <div
-                className="bg-[#b5122a] transition-all"
-                style={{ width: `${(data.orderTypeStats.takeaway / totalOrderTypes) * 100}%` }}
-              />
-              <div
-                className="bg-blue-400 transition-all"
-                style={{ width: `${(data.orderTypeStats.delivery / totalOrderTypes) * 100}%` }}
-              />
-            </div>
-            <div className="flex gap-4 mt-1 text-xs text-gray-400">
-              <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-[#b5122a] inline-block" /> À emporter</span>
-              <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-blue-400 inline-block" /> Livraison</span>
+              <div className="bg-[#b5122a] transition-all" style={{ width: `${(data.orderTypeStats.takeaway / totalOrderTypes) * 100}%` }} />
+              <div className="bg-blue-400 transition-all" style={{ width: `${(data.orderTypeStats.delivery / totalOrderTypes) * 100}%` }} />
+              <div className="bg-gray-400 transition-all" style={{ width: `${(data.orderTypeStats.other / totalOrderTypes) * 100}%` }} />
             </div>
           </div>
         </div>
       </div>
 
-      {/* Last 7 days chart */}
       <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
         <h2 className="text-lg font-semibold text-gray-700 mb-6">7 derniers jours</h2>
         <div className="overflow-x-auto">
           <table className="w-full text-sm text-center">
             <thead>
               <tr className="text-gray-400 text-xs">
-                <th className="text-left pb-3 font-normal">Jour</th>
-                <th className="pb-3 font-normal">Visiteurs</th>
-                <th className="pb-3 font-normal">Commandes</th>
-                <th className="pb-3 font-normal">Chiffre d'affaires</th>
+                <th className="pb-2 text-left">Jour</th>
+                <th className="pb-2">Visites</th>
+                <th className="pb-2">Commandes</th>
+                <th className="pb-2">CA (CHF)</th>
               </tr>
             </thead>
             <tbody>
-              {data.last7.map((day, i) => (
-                <tr key={i} className={`border-t border-gray-50 ${day.date === new Date().toISOString().split("T")[0] ? "bg-red-50" : ""}`}>
-                  <td className="py-3 text-left text-gray-700 font-medium">{day.label}</td>
-                  <td className="py-3">
-                    <div className="flex items-center justify-center gap-2">
-                      <div className="w-20 bg-gray-100 rounded-full h-2">
-                        <div className="bg-blue-400 h-2 rounded-full" style={{ width: `${(day.visits / maxVisits) * 100}%` }} />
-                      </div>
-                      <span className="text-gray-700 w-6 text-right">{day.visits}</span>
-                    </div>
-                  </td>
-                  <td className="py-3">
-                    <div className="flex items-center justify-center gap-2">
-                      <div className="w-20 bg-gray-100 rounded-full h-2">
-                        <div className="bg-[#b5122a] h-2 rounded-full" style={{ width: `${(day.orders / maxOrders) * 100}%` }} />
-                      </div>
-                      <span className="text-gray-700 w-6 text-right">{day.orders}</span>
-                    </div>
-                  </td>
-                  <td className="py-3 text-green-700 font-medium">CHF {day.revenue.toFixed(2)}</td>
+              {data.last7.map((d) => (
+                <tr key={d.date} className="border-t border-gray-100">
+                  <td className="py-2 text-left font-medium text-gray-700">{formatFrDay(d.date)}</td>
+                  <td className="py-2 text-gray-500">{d.visits ?? '—'}</td>
+                  <td className="py-2 text-gray-900 font-semibold">{d.orders}</td>
+                  <td className="py-2 text-green-700 font-semibold">{Number(d.revenue || 0).toFixed(2)}</td>
                 </tr>
               ))}
             </tbody>
           </table>
+        </div>
+
+        <div className="mt-8 grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div>
+            <p className="text-xs text-gray-400 mb-2">Visites (7j)</p>
+            <div className="flex items-end gap-1 h-20">
+              {data.last7.map((d) => (
+                <div key={`${d.date}-v`} className="flex-1 bg-blue-100 rounded-t" style={{ height: `${((d.visits || 0) / maxVisits) * 100}%` }} title={`${d.visits ?? '—'} visites`} />
+              ))}
+            </div>
+          </div>
+          <div>
+            <p className="text-xs text-gray-400 mb-2">Commandes (7j)</p>
+            <div className="flex items-end gap-1 h-20">
+              {data.last7.map((d) => (
+                <div key={`${d.date}-o`} className="flex-1 bg-[#f4c8d0] rounded-t" style={{ height: `${(d.orders / maxOrders) * 100}%` }} title={`${d.orders} commandes`} />
+              ))}
+            </div>
+          </div>
+          <div>
+            <p className="text-xs text-gray-400 mb-2">CA (7j)</p>
+            <div className="flex items-end gap-1 h-20">
+              {data.last7.map((d) => (
+                <div key={`${d.date}-r`} className="flex-1 bg-green-100 rounded-t" style={{ height: `${((d.revenue || 0) / maxRevenue) * 100}%` }} title={`${Number(d.revenue || 0).toFixed(2)} CHF`} />
+              ))}
+            </div>
+          </div>
         </div>
       </div>
     </div>
