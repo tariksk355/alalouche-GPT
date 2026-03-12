@@ -126,11 +126,32 @@ export class OrdersService {
   }
 
   async listOpenOrders(restaurantId: string) {
-    return this.prisma.order.findMany({
+    const orders = await this.prisma.order.findMany({
       where: { restaurantId, status: { in: ['new', 'accepted', 'ready'] } },
       orderBy: { createdAt: 'desc' },
       take: 100,
     });
+
+    const enriched = await Promise.all(
+      orders.map(async (order: any) => {
+        const payload = (order.payload && typeof order.payload === 'object' ? order.payload : {}) as Record<string, unknown>;
+        const orderType = payload.orderType === 'delivery' ? 'delivery' : 'takeaway';
+
+        const customerOrderCount = order.customerId
+          ? await this.prisma.order.count({ where: { restaurantId, customerId: order.customerId } })
+          : order.customerEmail
+            ? await this.prisma.order.count({ where: { restaurantId, customerEmail: order.customerEmail } })
+            : 0;
+
+        return {
+          ...order,
+          orderType,
+          customerOrderCount: Math.max(customerOrderCount - 1, 0),
+        };
+      }),
+    );
+
+    return enriched;
   }
 
   async listOpenReservations(restaurantId: string) {
@@ -161,6 +182,12 @@ export class OrdersService {
           ...(typeof order.payload === 'object' && order.payload ? (order.payload as Record<string, unknown>) : {}),
           customerFacingStatus: status,
           prepMinutes: status === 'accepted' ? prepMinutes ?? order.prepMinutes : order.prepMinutes,
+          readyAt:
+            status === 'accepted' && (prepMinutes ?? order.prepMinutes)
+              ? new Date(Date.now() + (prepMinutes ?? order.prepMinutes)! * 60 * 1000).toISOString()
+              : status === 'ready'
+                ? new Date().toISOString()
+                : null,
           statusUpdatedAt: new Date().toISOString(),
         },
       },

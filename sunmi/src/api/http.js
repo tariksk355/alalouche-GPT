@@ -15,14 +15,15 @@ function toApiError(response, body) {
 }
 
 export async function requestJson(path, options = {}) {
+  const { headers: optionHeaders = {}, ...fetchOptions } = options;
   let response;
   try {
     response = await fetch(`${API_BASE_URL}${path}`, {
+      ...fetchOptions,
       headers: {
         'Content-Type': 'application/json',
-        ...(options.headers || {}),
+        ...optionHeaders,
       },
-      ...options,
     });
   } catch (e) {
     throw new ApiError('Backend unavailable. Check network or API URL.', 'NETWORK_ERROR', 0, e);
