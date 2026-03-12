@@ -23,7 +23,8 @@ class SunmiPrinterManager(private val context: Context) {
         override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
             printerService = IWoyouService.Stub.asInterface(service)
             isBinding.set(false)
-            Log.i(TAG, "Sunmi printer service connected: $name")
+            val descriptor = runCatching { service?.interfaceDescriptor }.getOrNull()
+            Log.i(TAG, "Sunmi printer service connected: $name descriptor=${descriptor ?: "unknown"}")
         }
 
         override fun onServiceDisconnected(name: ComponentName?) {
@@ -327,22 +328,33 @@ class SunmiPrinterManager(private val context: Context) {
 
         isBinding.set(true)
 
-        val explicitIntent = Intent().apply {
-            setPackage("woyou.aidlservice.jiuiv5")
-            action = "woyou.aidlservice.jiuiv5.IWoyouService"
-        }
+        val candidates = listOf(
+            // Sunmi V2s / newer integrations often expose InnerPrinterService via this package/action.
+            Intent().apply {
+                setPackage("com.sunmi.peripheral.printer")
+                action = "com.sunmi.peripheral.printer.InnerPrinterService"
+            },
+            Intent("com.sunmi.peripheral.printer.InnerPrinterService"),
+            // Legacy woyou service fallback.
+            Intent().apply {
+                setPackage("woyou.aidlservice.jiuiv5")
+                action = "woyou.aidlservice.jiuiv5.IWoyouService"
+            },
+            Intent("woyou.aidlservice.jiuiv5.IWoyouService"),
+        )
 
-        val implicitIntent = Intent("woyou.aidlservice.jiuiv5.IWoyouService")
-
-        val bound = runCatching {
-            context.bindService(explicitIntent, serviceConnection, Context.BIND_AUTO_CREATE)
-        }.getOrDefault(false)
-
-        val finalBound = if (!bound) {
-            runCatching {
-                context.bindService(implicitIntent, serviceConnection, Context.BIND_AUTO_CREATE)
+        var finalBound = false
+        for (intent in candidates) {
+            val ok = runCatching {
+                context.bindService(intent, serviceConnection, Context.BIND_AUTO_CREATE)
             }.getOrDefault(false)
-        } else true
+
+            Log.i(TAG, "printer_bind_attempt action=${intent.action ?: ""} package=${intent.`package` ?: ""} bound=$ok")
+            if (ok) {
+                finalBound = true
+                break
+            }
+        }
 
         if (!finalBound) {
             isBinding.set(false)
