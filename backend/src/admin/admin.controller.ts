@@ -11,6 +11,7 @@ import { UpdateAdminCustomerDto } from './dto/update-admin-customer.dto';
 import { AdminMenuCatalogService } from './admin-menu-catalog.service';
 import { CreateAdminMenuItemDto } from './dto/create-admin-menu-item.dto';
 import { UpdateAdminMenuItemDto } from './dto/update-admin-menu-item.dto';
+import { AdminAnalyticsService } from './admin-analytics.service';
 
 @Controller('admin')
 export class AdminController {
@@ -19,6 +20,7 @@ export class AdminController {
     private readonly authService: AuthService,
     private readonly adminMenuCatalogService: AdminMenuCatalogService,
     private readonly adminCustomersService: AdminCustomersService,
+    private readonly adminAnalyticsService: AdminAnalyticsService,
   ) {}
 
   private requireAdmin(authorization?: string, adminToken?: string, legacyRestaurantId?: string): AccessTokenPayload {
@@ -50,6 +52,18 @@ export class AdminController {
       restaurantId: legacyRestaurantId,
       username: 'legacy_admin',
     };
+  }
+
+
+  @Get('analytics/overview')
+  async getAnalyticsOverview(
+    @Headers('authorization') authorization?: string,
+    @Headers('x-admin-token') adminToken?: string,
+    @Headers('x-restaurant-id') legacyRestaurantId?: string,
+  ) {
+    const auth = this.requireAdmin(authorization, adminToken, legacyRestaurantId);
+    const overview = await this.adminAnalyticsService.getOverview(auth.restaurantId);
+    return ok(overview);
   }
 
   @Get('kpis')
