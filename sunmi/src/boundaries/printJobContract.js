@@ -54,7 +54,7 @@
  * @returns {PrintJob}
  */
 export function buildPrintJobFromOrder(order, restaurant) {
-  const payload = order?.payload || {};
+  const payload = (order?.payload && typeof order.payload === 'object') ? order.payload : {};
   const items = Array.isArray(payload.items) ? payload.items : [];
 
   const lines = items.map((item) => {
@@ -72,9 +72,15 @@ export function buildPrintJobFromOrder(order, restaurant) {
     };
   });
 
+  const customerPhone = typeof order?.customerPhone === 'string' ? order.customerPhone : payload.customerPhone;
+  const customerAddress = typeof order?.customerAddress === 'string' ? order.customerAddress : payload.customerAddress;
+  const paymentMethod = typeof order?.paymentMethod === 'string' ? order.paymentMethod : payload.paymentMethod;
+  const orderType = order?.orderType || payload.orderType;
+  const createdAtIso = typeof order?.createdAt === 'string' ? order.createdAt : new Date().toISOString();
+
   return {
     printJobId: `job_${order.id}_${Date.now()}`,
-    createdAtIso: new Date().toISOString(),
+    createdAtIso,
     restaurant: {
       id: restaurant.id,
       name: restaurant.name,
@@ -90,8 +96,10 @@ export function buildPrintJobFromOrder(order, restaurant) {
       currency: payload.currency || 'CHF',
     } : undefined,
     notes: [
-      payload.orderType ? `Type: ${payload.orderType === 'delivery' ? 'Livraison' : 'À emporter'}` : null,
-      payload.customerPhone ? `Tel: ${payload.customerPhone}` : null,
+      orderType ? `Type: ${orderType === 'delivery' ? 'Livraison' : 'À emporter'}` : null,
+      customerPhone ? `Tel: ${customerPhone}` : null,
+      customerAddress ? `Adresse: ${customerAddress}` : null,
+      paymentMethod ? `Paiement: ${paymentMethod}` : null,
       order.notes || payload.notes || null,
     ].filter(Boolean).join(' | ') || undefined,
     formattingHints: {
