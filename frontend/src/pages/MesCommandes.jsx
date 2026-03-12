@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { createPageUrl } from "@/utils";
 import { listMyOrderHistory } from "@/lib/api/storefrontOps";
+import { StorefrontEmptyState, StorefrontLoadingState, StorefrontNotice } from "@/components/storefront/feedback";
 
 const STATUS_LABELS = { new: "Nouveau", accepted: "En préparation", ready: "Prêt", completed: "Terminé", cancelled: "Annulé" };
 const STATUS_COLORS = {
@@ -48,33 +49,33 @@ export default function MesCommandes() {
       </div>
 
       <div className="max-w-2xl mx-auto px-4 py-12">
-        {loading && (
-          <div className="text-center py-12 text-gray-400">Chargement...</div>
-        )}
+        {loading && (<StorefrontLoadingState />)}
 
         {!loading && errorCode === 'AUTH_REQUIRED' && (
-          <div className="text-center py-12 text-gray-400">
-            <p className="text-lg mb-2 text-gray-700">Connectez-vous pour voir vos commandes</p>
-            <p className="text-sm mb-6">Votre historique est lié à votre compte client.</p>
-            <Link to={createPageUrl("Account")} className="inline-block px-6 py-3 bg-[#b5122a] text-white font-medium hover:bg-[#8f0e21] transition-colors">
-              Se connecter
-            </Link>
-          </div>
+          <StorefrontEmptyState
+            title="Connectez-vous pour voir vos commandes"
+            description="Votre historique est lié à votre compte client."
+            action={(
+              <Link to={createPageUrl("Account")} className="inline-block px-6 py-3 rounded-lg bg-[#b5122a] text-white font-medium hover:bg-[#8f0e21] transition-colors">
+                Se connecter
+              </Link>
+            )}
+          />
         )}
 
         {!loading && errorCode && errorCode !== 'AUTH_REQUIRED' && (
-          <div className="text-center py-12 text-gray-400">
-            <p className="text-lg mb-2">Impossible de charger vos commandes</p>
-            <p className="text-sm">Veuillez réessayer plus tard.</p>
-          </div>
+          <StorefrontNotice type="error" className="text-center">
+            Impossible de charger vos commandes. Veuillez réessayer plus tard.
+          </StorefrontNotice>
         )}
 
         {!loading && !errorCode && (
           orders.length === 0 ? (
-            <div className="text-center py-12 text-gray-400">
-              <p className="text-lg mb-2">Aucune commande trouvée</p>
-              <p className="text-sm">Vous n'avez pas encore de commande sur ce restaurant. <Link to={createPageUrl("Order")} className="text-[#b5122a] underline">Passer une commande</Link>.</p>
-            </div>
+            <StorefrontEmptyState
+              title="Aucune commande trouvée"
+              description="Vous n'avez pas encore de commande sur ce restaurant."
+              action={(<Link to={createPageUrl("Order")} className="text-[#b5122a] underline">Passer une commande</Link>)}
+            />
           ) : (
             <div className="space-y-4">
               <p className="text-sm text-gray-500 mb-4">{orders.length} commande{orders.length > 1 ? "s" : ""} trouvée{orders.length > 1 ? "s" : ""}</p>

@@ -4,6 +4,7 @@ import { createPageUrl } from "@/utils";
 import { getCart, saveCart, clearCart } from "@/components/cartStore";
 import { Trash2 } from "lucide-react";
 import { createStorefrontOrder, getStoredCheckoutDefaults, getStorefrontCustomerPrefill, getStorefrontOrder, saveCheckoutDefaults } from "@/lib/api/storefrontOps";
+import { StorefrontEmptyState, StorefrontNotice } from "@/components/storefront/feedback";
 
 const BASE_FORM = {
   customer_name: "",
@@ -233,9 +234,9 @@ export default function Panier() {
             <h2 className="text-2xl font-semibold mb-6">Vos informations</h2>
 
             <form onSubmit={handleSubmit} className="space-y-5">
-              <div className="bg-gray-50 border border-gray-200 rounded-lg px-4 py-3 text-sm text-gray-600">
+              <StorefrontNotice type="info">
                 Paiement à la caisse au retrait/livraison. Vérifiez vos coordonnées pour recevoir les mises à jour de commande.
-              </div>
+              </StorefrontNotice>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Type de commande</label>
                 <div className="grid grid-cols-2 gap-3">
@@ -307,7 +308,7 @@ export default function Panier() {
                 </div>
               </div>
 
-              {submitError && <div className="text-red-600 text-sm bg-red-50 border border-red-200 rounded-md px-3 py-2">{submitError}</div>}
+              {submitError && <StorefrontNotice type="error">{submitError}</StorefrontNotice>}
 
               <button type="submit" disabled={loading}
                 className="w-full py-4 rounded-lg bg-[#b5122a] text-white font-semibold text-lg hover:bg-[#8f0e21] transition-colors disabled:opacity-60">

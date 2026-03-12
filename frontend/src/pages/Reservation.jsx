@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { backendClient } from '@/api/backendClient';
 import { useAuth } from '@/lib/AuthContext';
+import { StorefrontNotice } from '@/components/storefront/feedback';
 
 export default function Reservation() {
   const { user } = useAuth();
@@ -77,9 +78,9 @@ export default function Reservation() {
           </div>
         ) : (
           <form onSubmit={handleSubmit} className="space-y-6">
-            <div className="bg-gray-50 border border-gray-200 rounded-lg px-4 py-3 text-sm text-gray-600">
+            <StorefrontNotice type="info">
               Votre demande est gratuite et sans engagement. Nous vous confirmerons rapidement par email.
-            </div>
+            </StorefrontNotice>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Nom complet *</label>
@@ -166,7 +167,7 @@ export default function Reservation() {
               />
             </div>
 
-            {error && <div className="text-red-600 text-sm bg-red-50 border border-red-200 rounded-md px-3 py-2">{error}</div>}
+            {error && <StorefrontNotice type="error">{error}</StorefrontNotice>}
 
             <button
               type="submit"

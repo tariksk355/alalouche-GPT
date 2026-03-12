@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { StorefrontNotice } from '@/components/storefront/feedback';
 import { useAuth } from '@/lib/AuthContext';
 import { getStoredCustomerSession, loginCustomer, signupCustomer, updateCustomerMe } from '@/lib/customerAuth';
 
@@ -86,8 +87,8 @@ export default function Account() {
           <Card className="p-6 space-y-4">
             <h1 className="text-2xl font-semibold">Mon compte</h1>
             <p className="text-sm text-gray-600">Connecté en tant que {user.fullName}</p>
-            {profileSuccess && <div className="text-sm text-green-700 bg-green-50 border border-green-200 rounded-md px-3 py-2">{profileSuccess}</div>}
-            {error && <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-md px-3 py-2">{error}</div>}
+            {profileSuccess && <StorefrontNotice type="success">{profileSuccess}</StorefrontNotice>}
+            {error && <StorefrontNotice type="error">{error}</StorefrontNotice>}
             <div className="space-y-2 text-sm">
               <p>
                 <strong>Email:</strong> {user.email}
@@ -133,7 +134,7 @@ export default function Account() {
         <Card className="p-6">
           <h1 className="text-2xl font-semibold mb-4">Connexion / Inscription</h1>
           <p className="text-sm text-gray-500 mb-4">Connectez-vous pour suivre vos commandes et gagner du temps lors des prochains achats.</p>
-          {error && <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-md px-3 py-2 mb-4">{error}</div>}
+          {error && <StorefrontNotice type="error" className="mb-4">{error}</StorefrontNotice>}
 
           <Tabs defaultValue="login">
             <TabsList className="grid grid-cols-2 mb-4">
