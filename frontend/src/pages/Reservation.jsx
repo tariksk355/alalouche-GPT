@@ -113,7 +113,7 @@ export default function Reservation() {
                 <label className="block text-sm font-medium text-gray-700 mb-1">Nombre de personnes *</label>
                 <select
                   value={form.guests}
-                  onChange={(e) => setForm({ ...form, guests: e.target.value })}
+                  onChange={(e) => setForm({ ...form, guests: Number(e.target.value) })}
                   className="w-full border border-gray-300 px-4 py-3 focus:outline-none focus:border-black transition-colors bg-white"
                 >
                   {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((n) => (

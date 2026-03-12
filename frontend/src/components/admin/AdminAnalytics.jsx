@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { getAdminAnalyticsOverview } from '@/lib/api/adminAnalytics';
 
-function StatCard({ label, value, sub, color = 'text-gray-900' }) {
+function StatCard({ label, value, sub = "", color = 'text-gray-900' }) {
   return (
     <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm">
       <p className="text-gray-500 text-sm mb-1">{label}</p>
