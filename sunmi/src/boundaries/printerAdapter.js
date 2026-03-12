@@ -44,28 +44,39 @@ function safeParseBridgeResponse(raw, fallback) {
 }
 
 function createNativeBridgePrinterAdapter(nativeBridge) {
-  function invokePrintWithFallbacks(printJob) {
+  function resolvePrintMethod() {
+    if (typeof nativeBridge.printReceipt === 'function') return 'printReceipt';
+    if (typeof nativeBridge.printOrder === 'function') return 'printOrder';
+    if (typeof nativeBridge.print === 'function') return 'print';
+    return null;
+  }
+
+  function invokePrint(printJob) {
     const payload = JSON.stringify(printJob);
+    const methodName = resolvePrintMethod();
 
-    const attempts = [
-      () => nativeBridge.printReceipt?.(payload),
-      () => nativeBridge.printReceipt?.(JSON.stringify({ printJob })),
-      () => nativeBridge.printOrder?.(payload),
-      () => nativeBridge.print?.(payload),
-    ];
+    if (!methodName) {
+      return {
+        ok: false,
+        code: 'BRIDGE_METHOD_MISSING',
+        message: 'No native print method found on bridge.',
+      };
+    }
 
-    for (const attempt of attempts) {
-      const raw = attempt();
-      const parsed = safeParseBridgeResponse(raw, null);
-      if (parsed && typeof parsed === 'object') {
-        return parsed;
-      }
+    const raw = nativeBridge[methodName]?.(payload);
+    const parsed = safeParseBridgeResponse(raw, null);
+    if (parsed && typeof parsed === 'object') {
+      return {
+        ...parsed,
+        bridgeMethod: methodName,
+      };
     }
 
     return {
       ok: false,
       code: 'BRIDGE_BAD_RESPONSE',
-      message: 'Invalid native bridge response for print operation.',
+      message: `Invalid native bridge response for ${methodName}.`,
+      bridgeMethod: methodName,
     };
   }
 
@@ -79,7 +90,7 @@ function createNativeBridgePrinterAdapter(nativeBridge) {
     },
 
     async printReceipt(printJob) {
-      return invokePrintWithFallbacks(printJob);
+      return invokePrint(printJob);
     },
 
     async openCashDrawer() {

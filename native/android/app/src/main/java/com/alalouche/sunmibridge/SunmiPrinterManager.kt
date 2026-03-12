@@ -84,6 +84,8 @@ class SunmiPrinterManager(private val context: Context) {
             return fail("INVALID_PRINT_JOB", "printJob JSON is required.")
         }
 
+        Log.i(TAG, "native printReceipt entry payloadLength=${printJobJson.length}")
+
         val printJobRoot = try {
             JSONObject(printJobJson)
         } catch (t: Throwable) {
@@ -123,6 +125,7 @@ class SunmiPrinterManager(private val context: Context) {
         }
 
         if (orderNumber.isBlank() || lines.length() == 0) {
+            Log.e(TAG, "native printReceipt invalid payload orderNumber='$orderNumber' lines=${lines.length()}")
             return fail("INVALID_PRINT_JOB_CONTENT", "printJob must include order number and at least one line item.")
         }
 
