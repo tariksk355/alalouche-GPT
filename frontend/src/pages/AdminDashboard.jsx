@@ -17,7 +17,6 @@ const NAV_ITEMS = [
   { id: "customers", label: "Clients", icon: "👥" },
   { id: "marketing", label: "Marketing", icon: "📢" },
   { id: "analytics", label: "Analytiques", icon: "📊" },
-  { id: "settings", label: "Paramètres", icon: "⚙️" },
 ];
 
 function AdminNotice({ type = "success", children }) {
@@ -111,7 +110,6 @@ export default function AdminDashboard() {
           {activeTab === "customers" && <AdminCustomers />}
           {activeTab === "marketing" && <AdminMarketing />}
           {activeTab === "analytics" && <AdminAnalytics />}
-          {activeTab === "settings" && <AdminSettings />}
         </main>
       </div>
     </div>
