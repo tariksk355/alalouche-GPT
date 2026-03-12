@@ -45,3 +45,14 @@ export async function deleteAdminMenuItem(itemId) {
     headers: authHeaders(),
   });
 }
+
+export async function uploadAdminMenuImage(file) {
+  const formData = new FormData();
+  formData.append('file', file);
+  const data = await backendClient.request('/admin/menu-catalog/images/upload', {
+    method: 'POST',
+    headers: authHeaders(),
+    body: formData,
+  });
+  return data.data;
+}
