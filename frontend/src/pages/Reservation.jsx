@@ -77,6 +77,9 @@ export default function Reservation() {
           </div>
         ) : (
           <form onSubmit={handleSubmit} className="space-y-6">
+            <div className="bg-gray-50 border border-gray-200 rounded-lg px-4 py-3 text-sm text-gray-600">
+              Votre demande est gratuite et sans engagement. Nous vous confirmerons rapidement par email.
+            </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Nom complet *</label>
@@ -163,12 +166,12 @@ export default function Reservation() {
               />
             </div>
 
-            {error && <p className="text-red-600 text-sm">{error}</p>}
+            {error && <div className="text-red-600 text-sm bg-red-50 border border-red-200 rounded-md px-3 py-2">{error}</div>}
 
             <button
               type="submit"
               disabled={loading}
-              className="w-full py-4 bg-[#b5122a] text-white font-semibold text-lg hover:bg-[#8f0e21] transition-colors disabled:opacity-60"
+              className="w-full py-4 rounded-lg bg-[#b5122a] text-white font-semibold text-lg hover:bg-[#8f0e21] transition-colors disabled:opacity-60"
             >
               {loading ? 'Envoi en cours...' : 'Confirmer la réservation'}
             </button>

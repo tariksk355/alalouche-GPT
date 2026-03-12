@@ -22,6 +22,7 @@ export default function Panier() {
     ...BASE_FORM,
   });
   const [loading, setLoading] = useState(false);
+  const [submitError, setSubmitError] = useState('');
   const [success, setSuccess] = useState(null);
   const [orderStatus, setOrderStatus] = useState(null);
   const [checkingStatus, setCheckingStatus] = useState(false);
@@ -64,6 +65,7 @@ export default function Panier() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
+    setSubmitError('');
 
     try {
       const created = await createStorefrontOrder({
@@ -85,6 +87,8 @@ export default function Panier() {
 
       clearCart();
       setSuccess({ orderNumber: created.order_number });
+    } catch (e) {
+      setSubmitError(e.message || "La commande n'a pas pu être envoyée.");
     } finally {
       setLoading(false);
     }
@@ -211,10 +215,10 @@ export default function Panier() {
                 </div>
 
                 <div className="flex gap-3">
-                  <button onClick={() => navigate(createPageUrl("Menu"))} className="flex-1 py-3 border border-gray-300 text-gray-700 text-sm font-medium hover:border-black transition-colors">
+                  <button onClick={() => navigate(createPageUrl("Menu"))} className="flex-1 py-3 rounded-lg border border-gray-300 text-gray-700 text-sm font-medium hover:border-black transition-colors">
                     ← Continuer les achats
                   </button>
-                  <button onClick={() => setStep("details")} className="flex-1 py-3 bg-[#b5122a] text-white font-medium hover:bg-[#8f0e21] transition-colors">
+                  <button onClick={() => setStep("details")} className="flex-1 py-3 rounded-lg bg-[#b5122a] text-white font-medium hover:bg-[#8f0e21] transition-colors">
                     Commander
                   </button>
                 </div>
@@ -229,6 +233,9 @@ export default function Panier() {
             <h2 className="text-2xl font-semibold mb-6">Vos informations</h2>
 
             <form onSubmit={handleSubmit} className="space-y-5">
+              <div className="bg-gray-50 border border-gray-200 rounded-lg px-4 py-3 text-sm text-gray-600">
+                Paiement à la caisse au retrait/livraison. Vérifiez vos coordonnées pour recevoir les mises à jour de commande.
+              </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Type de commande</label>
                 <div className="grid grid-cols-2 gap-3">
@@ -300,8 +307,10 @@ export default function Panier() {
                 </div>
               </div>
 
+              {submitError && <div className="text-red-600 text-sm bg-red-50 border border-red-200 rounded-md px-3 py-2">{submitError}</div>}
+
               <button type="submit" disabled={loading}
-                className="w-full py-4 bg-[#b5122a] text-white font-semibold text-lg hover:bg-[#8f0e21] transition-colors disabled:opacity-60">
+                className="w-full py-4 rounded-lg bg-[#b5122a] text-white font-semibold text-lg hover:bg-[#8f0e21] transition-colors disabled:opacity-60">
                 {loading ? "Envoi en cours..." : `Confirmer — CHF ${cartTotal.toFixed(2)}`}
               </button>
             </form>
