@@ -38,6 +38,9 @@ Public config bootstrap endpoint:
 
 - `DATABASE_URL` (always required)
 - `AUTH_TOKEN_SECRET` (required in `NODE_ENV=production`)
+- `EMAIL_PROVIDER` (`none` or `resend`; defaults to `none`)
+- `RESEND_API_KEY` (required when `EMAIL_PROVIDER=resend`)
+- `EMAIL_FROM` (required when `EMAIL_PROVIDER=resend`)
 
 ### Health endpoints
 
@@ -64,6 +67,14 @@ Global exception filter now includes:
 In production, 5xx messages are sanitized to avoid leaking internals.
 
 ---
+
+
+## Email delivery provider (current slice)
+
+- Backend email delivery boundary is `NotificationService` only.
+- Supported `EMAIL_PROVIDER` values: `none` and `resend`.
+- Legacy webhook provider path has been removed in favor of explicit Resend-only provider wiring for active sends.
+- Marketing sends and transactional status notifications both use Resend when enabled.
 
 ## Prerequisites
 
