@@ -141,6 +141,12 @@ class SunmiPrinterManager(private val context: Context) {
 
         return try {
             Log.i(TAG, "printReceipt attempt order=$orderNumber lines=${lines.length()}")
+            val renderedLines = mutableListOf<String>()
+
+            fun pushRenderedLine(line: String) {
+                renderedLines += line
+                service.printText("$line\n", null)
+            }
 
             service.enterPrinterBuffer(true)
             service.printerInit(null)
@@ -148,30 +154,30 @@ class SunmiPrinterManager(private val context: Context) {
             service.setFontSize(30f, null)
             val restaurantName = firstNonBlank(restaurant.optString("name"), printJob.optString("restaurantName"))
             if (restaurantName.isNotBlank()) {
-                service.printText("${restaurantName}\n", null)
+                pushRenderedLine(restaurantName)
             }
             service.setFontSize(22f, null)
             service.setAlignment(0, null)
-            service.printText("Order: $orderNumber\n", null)
+            pushRenderedLine("Order: $orderNumber")
             if (orderType.isNotBlank()) {
-                service.printText("Type: $orderType\n", null)
+                pushRenderedLine("Type: $orderType")
             }
             if (paymentMethod.isNotBlank()) {
-                service.printText("Paiement: $paymentMethod\n", null)
+                pushRenderedLine("Paiement: $paymentMethod")
             }
             if (customerName.isNotBlank()) {
-                service.printText("Client: $customerName\n", null)
+                pushRenderedLine("Client: $customerName")
             }
             if (finalPhone.isNotBlank()) {
-                service.printText("Tel: $finalPhone\n", null)
+                pushRenderedLine("Tel: $finalPhone")
             }
             if (finalAddress.isNotBlank()) {
-                service.printText("Adresse: $finalAddress\n", null)
+                pushRenderedLine("Adresse: $finalAddress")
             }
             if (createdAt.isNotBlank()) {
-                service.printText("Date: $createdAt\n", null)
+                pushRenderedLine("Date: $createdAt")
             }
-            service.printText("------------------------------\n", null)
+            pushRenderedLine("------------------------------")
 
             for (i in 0 until lines.length()) {
                 val item = lines.optJSONObject(i) ?: continue
@@ -185,29 +191,29 @@ class SunmiPrinterManager(private val context: Context) {
                 }
 
                 val lineText = if (!totalPrice.isNaN()) {
-                    "$quantity x $name  ${"%.2f".format(totalPrice)}\n"
+                    "$quantity x $name  ${"%.2f".format(totalPrice)}"
                 } else {
-                    "$quantity x $name\n"
+                    "$quantity x $name"
                 }
-                service.printText(lineText, null)
+                pushRenderedLine(lineText)
 
                 val modifiers = item.optJSONArray("modifiers")
                 if (modifiers != null && modifiers.length() > 0) {
                     for (j in 0 until modifiers.length()) {
                         val modifier = modifiers.optString(j)
                         if (modifier.isNotBlank()) {
-                            service.printText("  + $modifier\n", null)
+                            pushRenderedLine("  + $modifier")
                         }
                     }
                 }
 
                 val itemNote = firstNonBlank(item.optString("note"), item.optString("notes"))
                 if (itemNote.isNotBlank()) {
-                    service.printText("  note: $itemNote\n", null)
+                    pushRenderedLine("  note: $itemNote")
                 }
             }
 
-            service.printText("------------------------------\n", null)
+            pushRenderedLine("------------------------------")
             val hasTotalsObject = totals != null && totals.has("total")
             val total = when {
                 hasTotalsObject -> totals!!.optDouble("total", 0.0)
@@ -217,13 +223,16 @@ class SunmiPrinterManager(private val context: Context) {
             if (!total.isNaN()) {
                 val currency = if (hasTotalsObject) totals!!.optString("currency", "CHF") else "CHF"
                 service.setAlignment(2, null)
-                service.printText("TOTAL: ${"%.2f".format(total)} $currency\n", null)
+                pushRenderedLine("TOTAL: ${"%.2f".format(total)} $currency")
                 service.setAlignment(0, null)
             }
 
             if (parsedNotes.extraNote.isNotBlank()) {
-                service.printText("Notes: ${parsedNotes.extraNote}\n", null)
+                pushRenderedLine("Notes: ${parsedNotes.extraNote}")
             }
+
+            val renderedReceiptText = renderedLines.joinToString("\n")
+            Log.i(TAG, "rendered_receipt_text_start\n$renderedReceiptText\nrendered_receipt_text_end")
 
             service.lineWrap(3, null)
             service.exitPrinterBuffer(true)
@@ -235,6 +244,8 @@ class SunmiPrinterManager(private val context: Context) {
                 put("message", "Print commands sent to Sunmi service.")
                 put("orderNumber", orderNumber)
                 put("lineCount", lines.length())
+                put("renderedLineCount", renderedLines.size)
+                put("renderedReceiptText", renderedReceiptText)
             }
         } catch (e: RemoteException) {
             Log.e(TAG, "printReceipt remote error", e)

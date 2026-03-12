@@ -40,6 +40,7 @@ const state = {
     ok: null,
     message: '',
     fallbackUsed: false,
+    receiptPreview: '',
   },
 };
 
@@ -49,6 +50,23 @@ function setPrintDebug(patch) {
     ...patch,
     at: new Date().toISOString(),
   };
+}
+
+function safeStringify(value) {
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value);
+  }
+}
+
+function escapeHtml(value) {
+  return String(value || '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
 }
 
 function stopPairingPolling() {
@@ -223,6 +241,7 @@ function render() {
         <div><span class="subtle">Fallback:</span> <strong>${printDebug.fallbackUsed ? 'oui' : 'non'}</strong></div>
       </div>
       ${printDebug.message ? `<p class="subtle">Message: ${printDebug.message}</p>` : ''}
+      ${printDebug.receiptPreview ? `<p class="subtle">Prévisualisation ticket (natif):</p><pre class="debug-pre">${escapeHtml(printDebug.receiptPreview)}</pre>` : ''}
       <button id="clear-print-debug-btn" class="btn-secondary-inline">Effacer debug impression</button>
     </div>
   `;
@@ -456,6 +475,7 @@ async function printAcceptedOrder(order) {
     ok: null,
     message: '',
     fallbackUsed: false,
+    receiptPreview: '',
   });
   render();
 
@@ -465,9 +485,11 @@ async function printAcceptedOrder(order) {
     lineCount: Array.isArray(printJob.lines) ? printJob.lines.length : 0,
     hasTotals: Boolean(printJob.totals && printJob.totals.total != null),
   });
+  debugLog('print_job_dispatch_json', safeStringify(printJob));
 
   const res = await printerAdapter.printReceipt(printJob);
   debugLog('print_job_result', res);
+  debugLog('print_job_result_json', safeStringify(res));
 
   setPrintDebug({
     mode: 'native_response',
@@ -478,6 +500,7 @@ async function printAcceptedOrder(order) {
     ok: Boolean(res?.ok),
     message: `${res?.code || 'UNKNOWN'}${res?.message ? ` - ${res.message}` : ''}`,
     fallbackUsed: false,
+    receiptPreview: typeof res?.renderedReceiptText === 'string' ? res.renderedReceiptText : '',
   });
 
   if (res.ok) {
@@ -559,6 +582,7 @@ app.addEventListener('click', async (event) => {
       ok: null,
       message: '',
       fallbackUsed: false,
+      receiptPreview: '',
     };
     render();
     return;
