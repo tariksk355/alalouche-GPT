@@ -7,6 +7,7 @@ import DeviceProvisioning from "@/components/admin/DeviceProvisioning";
 import { clearStoredAdminSession, getStoredAdminSession } from "@/lib/customerAuth";
 import { getAdminKpis, listAdminOrders, listAdminReservations, updateAdminOrderStatus, updateAdminReservationStatus } from "@/lib/api/adminOps";
 import { createAdminMenuItem, deleteAdminMenuItem, listAdminMenuCatalog, updateAdminMenuItem } from "@/lib/api/adminMenuCatalog";
+import { createAdminCustomer, deleteAdminCustomer, listAdminCustomers, updateAdminCustomer } from "@/lib/api/adminCustomers";
 
 const NAV_ITEMS = [
   { id: "orders", label: "Commandes", icon: "🛒" },
@@ -588,95 +589,145 @@ function AdminCustomers() {
   const [search, setSearch] = useState("");
   const [showForm, setShowForm] = useState(false);
   const [editingCustomer, setEditingCustomer] = useState(null);
-  const [form, setForm] = useState({ name: "", phone: "", email: "", address: "", notes: "" });
+  const [form, setForm] = useState({ fullName: "", phone: "", email: "" });
   const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [success, setSuccess] = useState("");
+  const [error, setError] = useState("");
+
+  const loadCustomers = async () => {
+    setLoading(true);
+    setError("");
+    try {
+      const data = await listAdminCustomers();
+      setCustomers(data);
+    } catch (e) {
+      setError(e.message || "Impossible de charger les clients.");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    base44.entities.Customer.list("-total_orders", 200).then(setCustomers);
+    loadCustomers();
   }, []);
 
-  const openAdd = () => { setEditingCustomer(null); setForm({ name: "", phone: "", email: "", address: "", notes: "" }); setShowForm(true); };
-  const openEdit = (c) => { setEditingCustomer(c); setForm({ name: c.name || "", phone: c.phone || "", email: c.email || "", address: c.address || "", notes: c.notes || "" }); setShowForm(true); };
+  const openAdd = () => {
+    setEditingCustomer(null);
+    setForm({ fullName: "", phone: "", email: "" });
+    setShowForm(true);
+  };
+
+  const openEdit = (customer) => {
+    setEditingCustomer(customer);
+    setForm({
+      fullName: customer.fullName || "",
+      phone: customer.phone || "",
+      email: customer.email || "",
+    });
+    setShowForm(true);
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setLoading(true);
-    if (editingCustomer) {
-      await base44.entities.Customer.update(editingCustomer.id, form);
-      setCustomers(prev => prev.map(c => c.id === editingCustomer.id ? { ...c, ...form } : c));
-      setSuccess("Client modifié avec succès !");
-    } else {
-      const created = await base44.entities.Customer.create({ ...form, total_orders: 0 });
-      setCustomers(prev => [created, ...prev]);
-      setSuccess("Client ajouté avec succès !");
+    setSaving(true);
+    setError("");
+
+    try {
+      if (editingCustomer) {
+        const updated = await updateAdminCustomer(editingCustomer.id, form);
+        setCustomers((prev) => prev.map((customer) => (customer.id === updated.id ? updated : customer)));
+        setSuccess('Client modifié avec succès !');
+      } else {
+        const created = await createAdminCustomer(form);
+        setCustomers((prev) => [created, ...prev]);
+        setSuccess('Client ajouté avec succès !');
+      }
+      setShowForm(false);
+      setEditingCustomer(null);
+      setTimeout(() => setSuccess(''), 3000);
+    } catch (e) {
+      setError(e.message || "Impossible d'enregistrer le client.");
+    } finally {
+      setSaving(false);
     }
-    setShowForm(false);
-    setEditingCustomer(null);
-    setTimeout(() => setSuccess(""), 3000);
-    setLoading(false);
   };
 
-  const handleDelete = async (c) => {
-    if (!confirm(`Supprimer "${c.name}" ?`)) return;
-    await base44.entities.Customer.delete(c.id);
-    setCustomers(prev => prev.filter(x => x.id !== c.id));
+  const handleDelete = async (customer) => {
+    if (!confirm(`Supprimer "${customer.fullName}" ?`)) return;
+
+    setError("");
+    try {
+      await deleteAdminCustomer(customer.id);
+      setCustomers((prev) => prev.filter((row) => row.id !== customer.id));
+    } catch (e) {
+      setError(e.message || 'Impossible de supprimer le client.');
+    }
   };
 
-  const filtered = customers.filter(c =>
-    c.name?.toLowerCase().includes(search.toLowerCase()) ||
-    c.phone?.includes(search) ||
-    c.email?.toLowerCase().includes(search.toLowerCase())
+  const filtered = customers.filter((customer) =>
+    customer.fullName?.toLowerCase().includes(search.toLowerCase()) ||
+    customer.phone?.includes(search) ||
+    customer.email?.toLowerCase().includes(search.toLowerCase())
   );
 
   return (
     <div>
       {success && <div className="mb-4 bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-lg text-sm">{success}</div>}
+      {error && <div className="mb-4 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">{error}</div>}
       <div className="flex gap-3 mb-6">
-        <input value={search} onChange={e => setSearch(e.target.value)}
+        <input
+          value={search}
+          onChange={e => setSearch(e.target.value)}
           className="flex-1 bg-white border border-gray-200 text-gray-900 px-4 py-2 rounded-lg focus:outline-none focus:border-gray-400 shadow-sm"
-          placeholder="Rechercher par nom, téléphone ou email..." />
+          placeholder="Rechercher par nom, téléphone ou email..."
+        />
         <button onClick={openAdd} className="px-4 py-2 bg-[#b5122a] text-white rounded-lg font-medium hover:bg-[#8f0e21] transition-colors">+ Ajouter</button>
       </div>
 
       {showForm && (
         <form onSubmit={handleSubmit} className="bg-white rounded-xl border border-gray-200 p-5 mb-6 grid grid-cols-1 md:grid-cols-2 gap-4 shadow-sm">
-          <h3 className="md:col-span-2 font-semibold text-gray-900">{editingCustomer ? "Modifier le client" : "Ajouter un client"}</h3>
-          <div><label className="block text-sm text-gray-500 mb-1">Nom *</label><input required value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} className="w-full bg-gray-50 border border-gray-200 text-gray-900 px-3 py-2 rounded-lg focus:outline-none" /></div>
-          <div><label className="block text-sm text-gray-500 mb-1">Téléphone *</label><input required value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} className="w-full bg-gray-50 border border-gray-200 text-gray-900 px-3 py-2 rounded-lg focus:outline-none" /></div>
-          <div><label className="block text-sm text-gray-500 mb-1">Email</label><input type="email" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} className="w-full bg-gray-50 border border-gray-200 text-gray-900 px-3 py-2 rounded-lg focus:outline-none" /></div>
-          <div><label className="block text-sm text-gray-500 mb-1">Adresse</label><input value={form.address} onChange={e => setForm({ ...form, address: e.target.value })} className="w-full bg-gray-50 border border-gray-200 text-gray-900 px-3 py-2 rounded-lg focus:outline-none" /></div>
-          <div className="md:col-span-2"><label className="block text-sm text-gray-500 mb-1">Notes</label><textarea rows={2} value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} className="w-full bg-gray-50 border border-gray-200 text-gray-900 px-3 py-2 rounded-lg focus:outline-none resize-none" /></div>
-          <div className="md:col-span-2 flex gap-3">
-            <button type="submit" disabled={loading} className="px-6 py-2 bg-[#b5122a] text-white rounded-lg font-medium hover:bg-[#8f0e21] disabled:opacity-60">{loading ? "..." : editingCustomer ? "Enregistrer" : "Ajouter"}</button>
+          <h3 className="md:col-span-2 font-semibold text-gray-900">{editingCustomer ? 'Modifier le client' : 'Ajouter un client'}</h3>
+          <div>
+            <label className="block text-sm text-gray-500 mb-1">Nom *</label>
+            <input required value={form.fullName} onChange={e => setForm({ ...form, fullName: e.target.value })} className="w-full bg-gray-50 border border-gray-200 text-gray-900 px-3 py-2 rounded-lg focus:outline-none" />
+          </div>
+          <div>
+            <label className="block text-sm text-gray-500 mb-1">Téléphone</label>
+            <input value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} className="w-full bg-gray-50 border border-gray-200 text-gray-900 px-3 py-2 rounded-lg focus:outline-none" />
+          </div>
+          <div className="md:col-span-2">
+            <label className="block text-sm text-gray-500 mb-1">Email *</label>
+            <input required type="email" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} className="w-full bg-gray-50 border border-gray-200 text-gray-900 px-3 py-2 rounded-lg focus:outline-none" />
+          </div>
+          <div className="md:col-span-2 flex gap-3 justify-end">
+            <button type="submit" disabled={saving} className="px-6 py-2 bg-[#b5122a] text-white rounded-lg font-medium hover:bg-[#8f0e21] disabled:opacity-60">{saving ? '...' : editingCustomer ? 'Enregistrer' : 'Ajouter'}</button>
             <button type="button" onClick={() => { setShowForm(false); setEditingCustomer(null); }} className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200">Annuler</button>
           </div>
         </form>
       )}
 
-      <div className="space-y-2">
-        {filtered.map(c => (
-          <div key={c.id} className="bg-white rounded-lg border border-gray-200 px-5 py-4 flex flex-wrap justify-between items-center gap-3 shadow-sm">
-            <div>
-              <span className="font-semibold text-gray-900">{c.name}</span>
-              <span className="text-gray-500 text-sm ml-3">{c.phone}</span>
-              {c.email && <span className="text-gray-400 text-sm ml-3">{c.email}</span>}
-              {c.address && <div className="text-gray-400 text-xs mt-0.5">{c.address}</div>}
+      <div className="space-y-3">
+        {loading ? <div className="text-center text-gray-400 py-12">Chargement...</div> : filtered.map(c => (
+          <div key={c.id} className="bg-white rounded-xl border border-gray-200 p-4 flex items-center justify-between shadow-sm">
+            <div className="min-w-0">
+              <div className="font-semibold text-gray-900 truncate">{c.fullName}</div>
+              <div className="text-gray-500 text-sm">{c.phone || 'Téléphone non renseigné'} • {c.email}</div>
+              <div className="text-xs text-gray-400 mt-1">Créé le {formatDate(c.createdAt)} • MAJ le {formatDate(c.updatedAt)}</div>
             </div>
             <div className="flex items-center gap-3">
-              <span className="text-[#b5122a] font-bold text-sm">{c.total_orders || 0} commande{(c.total_orders || 0) !== 1 ? "s" : ""}</span>
+              <span className="text-[#b5122a] font-bold text-sm">{c.orderCount || 0} commande{(c.orderCount || 0) !== 1 ? 's' : ''}</span>
               <button onClick={() => openEdit(c)} className="text-xs text-blue-600 hover:text-blue-700 border border-gray-200 px-2 py-1 rounded">Éditer</button>
               <button onClick={() => handleDelete(c)} className="text-xs text-red-500 hover:text-red-600 border border-gray-200 px-2 py-1 rounded">Supprimer</button>
             </div>
           </div>
         ))}
-        {filtered.length === 0 && <div className="text-center text-gray-400 py-12">Aucun client trouvé.</div>}
+        {!loading && filtered.length === 0 && <div className="text-center text-gray-400 py-12">Aucun client trouvé.</div>}
       </div>
     </div>
   );
 }
 
-// ─── Marketing Panel ──────────────────────────────────────────────────────────
 function AdminMarketing() {
   const [emailForm, setEmailForm] = useState({ subject: "", body: "" });
   const [loading, setLoading] = useState(false);

@@ -4,10 +4,11 @@ import { OrdersModule } from '../orders/orders.module';
 import { PrismaModule } from '../prisma/prisma.module';
 import { AdminController } from './admin.controller';
 import { AdminMenuCatalogService } from './admin-menu-catalog.service';
+import { AdminCustomersService } from './admin-customers.service';
 
 @Module({
   imports: [OrdersModule, AuthModule, PrismaModule],
   controllers: [AdminController],
-  providers: [AdminMenuCatalogService],
+  providers: [AdminMenuCatalogService, AdminCustomersService],
 })
 export class AdminModule {}
