@@ -175,19 +175,16 @@ class SunmiPrinterManager(private val context: Context) {
             // and can fail before any printText reaches paper.
             Log.i(
                 TAG,
-                "receipt_path mode=no_buffer_live_text printerInit=false bufferApi=false sequence=setAlignment/setFontSize/printText/lineWrap",
+                "receipt_path mode=no_buffer_live_text printerInit=false bufferApi=false fontSizeStyling=skipped_v2s_compat sequence=setAlignment/printText/lineWrap",
             )
 
             Log.i(TAG, "low_level_call setAlignment alignment=1")
             service.setAlignment(1, callbackFor("setAlignment"))
-            Log.i(TAG, "low_level_call setFontSize size=30.0")
-            service.setFontSize(30f, callbackFor("setFontSize"))
+            Log.i(TAG, "receipt_style fontSize skipped reason=v2s_illegal_parameter")
             val restaurantName = firstNonBlank(restaurant.optString("name"), printJob.optString("restaurantName"))
             if (restaurantName.isNotBlank()) {
                 pushRenderedLine(restaurantName)
             }
-            Log.i(TAG, "low_level_call setFontSize size=22.0")
-            service.setFontSize(22f, callbackFor("setFontSize"))
             Log.i(TAG, "low_level_call setAlignment alignment=0")
             service.setAlignment(0, callbackFor("setAlignment"))
             pushRenderedLine("Order: $orderNumber")
@@ -272,7 +269,7 @@ class SunmiPrinterManager(private val context: Context) {
             service.lineWrap(3, callbackFor("lineWrap"))
             Log.i(
                 TAG,
-                "receipt_path mode=no_buffer_live_text completed_calls=setAlignment,setFontSize,printText,lineWrap",
+                "receipt_path mode=no_buffer_live_text completed_calls=setAlignment,printText,lineWrap fontSizeStyling=skipped_v2s_compat",
             )
 
             if (callbackErrors.isNotEmpty()) {
