@@ -36,3 +36,19 @@ This repository is now structured as a monorepo with clear separation of concern
 3. Open frontend and configure `VITE_API_BASE_URL` to backend URL.
 
 See `MIGRATION_AUDIT.md` for Base44 dependency audit and migration plan.
+
+
+## Containerized deployment (DigitalOcean-friendly baseline)
+
+This repo now includes production Docker packaging:
+
+- `backend/Dockerfile`
+  - multi-stage build
+  - optional startup migration (`RUN_DB_MIGRATIONS=true|false`)
+  - container healthcheck against `/health`
+- `frontend/Dockerfile` + `frontend/nginx.conf`
+  - Vite build stage
+  - Nginx static serving with SPA fallback
+  - `/health` endpoint for container probes
+
+See `DEPLOYMENT_DO.md` for App Platform / Droplet usage.

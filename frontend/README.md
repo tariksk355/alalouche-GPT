@@ -1,6 +1,6 @@
 # Frontend local setup (migrated pairing/receiver slice)
 
-This frontend is still partly legacy, but the pairing/receiver vertical slice now targets the NestJS backend.
+This frontend targets the NestJS backend for active storefront/admin flows.
 
 ## Required environment
 
@@ -56,11 +56,7 @@ Migrated to NestJS backend in this slice:
 - `src/lib/api/*`
 - `src/lib/deviceTokenStore.js`
 
-Still legacy/Base44 elsewhere (not migrated in this step):
-- `src/api/base44Client.js`
-- many non-slice screens (account/menu/order/admin broader features)
-- legacy function files under `frontend/functions/*`
-- Base44 Vite plugin still present in `vite.config.js`
+Legacy function files under `frontend/functions/*` remain in-repo but are not part of the active Vite runtime path.
 
 ## Tenant bootstrap (Batch C)
 
