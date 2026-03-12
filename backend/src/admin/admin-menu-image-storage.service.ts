@@ -53,6 +53,10 @@ function toAmzDate(now: Date): { amzDate: string; dateStamp: string } {
 
 @Injectable()
 export class AdminMenuImageStorageService {
+  private getManagedPrefix(restaurantId: string): string {
+    return `restaurants/${sanitizePathSegment(restaurantId)}/menu/`;
+  }
+
   getMaxUploadBytes(): number {
     return parsePositiveInt(process.env.S3_UPLOAD_MAX_BYTES, DEFAULT_MAX_UPLOAD_BYTES);
   }
@@ -90,6 +94,74 @@ export class AdminMenuImageStorageService {
       });
     }
 
+    const objectAcl = process.env.S3_OBJECT_ACL || 'public-read';
+    const cacheControl = process.env.S3_CACHE_CONTROL || 'public, max-age=31536000, immutable';
+
+    const key = `${this.getManagedPrefix(restaurantId)}${Date.now()}-${randomUUID()}${extensionFromFile(file)}`;
+
+    await this.sendObjectRequest('PUT', key, file, {
+      objectAcl,
+      cacheControl,
+    });
+
+    return { key, url: this.buildPublicUrl(key) };
+  }
+
+  async deleteMenuImageIfManaged(restaurantId: string, imageUrl: string | null | undefined): Promise<void> {
+    const key = this.extractManagedKeyFromUrl(restaurantId, imageUrl);
+    if (!key) return;
+
+    await this.sendObjectRequest('DELETE', key);
+  }
+
+  private extractManagedKeyFromUrl(restaurantId: string, imageUrl: string | null | undefined): string | null {
+    if (!imageUrl) return null;
+
+    const managedPrefix = this.getManagedPrefix(restaurantId);
+    const configuredBaseUrl = process.env.S3_PUBLIC_BASE_URL?.replace(/\/$/, '');
+
+    if (configuredBaseUrl && imageUrl.startsWith(`${configuredBaseUrl}/`)) {
+      const key = imageUrl.slice(configuredBaseUrl.length + 1);
+      return key.startsWith(managedPrefix) ? key : null;
+    }
+
+    const bucket = process.env.S3_BUCKET;
+    const endpointRaw = process.env.S3_ENDPOINT;
+    if (!bucket || !endpointRaw) return null;
+
+    const endpoint = endpointRaw.startsWith('http') ? endpointRaw : `https://${endpointRaw}`;
+    const endpointUrl = new URL(endpoint);
+
+    const virtualHostPrefix = `${endpointUrl.protocol}//${bucket}.${endpointUrl.host}/`;
+    if (imageUrl.startsWith(virtualHostPrefix)) {
+      const key = imageUrl.slice(virtualHostPrefix.length);
+      return key.startsWith(managedPrefix) ? key : null;
+    }
+
+    const pathStylePrefix = `${endpointUrl.protocol}//${endpointUrl.host}/${bucket}/`;
+    if (imageUrl.startsWith(pathStylePrefix)) {
+      const key = imageUrl.slice(pathStylePrefix.length);
+      return key.startsWith(managedPrefix) ? key : null;
+    }
+
+    return null;
+  }
+
+  private async sendObjectRequest(
+    method: 'PUT' | 'DELETE',
+    key: string,
+    file?: UploadedMenuImageFile,
+    options?: { objectAcl?: string; cacheControl?: string },
+  ): Promise<void> {
+    const requiredVars = ['S3_BUCKET', 'S3_REGION', 'S3_ENDPOINT', 'S3_ACCESS_KEY_ID', 'S3_SECRET_ACCESS_KEY'];
+    const missing = requiredVars.filter((name) => !process.env[name]);
+    if (missing.length > 0) {
+      throw new ServiceUnavailableException({
+        error: 'STORAGE_NOT_CONFIGURED',
+        message: `Object storage is not configured (${missing.join(', ')}).`,
+      });
+    }
+
     const bucket = process.env.S3_BUCKET!;
     const region = process.env.S3_REGION!;
     const endpointRaw = process.env.S3_ENDPOINT!;
@@ -98,9 +170,6 @@ export class AdminMenuImageStorageService {
     const sessionToken = process.env.S3_SESSION_TOKEN;
     const objectAcl = process.env.S3_OBJECT_ACL || 'public-read';
     const cacheControl = process.env.S3_CACHE_CONTROL || 'public, max-age=31536000, immutable';
-
-    const safeRestaurantId = sanitizePathSegment(restaurantId);
-    const key = `restaurants/${safeRestaurantId}/menu/${Date.now()}-${randomUUID()}${extensionFromFile(file)}`;
 
     const endpoint = endpointRaw.startsWith('http') ? endpointRaw : `https://${endpointRaw}`;
     const endpointUrl = new URL(endpoint);
@@ -112,19 +181,25 @@ export class AdminMenuImageStorageService {
 
     const now = new Date();
     const { amzDate, dateStamp } = toAmzDate(now);
-    const payloadHash = sha256Hex(file.buffer);
+    const payloadHash = method === 'PUT' && file ? sha256Hex(file.buffer) : sha256Hex('');
 
     const canonicalHeaders = [
       `host:${host}`,
-      `x-amz-acl:${objectAcl}`,
       `x-amz-content-sha256:${payloadHash}`,
       `x-amz-date:${amzDate}`,
+      ...(method === 'PUT' ? [`x-amz-acl:${options?.objectAcl || objectAcl}`] : []),
       ...(sessionToken ? [`x-amz-security-token:${sessionToken}`] : []),
     ].join('\n');
 
-    const signedHeaders = ['host', 'x-amz-acl', 'x-amz-content-sha256', 'x-amz-date', ...(sessionToken ? ['x-amz-security-token'] : [])].join(';');
+    const signedHeaders = [
+      'host',
+      ...(method === 'PUT' ? ['x-amz-acl'] : []),
+      'x-amz-content-sha256',
+      'x-amz-date',
+      ...(sessionToken ? ['x-amz-security-token'] : []),
+    ].join(';');
 
-    const canonicalRequest = ['PUT', path, '', `${canonicalHeaders}\n`, signedHeaders, payloadHash].join('\n');
+    const canonicalRequest = [method, path, '', `${canonicalHeaders}\n`, signedHeaders, payloadHash].join('\n');
 
     const credentialScope = `${dateStamp}/${region}/s3/aws4_request`;
     const stringToSign = ['AWS4-HMAC-SHA256', amzDate, credentialScope, sha256Hex(canonicalRequest)].join('\n');
@@ -136,30 +211,33 @@ export class AdminMenuImageStorageService {
       `AWS4-HMAC-SHA256 Credential=${accessKeyId}/${credentialScope}, SignedHeaders=${signedHeaders}, Signature=${signature}`;
 
     const response = await fetch(uploadUrl, {
-      method: 'PUT',
+      method,
       headers: {
-        'content-type': file.mimetype,
-        'cache-control': cacheControl,
-        'x-amz-acl': objectAcl,
+        ...(method === 'PUT' && file ? { 'content-type': file.mimetype } : {}),
+        ...(method === 'PUT' ? { 'cache-control': options?.cacheControl || cacheControl } : {}),
+        ...(method === 'PUT' ? { 'x-amz-acl': options?.objectAcl || objectAcl } : {}),
         'x-amz-content-sha256': payloadHash,
         'x-amz-date': amzDate,
         ...(sessionToken ? { 'x-amz-security-token': sessionToken } : {}),
         authorization,
       },
-      body: new Uint8Array(file.buffer),
+      body: method === 'PUT' && file ? new Uint8Array(file.buffer) : undefined,
     });
 
     if (!response.ok) {
       throw new InternalServerErrorException({
-        error: 'IMAGE_UPLOAD_FAILED',
-        message: `Image upload to object storage failed with status ${response.status}.`,
+        error: method === 'PUT' ? 'IMAGE_UPLOAD_FAILED' : 'IMAGE_DELETE_FAILED',
+        message: `Object storage ${method} failed with status ${response.status}.`,
       });
     }
-
-    return { key, url: this.buildPublicUrl(key, bucket, endpointUrl) };
   }
 
-  private buildPublicUrl(key: string, bucket: string, endpointUrl: URL): string {
+  private buildPublicUrl(key: string): string {
+    const bucket = process.env.S3_BUCKET!;
+    const endpointRaw = process.env.S3_ENDPOINT!;
+    const endpoint = endpointRaw.startsWith('http') ? endpointRaw : `https://${endpointRaw}`;
+    const endpointUrl = new URL(endpoint);
+
     const configuredBaseUrl = process.env.S3_PUBLIC_BASE_URL?.replace(/\/$/, '');
     if (configuredBaseUrl) {
       return `${configuredBaseUrl}/${key}`;

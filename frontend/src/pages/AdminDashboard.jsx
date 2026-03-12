@@ -335,6 +335,7 @@ function AdminMenu() {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [uploadingImage, setUploadingImage] = useState(false);
+  const [uploadFeedback, setUploadFeedback] = useState({ type: "", message: "" });
   const [success, setSuccess] = useState("");
   const [error, setError] = useState("");
 
@@ -343,6 +344,7 @@ function AdminMenu() {
   const resetForm = () => {
     setEditing(null);
     setForm({ name: "", description: "", price: "", category: "Sandwichs et menu", imageUrl: "", available: true, allergens: "" });
+    setUploadFeedback({ type: "", message: "" });
   };
 
   const loadItems = async () => {
@@ -402,13 +404,16 @@ function AdminMenu() {
 
     setUploadingImage(true);
     setError("");
+    setUploadFeedback({ type: "info", message: `Upload de ${selectedFile.name} en cours...` });
 
     try {
       const uploaded = await uploadAdminMenuImage(selectedFile);
       setForm((prev) => ({ ...prev, imageUrl: uploaded.imageUrl || "" }));
+      setUploadFeedback({ type: "success", message: `Image uploadée : ${selectedFile.name}` });
       setSuccess("Image uploadée avec succès.");
       setTimeout(() => setSuccess(""), 3000);
     } catch (uploadError) {
+      setUploadFeedback({ type: "error", message: uploadError.message || "Impossible d'uploader l'image." });
       setError(uploadError.message || "Impossible d'uploader l'image.");
     } finally {
       setUploadingImage(false);
@@ -418,6 +423,7 @@ function AdminMenu() {
 
   const handleEdit = (item) => {
     setEditing(item);
+    setUploadFeedback({ type: "", message: "" });
     setForm({
       name: item.name,
       description: item.description || "",
@@ -486,7 +492,7 @@ function AdminMenu() {
                 className="w-full bg-gray-50 border border-gray-200 text-gray-900 px-3 py-2 rounded-lg focus:outline-none focus:border-gray-400 resize-none" />
             </div>
             <div className="col-span-2">
-              <label className="block text-sm text-gray-500 mb-1">Image</label>
+              <label className="block text-sm text-gray-500 mb-1">Image {form.imageUrl ? '(remplacer)' : ''}</label>
               <input
                 type="file"
                 accept="image/png,image/jpeg,image/webp,image/gif"
@@ -495,11 +501,29 @@ function AdminMenu() {
                 className="w-full bg-gray-50 border border-gray-200 text-gray-900 px-3 py-2 rounded-lg focus:outline-none focus:border-gray-400 file:mr-3 file:rounded file:border-0 file:bg-gray-200 file:px-2 file:py-1 file:text-gray-700"
               />
               <p className="text-xs text-gray-400 mt-1">PNG, JPG, WEBP ou GIF (max 5 MB par défaut).</p>
+              {uploadFeedback.message && (
+                <p className={`mt-2 text-sm ${uploadFeedback.type === "error" ? "text-red-600" : uploadFeedback.type === "success" ? "text-green-600" : "text-gray-500"}`}>
+                  {uploadFeedback.message}
+                </p>
+              )}
               <label className="block text-sm text-gray-500 mt-3 mb-1">URL image (optionnel, remplacement manuel)</label>
               <input value={form.imageUrl} onChange={e => setForm({ ...form, imageUrl: e.target.value })}
                 className="w-full bg-gray-50 border border-gray-200 text-gray-900 px-3 py-2 rounded-lg focus:outline-none focus:border-gray-400" placeholder="https://..." />
-              {uploadingImage && <p className="mt-2 text-sm text-gray-500">Upload en cours...</p>}
-              {form.imageUrl && <img src={form.imageUrl} alt="" className="mt-2 w-20 h-20 object-cover rounded" />}
+              {form.imageUrl && (
+                <div className="mt-2 flex items-start gap-3 p-2 border border-gray-200 rounded-lg bg-gray-50">
+                  <img src={form.imageUrl} alt="Aperçu" className="w-20 h-20 object-cover rounded border border-gray-200" />
+                  <div className="text-xs text-gray-500 space-y-2">
+                    <p className="break-all">{form.imageUrl}</p>
+                    <button
+                      type="button"
+                      onClick={() => setForm((prev) => ({ ...prev, imageUrl: "" }))}
+                      className="text-red-600 hover:text-red-700 underline"
+                    >
+                      Retirer l'image
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
             <div className="col-span-2">
               <label className="block text-sm text-gray-500 mb-1">Allergènes</label>

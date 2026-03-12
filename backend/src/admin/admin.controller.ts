@@ -317,7 +317,21 @@ export class AdminController {
     @Headers('x-restaurant-id') legacyRestaurantId?: string,
   ) {
     const auth = this.requireAdmin(authorization, adminToken, legacyRestaurantId);
+    const existingItems = await this.adminMenuCatalogService.listMenuCatalog(auth.restaurantId);
+    const existing = existingItems.find((item) => item.id === id);
     const item = await this.adminMenuCatalogService.updateMenuItem(auth.restaurantId, id, dto);
+
+    const imageReplaced =
+      dto.imageUrl !== undefined
+      && existing?.imageUrl
+      && existing.imageUrl !== item.imageUrl;
+
+    if (imageReplaced) {
+      await this.adminMenuImageStorageService.deleteMenuImageIfManaged(auth.restaurantId, existing.imageUrl).catch(() => {
+        // Non-blocking cleanup: preserve successful menu update if storage deletion fails.
+      });
+    }
+
     return ok({ item });
   }
 
