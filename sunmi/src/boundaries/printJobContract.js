@@ -105,32 +105,57 @@ export function normalizeOrderForDisplay(order) {
   } : undefined;
 
   const notesExtra = [order.notes || payload.notes || null].filter(Boolean).join(' | ') || undefined;
+  const customerDisplay = `${order.customerName || 'Client'} • ${orderTypeLabel || 'Commande'}`;
+  const historyCount = Number.isFinite(Number(order?.customerOrderCount))
+    ? Number(order.customerOrderCount)
+    : Number.isFinite(Number(customerTotalOrderCount))
+      ? Math.max(customerTotalOrderCount - 1, 0)
+      : 0;
+  const prepDisplay = Number.isFinite(Number(order?.prepMinutes)) ? `${Number(order.prepMinutes)} min` : null;
 
-  const receiptLines = [];
-  receiptLines.push(String(order.orderNumber || order.id || ''));
-  if (order.customerName) receiptLines.push(`Client: ${order.customerName}`);
-  if (orderTypeLabel) receiptLines.push(`Type: ${orderTypeLabel}`);
-  if (paymentMethod) receiptLines.push(`Paiement: ${paymentMethod}`);
-  if (customerAddress) receiptLines.push(`Adresse: ${customerAddress}`);
-  if (customerPhone) receiptLines.push(`Tel: ${customerPhone}`);
-  receiptLines.push(`Commande: ${createdAtIso}`);
-  if (customerTotalOrderCount > 0) receiptLines.push(`Historique client: ${customerTotalOrderCount} commande(s)`);
-  receiptLines.push('------------------------------');
+  const displaySections = [];
+  displaySections.push({ key: 'customer_type', line: customerDisplay });
+  if (customerAddress) displaySections.push({ key: 'address', line: `Adresse: ${customerAddress}` });
+  if (paymentMethod) displaySections.push({ key: 'payment', line: `Paiement: ${paymentMethod}` });
+  displaySections.push({ key: 'ordered_at', line: `Commande: ${createdAtIso}` });
+  displaySections.push({ key: 'history', line: `Historique client: ${historyCount} commande${historyCount > 1 ? 's' : ''} précédente${historyCount > 1 ? 's' : ''}` });
+  if (prepDisplay) displaySections.push({ key: 'prep', line: `Préparation: ${prepDisplay}` });
+  displaySections.push({ key: 'items_header', line: 'Articles:' });
+
+  const itemDisplayLines = [];
+  const receiptItemLines = [];
   items.forEach((line) => {
     const qty = Number(line.quantity || 1);
     const linePrice = Number.isFinite(Number(line.totalPrice)) ? Number(line.totalPrice) : null;
     const unitPrice = Number.isFinite(Number(line.unitPrice)) ? Number(line.unitPrice) : null;
-    const priceText = linePrice != null ? linePrice.toFixed(2) : unitPrice != null ? unitPrice.toFixed(2) : '';
-    receiptLines.push(priceText ? `${qty} x ${line.name}  ${priceText}` : `${qty} x ${line.name}`);
+    const priceText = linePrice != null ? `${linePrice.toFixed(2)} CHF` : unitPrice != null ? `${unitPrice.toFixed(2)} CHF` : '-';
+    itemDisplayLines.push(`• ${qty} x ${line.name} — ${priceText}`);
+    receiptItemLines.push(linePrice != null || unitPrice != null ? `${qty} x ${line.name}  ${(linePrice ?? unitPrice).toFixed(2)}` : `${qty} x ${line.name}`);
     (Array.isArray(line.modifiers) ? line.modifiers : []).forEach((mod) => {
-      if (mod) receiptLines.push(`  + ${String(mod)}`);
+      if (mod) {
+        itemDisplayLines.push(`  + ${String(mod)}`);
+        receiptItemLines.push(`  + ${String(mod)}`);
+      }
     });
-    if (line.note) receiptLines.push(`  note: ${line.note}`);
+    if (line.note) {
+      itemDisplayLines.push(`  note: ${line.note}`);
+      receiptItemLines.push(`  note: ${line.note}`);
+    }
   });
-  receiptLines.push('------------------------------');
-  if (totals && Number.isFinite(Number(totals.total))) {
-    receiptLines.push(`TOTAL: ${Number(totals.total).toFixed(2)} ${totals.currency || 'CHF'}`);
-  }
+  itemDisplayLines.forEach((line) => displaySections.push({ key: 'item', line }));
+  if (totals && Number.isFinite(Number(totals.total))) displaySections.push({ key: 'total', line: `Total: ${Number(totals.total).toFixed(2)} ${totals.currency || 'CHF'}` });
+  if (notesExtra) displaySections.push({ key: 'notes', line: `Notes: ${notesExtra}` });
+
+  const receiptLines = [
+    String(order.orderNumber || order.id || ''),
+    ...displaySections
+      .map((section) => section.line)
+      .filter((line) => line !== 'Articles:'),
+    '------------------------------',
+    ...receiptItemLines,
+    '------------------------------',
+  ];
+  if (totals && Number.isFinite(Number(totals.total))) receiptLines.push(`TOTAL: ${Number(totals.total).toFixed(2)} ${totals.currency || 'CHF'}`);
   if (notesExtra) receiptLines.push(`Notes: ${notesExtra}`);
 
   return {
@@ -143,8 +168,10 @@ export function normalizeOrderForDisplay(order) {
     orderType,
     orderTypeLabel,
     customerTotalOrderCount,
+    customerOrderCount: historyCount,
     totals,
     notesExtra,
+    displaySections,
     receiptLines,
   };
 }
