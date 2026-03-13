@@ -53,7 +53,7 @@
  * @param {{id?:string,name:string,address?:string,phone?:string}} restaurant
  * @returns {PrintJob}
  */
-export function normalizeOrderForPrint(order) {
+export function normalizeOrderForDisplay(order) {
   const payload = (order?.payload && typeof order.payload === 'object') ? order.payload : {};
   const itemSource =
     Array.isArray(payload.items) ? 'payload.items'
@@ -68,7 +68,7 @@ export function normalizeOrderForPrint(order) {
         ? order.items
         : [];
 
-  const lines = rawItems.map((item) => {
+  const items = rawItems.map((item) => {
     const qty = Number(item.quantity ?? item.qty ?? item.count ?? 1);
     const unitPriceRaw = item.price ?? item.unitPrice ?? item.unit_price;
     const totalPriceRaw = item.totalPrice ?? item.total_price ?? item.lineTotal ?? item.line_total ?? item.amount;
@@ -91,6 +91,7 @@ export function normalizeOrderForPrint(order) {
   const customerAddress = typeof order?.customerAddress === 'string' ? order.customerAddress : payload.customerAddress;
   const paymentMethod = typeof order?.paymentMethod === 'string' ? order.paymentMethod : payload.paymentMethod;
   const orderType = order?.orderType || payload.orderType;
+  const orderTypeLabel = orderType === 'delivery' ? 'Livraison' : orderType ? 'À emporter' : '';
   const createdAtIso = typeof order?.createdAt === 'string' ? order.createdAt : new Date().toISOString();
   const customerTotalOrderCount = Number.isFinite(Number(order?.customerTotalOrderCount))
     ? Number(order.customerTotalOrderCount)
@@ -103,35 +104,62 @@ export function normalizeOrderForPrint(order) {
     currency: payload.currency || 'CHF',
   } : undefined;
 
-  const structuredNotes = [
-    orderType ? `Type: ${orderType === 'delivery' ? 'Livraison' : 'À emporter'}` : null,
-    customerPhone ? `Tel: ${customerPhone}` : null,
-    customerAddress ? `Adresse: ${customerAddress}` : null,
-    paymentMethod ? `Paiement: ${paymentMethod}` : null,
-    order.notes || payload.notes || null,
-  ].filter(Boolean).join(' | ') || undefined;
+  const notesExtra = [order.notes || payload.notes || null].filter(Boolean).join(' | ') || undefined;
+
+  const receiptLines = [];
+  receiptLines.push(String(order.orderNumber || order.id || ''));
+  if (order.customerName) receiptLines.push(`Client: ${order.customerName}`);
+  if (orderTypeLabel) receiptLines.push(`Type: ${orderTypeLabel}`);
+  if (paymentMethod) receiptLines.push(`Paiement: ${paymentMethod}`);
+  if (customerAddress) receiptLines.push(`Adresse: ${customerAddress}`);
+  if (customerPhone) receiptLines.push(`Tel: ${customerPhone}`);
+  receiptLines.push(`Commande: ${createdAtIso}`);
+  if (customerTotalOrderCount > 0) receiptLines.push(`Historique client: ${customerTotalOrderCount} commande(s)`);
+  receiptLines.push('------------------------------');
+  items.forEach((line) => {
+    const qty = Number(line.quantity || 1);
+    const linePrice = Number.isFinite(Number(line.totalPrice)) ? Number(line.totalPrice) : null;
+    const unitPrice = Number.isFinite(Number(line.unitPrice)) ? Number(line.unitPrice) : null;
+    const priceText = linePrice != null ? linePrice.toFixed(2) : unitPrice != null ? unitPrice.toFixed(2) : '';
+    receiptLines.push(priceText ? `${qty} x ${line.name}  ${priceText}` : `${qty} x ${line.name}`);
+    (Array.isArray(line.modifiers) ? line.modifiers : []).forEach((mod) => {
+      if (mod) receiptLines.push(`  + ${String(mod)}`);
+    });
+    if (line.note) receiptLines.push(`  note: ${line.note}`);
+  });
+  receiptLines.push('------------------------------');
+  if (totals && Number.isFinite(Number(totals.total))) {
+    receiptLines.push(`TOTAL: ${Number(totals.total).toFixed(2)} ${totals.currency || 'CHF'}`);
+  }
+  if (notesExtra) receiptLines.push(`Notes: ${notesExtra}`);
 
   return {
-    lines,
+    items,
     itemsSource: itemSource,
     createdAtIso,
     customerPhone,
     customerAddress,
     paymentMethod,
     orderType,
+    orderTypeLabel,
     customerTotalOrderCount,
     totals,
-    notes: structuredNotes,
+    notesExtra,
+    receiptLines,
   };
 }
 
+export function normalizeOrderForPrint(order) {
+  return normalizeOrderForDisplay(order);
+}
+
 export function buildPrintJobFromOrder(order, restaurant) {
-  const normalized = normalizeOrderForPrint(order);
+  const displayModel = normalizeOrderForDisplay(order);
 
   return {
     printJobId: `job_${order.id}_${Date.now()}`,
     schemaVersion: '1.1',
-    createdAtIso: normalized.createdAtIso,
+    createdAtIso: displayModel.createdAtIso,
     restaurant: {
       id: restaurant.id,
       name: restaurant.name,
@@ -144,13 +172,21 @@ export function buildPrintJobFromOrder(order, restaurant) {
     order_number: order.orderNumber || order.id,
     customerName: order.customerName,
     customer_name: order.customerName,
-    customerTotalOrderCount: normalized.customerTotalOrderCount,
-    customer_total_order_count: normalized.customerTotalOrderCount,
-    itemsSource: normalized.itemsSource,
-    lines: normalized.lines,
-    items: normalized.lines,
-    totals: normalized.totals,
-    notes: normalized.notes,
+    customerTotalOrderCount: displayModel.customerTotalOrderCount,
+    customer_total_order_count: displayModel.customerTotalOrderCount,
+    itemsSource: displayModel.itemsSource,
+    lines: displayModel.items,
+    items: displayModel.items,
+    totals: displayModel.totals,
+    notes: displayModel.notesExtra,
+    printed_from_display_model: true,
+    displayModel: {
+      itemsSource: displayModel.itemsSource,
+      receiptLines: displayModel.receiptLines,
+      items: displayModel.items,
+      totals: displayModel.totals,
+      notesExtra: displayModel.notesExtra,
+    },
     formattingHints: {
       paperWidth: '58mm',
       locale: 'fr-CH',

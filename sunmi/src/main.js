@@ -2,7 +2,7 @@ import { POLL_INTERVAL_MS } from './config.js';
 import { debugLog } from './debug.js';
 import { formatOrderStatus, toPrintJob } from './boundaries/orderFormatter.js';
 import { createPrinterAdapter } from './boundaries/printerAdapter.js';
-import { normalizeOrderForPrint } from './boundaries/printJobContract.js';
+import { normalizeOrderForDisplay } from './boundaries/printJobContract.js';
 import {
   changeOrderStatus,
   changeReservationStatus,
@@ -184,11 +184,22 @@ function render() {
   const ordersHtml = state.orders.length === 0
     ? '<div class="card"><p class="subtle">Aucune commande en attente.</p></div>'
     : state.orders.map((order) => {
-      const normalized = normalizeOrderForPrint(order);
-      const itemRowsHtml = normalized.lines.length
+      const displayModel = normalizeOrderForDisplay(order);
+      const duplicateFieldCheck = {
+        paymentShown: Boolean(displayModel.paymentMethod),
+        paymentInNotesExtra: /Paiement:/i.test(displayModel.notesExtra || ''),
+        addressShown: Boolean(displayModel.customerAddress),
+        addressInNotesExtra: /Adresse:/i.test(displayModel.notesExtra || ''),
+      };
+      debugLog('ui_duplicate_field_check', {
+        orderId: order.id,
+        duplicateFieldCheck,
+      });
+
+      const itemRowsHtml = displayModel.items.length
         ? `
           <div class="subtle" style="margin-top:8px;">Articles:</div>
-          ${normalized.lines.map((line) => {
+          ${displayModel.items.map((line) => {
             const qty = Number(line.quantity || 1);
             const lineTotal = Number.isFinite(Number(line.totalPrice)) ? Number(line.totalPrice) : null;
             const unitPrice = Number.isFinite(Number(line.unitPrice)) ? Number(line.unitPrice) : null;
@@ -209,13 +220,13 @@ function render() {
           <span class="status-pill">${formatOrderStatus(order.status)}</span>
         </div>
         <div class="subtle">${order.customerName || 'Client'} • ${formatOrderType(order.orderType)}</div>
-        ${order.customerAddress ? `<div class="subtle">Adresse: ${order.customerAddress}</div>` : ''}
-        ${order.paymentMethod ? `<div class="subtle">Paiement: ${order.paymentMethod}</div>` : ''}
+        ${displayModel.customerAddress ? `<div class="subtle">Adresse: ${displayModel.customerAddress}</div>` : ''}
+        ${displayModel.paymentMethod ? `<div class="subtle">Paiement: ${displayModel.paymentMethod}</div>` : ''}
         <div class="subtle">Commande: ${formatOrderDate(order.createdAt)}</div>
         <div class="subtle">Historique client: ${Number(order.customerOrderCount || 0)} commande${Number(order.customerOrderCount || 0) > 1 ? 's' : ''} précédente${Number(order.customerOrderCount || 0) > 1 ? 's' : ''}</div>
         ${itemRowsHtml}
-        ${normalized.totals && Number.isFinite(Number(normalized.totals.total)) ? `<div class="subtle">Total: ${Number(normalized.totals.total).toFixed(2)} ${normalized.totals.currency || 'CHF'}</div>` : ''}
-        ${normalized.notes ? `<div class="subtle">Notes: ${escapeHtml(normalized.notes)}</div>` : ''}
+        ${displayModel.totals && Number.isFinite(Number(displayModel.totals.total)) ? `<div class="subtle">Total: ${Number(displayModel.totals.total).toFixed(2)} ${displayModel.totals.currency || 'CHF'}</div>` : ''}
+        ${displayModel.notesExtra ? `<div class="subtle">Notes: ${escapeHtml(displayModel.notesExtra)}</div>` : ''}
         <div class="subtle">Préparation: ${order.prepMinutes ? `${order.prepMinutes} min` : `${prepMinutesForOrder(order)} min (proposé)`}</div>
         <div class="prep-row">
           <span class="subtle">Temps prep</span>
@@ -478,7 +489,7 @@ async function showPrinterInfo() {
 }
 
 async function printAcceptedOrder(order) {
-  const uiNormalized = normalizeOrderForPrint(order);
+  const displayModel = normalizeOrderForDisplay(order);
   const printJob = toPrintJob(order, {
     name: 'À la Louche',
   });
@@ -510,26 +521,31 @@ async function printAcceptedOrder(order) {
     orderNumber: printJob.orderNumber,
     lineCount: Array.isArray(printJob.lines) ? printJob.lines.length : 0,
     hasTotals: Boolean(printJob.totals && printJob.totals.total != null),
-    uiNormalizedLineCount: Array.isArray(uiNormalized.lines) ? uiNormalized.lines.length : 0,
+    displayModelItemCount: Array.isArray(displayModel.items) ? displayModel.items.length : 0,
     printItemsSource: printJob.itemsSource || 'unknown',
   });
   debugLog('ui_order_normalized_for_display', safeStringify({
     orderId: order.id,
-    itemsSource: uiNormalized.itemsSource,
-    lineCount: uiNormalized.lines.length,
-    lines: uiNormalized.lines,
-    totals: uiNormalized.totals || null,
-    notes: uiNormalized.notes || null,
+    itemsSource: displayModel.itemsSource,
+    itemCount: displayModel.items.length,
+    items: displayModel.items,
+    totals: displayModel.totals || null,
+    notesExtra: displayModel.notesExtra || null,
   }));
   debugLog('ui_vs_print_item_parity', safeStringify({
-    uiLineCount: uiNormalized.lines.length,
+    uiItemCount: displayModel.items.length,
     printLineCount: Array.isArray(printJob.lines) ? printJob.lines.length : 0,
-    uiItemNames: uiNormalized.lines.map((line) => line.name),
+    uiItemNames: displayModel.items.map((line) => line.name),
     printItemNames: Array.isArray(printJob.lines) ? printJob.lines.map((line) => line.name) : [],
-    uiItemPrices: uiNormalized.lines.map((line) => line.totalPrice ?? line.unitPrice ?? null),
+    uiItemPrices: displayModel.items.map((line) => line.totalPrice ?? line.unitPrice ?? null),
     printItemPrices: Array.isArray(printJob.lines) ? printJob.lines.map((line) => line.totalPrice ?? line.unitPrice ?? null) : [],
   }));
   debugLog('print_job_dispatch_json', safeStringify(printJob));
+  debugLog('print_payload_source_marker', safeStringify({
+    printed_from_display_model: Boolean(printJob.printed_from_display_model),
+    hasDisplayModel: Boolean(printJob.displayModel),
+    displayModelKeys: printJob.displayModel ? Object.keys(printJob.displayModel) : [],
+  }));
 
   const res = await printerAdapter.printReceipt(printJob);
   debugLog('print_job_result', res);
