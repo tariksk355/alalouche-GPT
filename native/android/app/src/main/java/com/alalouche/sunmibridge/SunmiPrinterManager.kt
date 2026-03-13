@@ -245,12 +245,16 @@ class SunmiPrinterManager(private val context: Context) {
             printJob.optString("printerOutputMode"),
         ).lowercase(Locale.ROOT)
         val forcedOutputStrategy = FORCE_OUTPUT_STRATEGY.trim().lowercase(Locale.ROOT)
+        val syntheticConfig = printJob.optJSONObject("syntheticTest") ?: formattingHints?.optJSONObject("syntheticTest")
+        val syntheticConfigName = syntheticConfig?.optString("name")?.trim()?.lowercase(Locale.ROOT) ?: ""
+        val syntheticConfigEnabled = syntheticConfig?.optBoolean("enabled", false) == true
         val syntheticTestNameFromPayload = firstNonBlank(
             formattingHints?.optString("syntheticTestName"),
             printJob.optString("syntheticTestName"),
+            syntheticConfigName,
         ).lowercase(Locale.ROOT)
         val forcedSyntheticTestName = firstNonBlank(FORCE_SYNTHETIC_TEST_NAME, syntheticTestNameFromPayload).trim().lowercase(Locale.ROOT)
-        val syntheticEntryModeRequested = forcedSyntheticTestName.isNotBlank()
+        val syntheticEntryModeRequested = syntheticConfigEnabled || forcedSyntheticTestName.isNotBlank()
         val syntheticTestOnlyRequested = syntheticEntryModeRequested || formattingHints?.optBoolean("syntheticTestOnly", false) == true ||
             printJob.optBoolean("syntheticTestOnly", false)
         val requestedOutputStrategy = when {
@@ -260,7 +264,7 @@ class SunmiPrinterManager(private val context: Context) {
         }
         Log.i(
             TAG,
-            "native_requested_output_strategy requested=$requestedOutputStrategyRaw forced=$forcedOutputStrategy forcedSynthetic=$forcedSyntheticTestName syntheticEntryModeRequested=$syntheticEntryModeRequested syntheticTestOnlyRequested=$syntheticTestOnlyRequested effective=$requestedOutputStrategy",
+            "native_requested_output_strategy requested=$requestedOutputStrategyRaw forced=$forcedOutputStrategy forcedSynthetic=$forcedSyntheticTestName syntheticConfigEnabled=$syntheticConfigEnabled syntheticEntryModeRequested=$syntheticEntryModeRequested syntheticTestOnlyRequested=$syntheticTestOnlyRequested effective=$requestedOutputStrategy",
         )
 
         val bitmapExperimentRequested = requestedOutputStrategy == "bitmap" || requestedOutputStrategy == "bitmap_experiment"
@@ -295,11 +299,11 @@ class SunmiPrinterManager(private val context: Context) {
             return fail("INVALID_OUTPUT_STRATEGY", "Unsupported forced synthetic strategy: $forcedSyntheticTestName")
         }
         if (syntheticTestOnlyRequested && requestedOutputStrategy.isBlank()) {
-            Log.e(TAG, "synthetic_test_missing_strategy syntheticEntryModeRequested=$syntheticEntryModeRequested syntheticTestOnlyRequested=true requested=$requestedOutputStrategyRaw forced=$forcedOutputStrategy forcedSynthetic=$forcedSyntheticTestName")
+            Log.e(TAG, "synthetic_test_missing_strategy syntheticConfigEnabled=$syntheticConfigEnabled syntheticEntryModeRequested=$syntheticEntryModeRequested syntheticTestOnlyRequested=true requested=$requestedOutputStrategyRaw forced=$forcedOutputStrategy forcedSynthetic=$forcedSyntheticTestName")
             return fail("INVALID_OUTPUT_STRATEGY", "Synthetic test requested but outputStrategy is empty.")
         }
         if (syntheticTestOnlyRequested && requestedOutputStrategy !in requiredSyntheticStrategies) {
-            Log.e(TAG, "synthetic_test_unresolved syntheticEntryModeRequested=$syntheticEntryModeRequested syntheticTestOnlyRequested=$syntheticTestOnlyRequested forcedSynthetic=$forcedSyntheticTestName effective=$requestedOutputStrategy")
+            Log.e(TAG, "synthetic_test_unresolved syntheticConfigEnabled=$syntheticConfigEnabled syntheticEntryModeRequested=$syntheticEntryModeRequested syntheticTestOnlyRequested=$syntheticTestOnlyRequested forcedSynthetic=$forcedSyntheticTestName effective=$requestedOutputStrategy")
             return fail("INVALID_OUTPUT_STRATEGY", "Synthetic test requested but strategy is unresolved: $requestedOutputStrategy")
         }
         if (requestedOutputStrategy.isNotBlank() &&
