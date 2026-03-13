@@ -570,13 +570,19 @@ class SunmiPrinterManager(private val context: Context) {
                     callbackErrors.clear()
                 }
             }
-            Log.i(
-                TAG,
-                "receipt_path single_block_plain_text enabled=true asciiNormalized=$asciiNormalized topMarginLines=$topMarginLines bottomMarginLines=$bottomMarginLines blockLength=${finalReceiptBlock.length} trailingNewlinesBeforeTrim=$trailingNewlinesBeforeTrim trailingNewlinesTrimmed=$trailingNewlinesTrimmed trailingNewlinesInFinalBlock=$trailingNewlinesInFinalBlock finalBlockEndsWithNewline=$finalBlockEndsWithNewline",
-            )
+            val textStrategyName = when (requestedOutputStrategy) {
+                "text_single_block_left_rawfeed" -> "text_single_block_left_rawfeed"
+                "text_sections_left_linewrap" -> "text_sections_left_linewrap"
+                "text_sections_left_mixedfeed" -> "text_sections_left_mixedfeed"
+                else -> "text_single_block_center_rawfeed"
+            }
+            val useSectionDispatch = textStrategyName == "text_sections_left_linewrap" || textStrategyName == "text_sections_left_mixedfeed"
+            val mixedSectionFeed = textStrategyName == "text_sections_left_mixedfeed"
+            val leftAlignedDispatch = textStrategyName != "text_single_block_center_rawfeed"
+            val finalFeedModeLineWrap = useSectionDispatch
             val callbackReliableForV2sPath = false
-            val strategyName = "single_block_printText_with_feed_fallback"
-            val sequencingMode = "deterministic_nonbuffer_single_block"
+            val strategyName = textStrategyName
+            val sequencingMode = if (useSectionDispatch) "deterministic_nonbuffer_sections" else "deterministic_nonbuffer_single_block"
             val completionBoundary = "single_dispatch_plus_settle_wait"
             val bufferApiRuledOutByDeviceCrash = true
             val primitiveStatusWorksNoCrash = "setAlignment,printText,sendRAWData,lineWrap"
@@ -584,20 +590,26 @@ class SunmiPrinterManager(private val context: Context) {
             val primitiveStatusCrashes = "enterPrinterBuffer(clean=true)"
             val usesTimeoutFallback = false
             val usesSeparatePostFeedPrintText = false
-            val usesLineWrapPostFeed = false
-            val usesSecondPrintTextCall = false
-            val mainContentPrimitive = "printText_single_block"
+            val usesLineWrapPostFeed = mixedSectionFeed
+            val usesSecondPrintTextCall = useSectionDispatch
+            val mainContentPrimitive = if (useSectionDispatch) "printText_sectioned" else "printText_single_block"
             val finalFeedEnabled = true
             val finalFeedLineCount = 6
-            val finalFeedPrimitive = "raw_esc_d"
+            val finalFeedPrimitive = if (finalFeedModeLineWrap) "lineWrap" else "raw_esc_d"
             val fallbackFeedPrimitive = "lineWrap"
-            val finalFeedReason = "explicit_post_content_advance"
+            val finalFeedReason = if (finalFeedModeLineWrap) "linewrap_selected_for_strategy" else "explicit_post_content_advance"
             val settleWaitMs = TEXT_PATH_SETTLE_WAIT_MS
-            val sectionCount = 1
-            val sectionLengthSummary = "single_block:${finalReceiptBlock.length}"
-            val sectionGapSummary = "single_block:0"
+            val sectionTexts = if (useSectionDispatch) buildTextSections(coreReceiptText) else listOf(finalReceiptBlock)
+            val sectionCount = sectionTexts.size
+            val sectionLengthSummary = sectionTexts.mapIndexed { secIdx, sec -> "s$secIdx:${sec.length}" }.joinToString(",")
+            val sectionGapSummary = if (useSectionDispatch) "section_gap_ms:$SECTION_INTER_DISPATCH_DELAY_MS" else "single_block:0"
+            val alignment = if (leftAlignedDispatch) 0 else 1
             val dispatchOperationCount = sectionCount + if (finalFeedEnabled) 1 else 0
 
+            Log.i(
+                TAG,
+                "receipt_path text_strategy=$textStrategyName asciiNormalized=$asciiNormalized topMarginLines=$topMarginLines bottomMarginLines=$bottomMarginLines blockLength=${finalReceiptBlock.length} trailingNewlinesBeforeTrim=$trailingNewlinesBeforeTrim trailingNewlinesTrimmed=$trailingNewlinesTrimmed trailingNewlinesInFinalBlock=$trailingNewlinesInFinalBlock finalBlockEndsWithNewline=$finalBlockEndsWithNewline",
+            )
             Log.i(
                 TAG,
                 "receipt_callback_reliability callbackEverObservedBeforeAttempt=$callbackEverObservedBeforeAttempt callbackReliableForV2sPath=$callbackReliableForV2sPath mode=$sequencingMode strategy=$strategyName",
@@ -612,24 +624,46 @@ class SunmiPrinterManager(private val context: Context) {
             val printerStateBeforePrint = runCatching { service.updatePrinterState() }.getOrDefault(-999)
             Log.i(TAG, "printer_state_checkpoint stage=before_print stateCode=$printerStateBeforePrint")
 
+            Log.i(TAG, "low_level_call setAlignment alignment=$alignment strategy=$strategyName")
+            service.setAlignment(alignment, callbackFor("setAlignmentTextStrategy"))
             val mainStartAt = System.currentTimeMillis()
-            Log.i(TAG, "low_level_call printText start_at_ms=$mainStartAt payloadLength=${finalReceiptBlock.length} mainContentPrimitive=$mainContentPrimitive")
-            service.printText(finalReceiptBlock, callbackFor("printTextSingleBlock"))
+            if (useSectionDispatch) {
+                for ((secIdx, sectionText) in sectionTexts.withIndex()) {
+                    Log.i(TAG, "low_level_call printText section=$secIdx length=${sectionText.length} strategy=$strategyName")
+                    service.printText(sectionText, callbackFor("printTextSection_$secIdx"))
+                    if (mixedSectionFeed && secIdx < sectionTexts.lastIndex) {
+                        Thread.sleep(SECTION_INTER_DISPATCH_DELAY_MS)
+                        Log.i(TAG, "low_level_call lineWrap inter_section lines=1 section=$secIdx strategy=$strategyName")
+                        service.lineWrap(1, callbackFor("lineWrapInterSection_$secIdx"))
+                    }
+                    if (secIdx < sectionTexts.lastIndex) {
+                        Thread.sleep(SECTION_INTER_DISPATCH_DELAY_MS)
+                    }
+                }
+            } else {
+                Log.i(TAG, "low_level_call printText start_at_ms=$mainStartAt payloadLength=${finalReceiptBlock.length} mainContentPrimitive=$mainContentPrimitive")
+                service.printText(finalReceiptBlock, callbackFor("printTextSingleBlock"))
+            }
             val mainEndAt = System.currentTimeMillis()
             Log.i(TAG, "low_level_call printText dispatch_end_at_ms=$mainEndAt dispatch_duration_ms=${mainEndAt - mainStartAt}")
 
             var usedFeedPrimitive = if (finalFeedEnabled) finalFeedPrimitive else "none"
             if (finalFeedEnabled) {
                 val feedStartAt = System.currentTimeMillis()
-                val rawFeedCmd = byteArrayOf(0x1B, 0x64, finalFeedLineCount.coerceIn(0, 255).toByte())
                 Log.i(TAG, "low_level_call finalFeed start_at_ms=$feedStartAt primitive=$finalFeedPrimitive lines=$finalFeedLineCount reason=$finalFeedReason")
-                usedFeedPrimitive = runCatching {
-                    service.sendRAWData(rawFeedCmd, callbackFor("sendRawDataFinalFeed"))
+                usedFeedPrimitive = if (finalFeedModeLineWrap) {
+                    service.lineWrap(finalFeedLineCount, callbackFor("lineWrapFinalFeed"))
                     finalFeedPrimitive
-                }.getOrElse { rawErr ->
-                    Log.w(TAG, "low_level_call finalFeed raw_failed=true fallbackPrimitive=$fallbackFeedPrimitive msg=${rawErr.message ?: "unknown"}")
-                    service.lineWrap(finalFeedLineCount, callbackFor("lineWrapFinalFeedFallback"))
-                    fallbackFeedPrimitive
+                } else {
+                    val rawFeedCmd = byteArrayOf(0x1B, 0x64, finalFeedLineCount.coerceIn(0, 255).toByte())
+                    runCatching {
+                        service.sendRAWData(rawFeedCmd, callbackFor("sendRawDataFinalFeed"))
+                        finalFeedPrimitive
+                    }.getOrElse { rawErr ->
+                        Log.w(TAG, "low_level_call finalFeed raw_failed=true fallbackPrimitive=$fallbackFeedPrimitive msg=${rawErr.message ?: "unknown"}")
+                        service.lineWrap(finalFeedLineCount, callbackFor("lineWrapFinalFeedFallback"))
+                        fallbackFeedPrimitive
+                    }
                 }
                 val feedEndAt = System.currentTimeMillis()
                 Log.i(TAG, "low_level_call finalFeed dispatch_end_at_ms=$feedEndAt dispatch_duration_ms=${feedEndAt - feedStartAt} usedFeedPrimitive=$usedFeedPrimitive")
@@ -642,13 +676,13 @@ class SunmiPrinterManager(private val context: Context) {
             val callbackEverObservedAfterAttempt = CALLBACK_OBSERVED_EVER.get()
             Log.i(
                 TAG,
-                "receipt_completion_summary strategy=$strategyName sequencingMode=$sequencingMode usesTimeoutFallback=$usesTimeoutFallback completionBoundary=$completionBoundary callbackObservedThisAttempt=$callbackObservedThisAttempt callbackEverObservedAfterAttempt=$callbackEverObservedAfterAttempt secondPrintTextUsed=$usesSecondPrintTextCall mainContentPrimitive=$mainContentPrimitive usedFeedPrimitive=$usedFeedPrimitive successBoundaryReason=single_block_printText_with_feed",
+                "receipt_completion_summary strategy=$strategyName sequencingMode=$sequencingMode usesTimeoutFallback=$usesTimeoutFallback completionBoundary=$completionBoundary callbackObservedThisAttempt=$callbackObservedThisAttempt callbackEverObservedAfterAttempt=$callbackEverObservedAfterAttempt secondPrintTextUsed=$usesSecondPrintTextCall mainContentPrimitive=$mainContentPrimitive usedFeedPrimitive=$usedFeedPrimitive successBoundaryReason=strategy_dispatch_with_feed",
             )
-            val operationSequence = if (finalFeedEnabled) "setAlignment->printText->${usedFeedPrimitive}" else "setAlignment->printText"
+            val operationSequence = if (finalFeedEnabled) "setAlignment->printText(${if (useSectionDispatch) "sections" else "single"})->${usedFeedPrimitive}" else "setAlignment->printText"
             Log.i(TAG, "receipt_operation_sequence sequence=$operationSequence operationCount=$dispatchOperationCount")
             Log.i(
                 TAG,
-                "receipt_path mode=no_buffer_print_text_content completed_calls=${if (finalFeedEnabled) "setAlignment,printText,finalFeed" else "setAlignment,printText"} fontSizeStyling=skipped_v2s_compat",
+                "receipt_path mode=no_buffer_print_text_content completed_calls=${if (finalFeedEnabled) "setAlignment,printText,finalFeed" else "setAlignment,printText"} fontSizeStyling=skipped_v2s_compat strategy=$strategyName",
             )
 
             if (callbackErrors.isNotEmpty()) {
@@ -920,6 +954,27 @@ class SunmiPrinterManager(private val context: Context) {
         return true
     }
 
+    private fun buildTextSections(coreReceiptText: String): List<String> {
+        val lines = coreReceiptText.lines()
+        if (lines.isEmpty()) return listOf(coreReceiptText)
+
+        val articlesIndex = lines.indexOfFirst { it.trim().equals("Articles:", ignoreCase = true) }
+        val totalIndex = lines.indexOfFirst { it.trim().startsWith("TOTAL:", ignoreCase = true) }
+
+        if (articlesIndex <= 0 || totalIndex <= articlesIndex) {
+            return listOf(coreReceiptText)
+        }
+
+        val header = lines.subList(0, articlesIndex).joinToString("\n").trim()
+        val articles = lines.subList(articlesIndex, totalIndex).joinToString("\n").trim()
+        val footer = lines.subList(totalIndex, lines.size).joinToString("\n").trim()
+
+        return listOf(header, articles, footer)
+            .filter { it.isNotBlank() }
+            .map { section -> "$section\n" }
+            .ifEmpty { listOf(coreReceiptText) }
+    }
+
     private fun firstNonBlank(vararg values: String?): String {
         for (value in values) {
             if (!value.isNullOrBlank()) return value
@@ -1010,13 +1065,27 @@ class SunmiPrinterManager(private val context: Context) {
     }
 
     private fun toAsciiSafeReceiptText(input: String): String {
-        val normalized = Normalizer.normalize(input, Normalizer.Form.NFD)
+        val mojibakeNormalized = input
+            .replace("ÔÇó", "-")
+            .replace("pr├®c├®dentes", "precedentes")
+            .replace("├®", "e")
+            .replace("├¿", "a")
+            .replace("Ã©", "e")
+            .replace("Ã¨", "e")
+            .replace("Ãª", "e")
+            .replace("Ã ", "a")
+            .replace("Ã¹", "u")
+            .replace("Ã§", "c")
+
+        val normalized = Normalizer.normalize(mojibakeNormalized, Normalizer.Form.NFD)
         val withoutDiacritics = normalized.replace("\\p{M}+".toRegex(), "")
         return withoutDiacritics
             .replace('’', '\'')
             .replace('–', '-')
             .replace('—', '-')
             .replace('…', '.')
+            .replace("•", "-")
+            .replace("�", "")
             .map { ch -> if (ch.code in 32..126 || ch == '\n' || ch == '\r' || ch == '\t') ch else '?' }
             .joinToString("")
     }
@@ -1059,5 +1128,6 @@ class SunmiPrinterManager(private val context: Context) {
         private const val TEXT_PATH_PRINTER_INIT_ENABLED = true
         private const val TEXT_PATH_SETTLE_WAIT_MS = 1500L
         private const val BITMAP_SETTLE_WAIT_MS = 1500L
+        private const val SECTION_INTER_DISPATCH_DELAY_MS = 120L
     }
 }
