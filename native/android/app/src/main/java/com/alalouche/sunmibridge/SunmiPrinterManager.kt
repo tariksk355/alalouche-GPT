@@ -182,9 +182,12 @@ class SunmiPrinterManager(private val context: Context) {
                 renderedLines += line
             }
 
+            val displayModelSections = displayModel?.optJSONArray("displaySections")
             val displayModelReceiptLines = displayModel?.optJSONArray("receiptLines")
             val useDisplayModel = displayModelReceiptLines != null && displayModelReceiptLines.length() > 0
-            Log.i(TAG, "display_model_usage printed_from_display_model=${printJob.optBoolean("printed_from_display_model", false)} useDisplayModel=$useDisplayModel")
+            val hasArticlesSectionInDisplaySections = containsArticlesSection(displayModelSections)
+            val hasArticlesInReceiptLines = containsArticlesLine(displayModelReceiptLines)
+            Log.i(TAG, "display_model_usage printed_from_display_model=${printJob.optBoolean("printed_from_display_model", false)} useDisplayModel=$useDisplayModel hasDisplaySections=${displayModelSections != null} hasArticlesSectionInDisplaySections=$hasArticlesSectionInDisplaySections hasArticlesInReceiptLines=$hasArticlesInReceiptLines receiptLinesCount=${displayModelReceiptLines?.length() ?: 0}")
 
             // IMPORTANT: no printerInit() and no buffer enter/exit in live receipt flow.
             // Some Sunmi V2s firmware/service paths are unstable with enterPrinterBuffer(...)
@@ -321,6 +324,8 @@ class SunmiPrinterManager(private val context: Context) {
             val finalReceiptBlock = "\n".repeat(topMarginLines) + coreReceiptText + "\n".repeat(bottomMarginLines)
             val trailingNewlinesInFinalBlock = finalReceiptBlock.reversed().takeWhile { it == '\n' }.length
             val finalBlockEndsWithNewline = finalReceiptBlock.endsWith("\n")
+            val finalTextContainsArticles = coreReceiptText.lineSequence().any { it.trim().equals("Articles:", ignoreCase = true) }
+            Log.i(TAG, "receipt_articles_presence finalTextContainsArticles=$finalTextContainsArticles")
             Log.i(
                 TAG,
                 "receipt_path single_block_plain_text enabled=true asciiNormalized=$asciiNormalized topMarginLines=$topMarginLines bottomMarginLines=$bottomMarginLines blockLength=${finalReceiptBlock.length} trailingNewlinesBeforeTrim=$trailingNewlinesBeforeTrim trailingNewlinesTrimmed=$trailingNewlinesTrimmed trailingNewlinesInFinalBlock=$trailingNewlinesInFinalBlock finalBlockEndsWithNewline=$finalBlockEndsWithNewline",
@@ -367,12 +372,14 @@ class SunmiPrinterManager(private val context: Context) {
                 Log.i(TAG, "low_level_callback op=$op completion_wait_done=$done timeoutMs=$timeoutMs")
             }
 
-            val dispatchOperationCount = 1
             val usesSeparatePostFeedPrintText = false
             val usesLineWrapPostFeed = false
+            val finalFeedEnabled = true
+            val finalFeedLineCount = 6
+            val dispatchOperationCount = 1 + if (finalFeedEnabled) 1 else 0
             Log.i(
                 TAG,
-                "receipt_dispatch_plan operationCount=$dispatchOperationCount embeddedTrailingBlankLines=$bottomMarginLines separatePostFeedPrintText=$usesSeparatePostFeedPrintText separateLineWrapPostFeed=$usesLineWrapPostFeed trailingWhitespacePreservedBeforeDispatch=$finalBlockEndsWithNewline",
+                "receipt_dispatch_plan operationCount=$dispatchOperationCount embeddedTrailingBlankLines=$bottomMarginLines separatePostFeedPrintText=$usesSeparatePostFeedPrintText separateLineWrapPostFeed=$usesLineWrapPostFeed trailingWhitespacePreservedBeforeDispatch=$finalBlockEndsWithNewline finalFeedEnabled=$finalFeedEnabled finalFeedLineCount=$finalFeedLineCount",
             )
 
             val mainStartAt = System.currentTimeMillis()
@@ -382,11 +389,21 @@ class SunmiPrinterManager(private val context: Context) {
             }
             val mainEndAt = System.currentTimeMillis()
             Log.i(TAG, "low_level_call printTextSingleBlock end_at_ms=$mainEndAt duration_ms=${mainEndAt - mainStartAt}")
-            Log.i(TAG, "low_level_call printTextPostFeed skipped=true reason=single_pass_continuous_output")
-            Log.i(TAG, "low_level_call lineWrapPostPrint skipped=true reason=single_pass_continuous_output")
+            if (finalFeedEnabled) {
+                val feedStartAt = System.currentTimeMillis()
+                Log.i(TAG, "low_level_call lineWrapFinalFeed start_at_ms=$feedStartAt lines=$finalFeedLineCount")
+                runAndAwait("lineWrapFinalFeed") { callback ->
+                    service.lineWrap(finalFeedLineCount, callback)
+                }
+                val feedEndAt = System.currentTimeMillis()
+                Log.i(TAG, "low_level_call lineWrapFinalFeed end_at_ms=$feedEndAt duration_ms=${feedEndAt - feedStartAt}")
+            } else {
+                Log.i(TAG, "low_level_call lineWrapFinalFeed skipped=true reason=disabled")
+            }
+            Log.i(TAG, "low_level_call printTextPostFeed skipped=true reason=single_pass_content_output")
             Log.i(
                 TAG,
-                "receipt_path mode=no_buffer_live_text completed_calls=setAlignment,printTextSingleBlock fontSizeStyling=skipped_v2s_compat",
+                "receipt_path mode=no_buffer_live_text completed_calls=${if (finalFeedEnabled) "setAlignment,printTextSingleBlock,lineWrapFinalFeed" else "setAlignment,printTextSingleBlock"} fontSizeStyling=skipped_v2s_compat",
             )
 
             if (callbackErrors.isNotEmpty()) {
@@ -532,6 +549,28 @@ class SunmiPrinterManager(private val context: Context) {
         val paymentMethod: String,
         val extraNote: String,
     )
+
+    private fun containsArticlesSection(displaySections: JSONArray?): Boolean {
+        if (displaySections == null) return false
+        for (i in 0 until displaySections.length()) {
+            val section = displaySections.optJSONObject(i) ?: continue
+            val key = section.optString("key")
+            val line = section.optString("line")
+            if (key.equals("items_header", ignoreCase = true) || line.trim().equals("Articles:", ignoreCase = true)) {
+                return true
+            }
+        }
+        return false
+    }
+
+    private fun containsArticlesLine(receiptLines: JSONArray?): Boolean {
+        if (receiptLines == null) return false
+        for (i in 0 until receiptLines.length()) {
+            val line = receiptLines.optString(i)
+            if (line.trim().equals("Articles:", ignoreCase = true)) return true
+        }
+        return false
+    }
 
     private fun parseStructuredNotes(raw: String?): ParsedStructuredNotes {
         if (raw.isNullOrBlank()) {

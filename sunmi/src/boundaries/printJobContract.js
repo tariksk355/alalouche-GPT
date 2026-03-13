@@ -146,12 +146,15 @@ export function normalizeOrderForDisplay(order) {
   if (totals && Number.isFinite(Number(totals.total))) displaySections.push({ key: 'total', line: `Total: ${Number(totals.total).toFixed(2)} ${totals.currency || 'CHF'}` });
   if (notesExtra) displaySections.push({ key: 'notes', line: `Notes: ${notesExtra}` });
 
+  const receiptMetaLines = displaySections
+    .filter((section) => !['items_header', 'item', 'total', 'notes'].includes(section.key))
+    .map((section) => section.line);
+
   const receiptLines = [
     String(order.orderNumber || order.id || ''),
-    ...displaySections
-      .map((section) => section.line)
-      .filter((line) => line !== 'Articles:'),
+    ...receiptMetaLines,
     '------------------------------',
+    'Articles:',
     ...receiptItemLines,
     '------------------------------',
   ];
@@ -209,6 +212,7 @@ export function buildPrintJobFromOrder(order, restaurant) {
     printed_from_display_model: true,
     displayModel: {
       itemsSource: displayModel.itemsSource,
+      displaySections: displayModel.displaySections,
       receiptLines: displayModel.receiptLines,
       items: displayModel.items,
       totals: displayModel.totals,
