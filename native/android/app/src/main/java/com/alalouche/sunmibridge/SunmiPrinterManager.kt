@@ -261,6 +261,11 @@ class SunmiPrinterManager(private val context: Context) {
             "text_single_block_left_rawfeed",
             "text_sections_left_linewrap",
             "text_sections_left_mixedfeed",
+            "text_sections_left_rawfeed",
+            "text_test_1line_rawfeed",
+            "text_test_3lines_rawfeed",
+            "text_test_10lines_rawfeed",
+            "text_test_10lines_sections_rawfeed",
             "text_init_first",
             "text_init_first_single_block",
         )
@@ -607,15 +612,26 @@ class SunmiPrinterManager(private val context: Context) {
                 "text_single_block_left_rawfeed" -> "text_single_block_left_rawfeed"
                 "text_sections_left_linewrap" -> "text_sections_left_linewrap"
                 "text_sections_left_mixedfeed" -> "text_sections_left_mixedfeed"
+                "text_sections_left_rawfeed" -> "text_sections_left_rawfeed"
+                "text_test_1line_rawfeed" -> "text_test_1line_rawfeed"
+                "text_test_3lines_rawfeed" -> "text_test_3lines_rawfeed"
+                "text_test_10lines_rawfeed" -> "text_test_10lines_rawfeed"
+                "text_test_10lines_sections_rawfeed" -> "text_test_10lines_sections_rawfeed"
                 else -> {
                     Log.e(TAG, "printReceipt unsupported_text_strategy value=$requestedOutputStrategy")
                     return fail("INVALID_OUTPUT_STRATEGY", "Unsupported text outputStrategy: $requestedOutputStrategy")
                 }
             }
-            val useSectionDispatch = textStrategyName == "text_sections_left_linewrap" || textStrategyName == "text_sections_left_mixedfeed"
+            val isSyntheticTextTest = textStrategyName.startsWith("text_test_")
+            val syntheticAsciiText = if (isSyntheticTextTest) buildSyntheticAsciiTestText(textStrategyName) else ""
+            val dispatchTextCore = if (isSyntheticTextTest) toStrictAsciiOnly(syntheticAsciiText) else coreReceiptText
+            val useSectionDispatch = textStrategyName == "text_sections_left_linewrap" ||
+                textStrategyName == "text_sections_left_mixedfeed" ||
+                textStrategyName == "text_sections_left_rawfeed" ||
+                textStrategyName == "text_test_10lines_sections_rawfeed"
             val mixedSectionFeed = textStrategyName == "text_sections_left_mixedfeed"
             val leftAlignedDispatch = textStrategyName != "text_single_block_center_rawfeed"
-            val finalFeedModeLineWrap = useSectionDispatch
+            val finalFeedModeLineWrap = textStrategyName == "text_sections_left_linewrap"
             val callbackReliableForV2sPath = false
             val strategyName = textStrategyName
             val sequencingMode = if (useSectionDispatch) "deterministic_nonbuffer_sections" else "deterministic_nonbuffer_single_block"
@@ -635,7 +651,7 @@ class SunmiPrinterManager(private val context: Context) {
             val fallbackFeedPrimitive = "lineWrap"
             val finalFeedReason = if (finalFeedModeLineWrap) "linewrap_selected_for_strategy" else "explicit_post_content_advance"
             val settleWaitMs = TEXT_PATH_SETTLE_WAIT_MS
-            val sectionTexts = if (useSectionDispatch) buildTextSections(coreReceiptText) else listOf(finalReceiptBlock)
+            val sectionTexts = if (useSectionDispatch) buildTextSections(dispatchTextCore) else listOf(finalReceiptBlockForStrategy(dispatchTextCore))
             val sectionCount = sectionTexts.size
             val sectionLengthSummary = sectionTexts.mapIndexed { secIdx, sec -> "s$secIdx:${sec.length}" }.joinToString(",")
             val sectionGapSummary = if (useSectionDispatch) "section_gap_ms:$SECTION_INTER_DISPATCH_DELAY_MS" else "single_block:0"
@@ -644,7 +660,7 @@ class SunmiPrinterManager(private val context: Context) {
 
             Log.i(
                 TAG,
-                "receipt_path text_strategy=$textStrategyName asciiNormalized=$asciiNormalized topMarginLines=$topMarginLines bottomMarginLines=$bottomMarginLines blockLength=${finalReceiptBlock.length} trailingNewlinesBeforeTrim=$trailingNewlinesBeforeTrim trailingNewlinesTrimmed=$trailingNewlinesTrimmed trailingNewlinesInFinalBlock=$trailingNewlinesInFinalBlock finalBlockEndsWithNewline=$finalBlockEndsWithNewline",
+                "receipt_path text_strategy=$textStrategyName syntheticTest=$isSyntheticTextTest asciiNormalized=$asciiNormalized topMarginLines=$topMarginLines bottomMarginLines=$bottomMarginLines blockLength=${finalReceiptBlock.length} trailingNewlinesBeforeTrim=$trailingNewlinesBeforeTrim trailingNewlinesTrimmed=$trailingNewlinesTrimmed trailingNewlinesInFinalBlock=$trailingNewlinesInFinalBlock finalBlockEndsWithNewline=$finalBlockEndsWithNewline",
             )
             Log.i(
                 TAG,
@@ -677,8 +693,8 @@ class SunmiPrinterManager(private val context: Context) {
                     }
                 }
             } else {
-                Log.i(TAG, "low_level_call printText start_at_ms=$mainStartAt payloadLength=${finalReceiptBlock.length} mainContentPrimitive=$mainContentPrimitive")
-                service.printText(finalReceiptBlock, callbackFor("printTextSingleBlock"))
+                Log.i(TAG, "low_level_call printText start_at_ms=$mainStartAt payloadLength=${finalReceiptBlockForStrategy(dispatchTextCore).length} mainContentPrimitive=$mainContentPrimitive")
+                service.printText(finalReceiptBlockForStrategy(dispatchTextCore), callbackFor("printTextSingleBlock"))
             }
             val mainEndAt = System.currentTimeMillis()
             Log.i(TAG, "low_level_call printText dispatch_end_at_ms=$mainEndAt dispatch_duration_ms=${mainEndAt - mainStartAt}")
@@ -990,6 +1006,33 @@ class SunmiPrinterManager(private val context: Context) {
         return true
     }
 
+    private fun buildSyntheticAsciiTestText(strategyName: String): String {
+        return when (strategyName) {
+            "text_test_1line_rawfeed" -> "TEST LINE 1"
+            "text_test_3lines_rawfeed" -> listOf(
+                "TEST LINE 1",
+                "TEST LINE 2",
+                "TEST LINE 3",
+            ).joinToString("\n")
+            "text_test_10lines_rawfeed", "text_test_10lines_sections_rawfeed" ->
+                (1..10).joinToString("\n") { idx -> "TEST LINE ${idx.toString().padStart(2, '0')}" }
+            else -> "TEST LINE 1"
+        }
+    }
+
+    private fun toStrictAsciiOnly(input: String): String {
+        return input
+            .map { ch -> if (ch.code in 32..126 || ch == '\n' || ch == '\r' || ch == '\t') ch else '?' }
+            .joinToString("")
+    }
+
+    private fun finalReceiptBlockForStrategy(coreText: String): String {
+        val cleanCore = coreText.trimEnd('\r', '\n')
+        val topMarginLines = 2
+        val bottomMarginLines = 36
+        return "\n".repeat(topMarginLines) + cleanCore + "\n".repeat(bottomMarginLines)
+    }
+
     private fun buildTextSections(coreReceiptText: String): List<String> {
         val lines = coreReceiptText.lines()
         if (lines.isEmpty()) return listOf(coreReceiptText)
@@ -1166,6 +1209,6 @@ class SunmiPrinterManager(private val context: Context) {
         private const val BITMAP_SETTLE_WAIT_MS = 1500L
         private const val SECTION_INTER_DISPATCH_DELAY_MS = 120L
         // TEMP device-test override: force one strategy regardless of web payload.
-        private const val FORCE_OUTPUT_STRATEGY = "text_sections_left_linewrap"
+        private const val FORCE_OUTPUT_STRATEGY = "text_sections_left_rawfeed"
     }
 }
