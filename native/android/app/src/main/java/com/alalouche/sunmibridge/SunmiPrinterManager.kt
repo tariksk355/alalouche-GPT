@@ -13,6 +13,9 @@ import org.json.JSONObject
 import woyou.aidlservice.jiuiv5.ICallback
 import woyou.aidlservice.jiuiv5.IWoyouService
 import java.text.Normalizer
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import java.util.concurrent.atomic.AtomicBoolean
 
 class SunmiPrinterManager(private val context: Context) {
@@ -123,6 +126,13 @@ class SunmiPrinterManager(private val context: Context) {
         val createdAt = firstNonBlank(printJob.optString("createdAtIso"), printJob.optString("created_at_iso"), printJob.optString("createdAt"))
         val customerPhone = firstNonBlank(printJob.optString("customerPhone"), printJob.optString("customer_phone"))
         val customerAddress = firstNonBlank(printJob.optString("customerAddress"), printJob.optString("customer_address"))
+        val customerTotalOrderCount = when {
+            printJob.has("customerTotalOrderCount") -> printJob.optInt("customerTotalOrderCount", 0)
+            printJob.has("customer_total_order_count") -> printJob.optInt("customer_total_order_count", 0)
+            printJob.has("customerOrderCount") -> printJob.optInt("customerOrderCount", 0) + 1
+            printJob.has("customer_order_count") -> printJob.optInt("customer_order_count", 0) + 1
+            else -> 0
+        }
         val orderTypeRaw = firstNonBlank(printJob.optString("orderType"), printJob.optString("order_type"))
         val paymentMethodRaw = firstNonBlank(printJob.optString("paymentMethod"), printJob.optString("payment_method"))
         val totalAmountFallback = when {
@@ -202,8 +212,12 @@ class SunmiPrinterManager(private val context: Context) {
             if (finalAddress.isNotBlank()) {
                 pushRenderedLine("Adresse: $finalAddress")
             }
-            if (createdAt.isNotBlank()) {
-                pushRenderedLine("Date: $createdAt")
+            val formattedCreatedAt = formatTicketDateTime(createdAt)
+            if (formattedCreatedAt.isNotBlank()) {
+                pushRenderedLine("Date/Heure: $formattedCreatedAt")
+            }
+            if (customerTotalOrderCount > 0) {
+                pushRenderedLine("Historique client: $customerTotalOrderCount commande(s)")
             }
             pushRenderedLine("------------------------------")
 
@@ -266,10 +280,12 @@ class SunmiPrinterManager(private val context: Context) {
 
             val asciiReceiptText = toAsciiSafeReceiptText(renderedReceiptText)
             val asciiNormalized = asciiReceiptText != renderedReceiptText
-            val finalReceiptBlock = asciiReceiptText.trimEnd('\r', '\n') + "\n\n\n\n\n\n"
+            val topMarginLines = 2
+            val bottomMarginLines = 8
+            val finalReceiptBlock = "\n".repeat(topMarginLines) + asciiReceiptText.trimEnd('\r', '\n') + "\n".repeat(bottomMarginLines)
             Log.i(
                 TAG,
-                "receipt_path single_block_plain_text enabled=true asciiNormalized=$asciiNormalized blockLength=${finalReceiptBlock.length}",
+                "receipt_path single_block_plain_text enabled=true asciiNormalized=$asciiNormalized topMarginLines=$topMarginLines bottomMarginLines=$bottomMarginLines blockLength=${finalReceiptBlock.length}",
             )
             val blockPreview = finalReceiptBlock
                 .replace("\r", "\\r")
@@ -479,6 +495,33 @@ class SunmiPrinterManager(private val context: Context) {
             .replace('…', '.')
             .map { ch -> if (ch.code in 32..126 || ch == '\n' || ch == '\r' || ch == '\t') ch else '?' }
             .joinToString("")
+    }
+
+    private fun formatTicketDateTime(raw: String): String {
+        if (raw.isBlank()) return ""
+
+        runCatching {
+            val parsed = java.time.Instant.parse(raw)
+            val zoned = java.time.ZonedDateTime.ofInstant(parsed, java.time.ZoneId.systemDefault())
+            return zoned.format(java.time.format.DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm"))
+        }
+
+        runCatching {
+            val isoLike = raw.replace(' ', 'T')
+            val parsed = java.time.LocalDateTime.parse(isoLike.take(19))
+            return parsed.format(java.time.format.DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm"))
+        }
+
+        runCatching {
+            val parser = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.US)
+            val parsed = parser.parse(raw)
+            if (parsed is Date) {
+                val fmt = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault())
+                return fmt.format(parsed)
+            }
+        }
+
+        return raw
     }
 
     companion object {
