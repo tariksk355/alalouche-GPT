@@ -108,6 +108,11 @@ class SunmiPrinterManager(private val context: Context) {
             return fail("SUNMI_SERVICE_UNAVAILABLE", "Sunmi printer service is unavailable or not bound.")
         }
 
+        if (!PRINT_IN_PROGRESS.compareAndSet(false, true)) {
+            Log.w(TAG, "print_lifecycle gate=busy_new_job_rejected reason=previous_job_not_settled")
+            return fail("SUNMI_PRINT_BUSY", "Previous print job may still be active. Retry shortly.")
+        }
+
         val orderNumber = firstNonBlank(
             printJob.optString("orderNumber"),
             printJob.optString("order_number"),
@@ -341,7 +346,10 @@ class SunmiPrinterManager(private val context: Context) {
             val callbackReliableForV2sPath = false
             val strategyName = "sectioned_text_dispatch_v2s"
             val sequencingMode = "deterministic_nonblocking"
-            val completionBoundary = "dispatch_only"
+            val completionBoundary = "post_feed_state_settle"
+            val interSectionGapMs = 90L
+            val postFeedStatePollWindowMs = 2200L
+            val postFeedStatePollIntervalMs = 180L
             val bufferApiRuledOutByDeviceCrash = true
             val primitiveStatusWorksNoCrash = "setAlignment,printText,sendRAWData,lineWrap"
             val primitiveStatusUnreliable = "printText_completion_callback,physical_full_output_first_press"
@@ -403,6 +411,8 @@ class SunmiPrinterManager(private val context: Context) {
             )
             Log.i(TAG, "receipt_buffer_strategy considered=true enabled=false ruledOutByDeviceCrash=$bufferApiRuledOutByDeviceCrash reason=enterPrinterBuffer_null_pointer_in_sunmi_service")
             Log.i(TAG, "receipt_primitive_matrix worksNoCrash=$primitiveStatusWorksNoCrash unreliable=$primitiveStatusUnreliable crashes=$primitiveStatusCrashes")
+            val printerStateBeforePrint = runCatching { service.updatePrinterState() }.getOrDefault(-999)
+            Log.i(TAG, "printer_state_checkpoint stage=before_print stateCode=$printerStateBeforePrint")
 
             val mainStartAt = System.currentTimeMillis()
             sectionedPayloads.forEachIndexed { idx, (sectionName, payload, sectionCoreText) ->
@@ -417,6 +427,10 @@ class SunmiPrinterManager(private val context: Context) {
                     TAG,
                     "low_level_call printTextSection index=$idx/$sectionCount section=$sectionName dispatch_end_at_ms=$sectionEndAt dispatch_duration_ms=${sectionEndAt - sectionStartAt}",
                 )
+                if (idx < sectionCount - 1 && interSectionGapMs > 0) {
+                    Thread.sleep(interSectionGapMs)
+                    Log.i(TAG, "low_level_call printTextSection gap_after_ms=$interSectionGapMs next_index=${idx + 1}")
+                }
             }
             val mainEndAt = System.currentTimeMillis()
             Log.i(TAG, "low_level_call printTextSections dispatch_end_at_ms=$mainEndAt dispatch_duration_ms=${mainEndAt - mainStartAt} sectionCount=$sectionCount")
@@ -444,10 +458,24 @@ class SunmiPrinterManager(private val context: Context) {
                 Log.i(TAG, "low_level_call lineWrapFinalFeed skipped=true reason=disabled")
             }
 
+            val printerStateAfterFeed = runCatching { service.updatePrinterState() }.getOrDefault(-999)
+            val settleStartAt = System.currentTimeMillis()
+            var settlePollCount = 0
+            var settleObservedState = printerStateAfterFeed
+            while (System.currentTimeMillis() - settleStartAt < postFeedStatePollWindowMs) {
+                Thread.sleep(postFeedStatePollIntervalMs)
+                settlePollCount += 1
+                settleObservedState = runCatching { service.updatePrinterState() }.getOrDefault(-999)
+                Log.i(TAG, "printer_state_checkpoint stage=post_feed_poll poll=$settlePollCount stateCode=$settleObservedState")
+            }
+            val settleElapsedMs = System.currentTimeMillis() - settleStartAt
+            val printerLikelyStillBusy = settleObservedState != printerStateAfterFeed && settleObservedState != 1
+            Log.i(TAG, "printer_state_checkpoint stage=after_feed stateCode=$printerStateAfterFeed settleElapsedMs=$settleElapsedMs settlePollCount=$settlePollCount finalPolledState=$settleObservedState printerLikelyStillBusy=$printerLikelyStillBusy")
+
             val callbackEverObservedAfterAttempt = CALLBACK_OBSERVED_EVER.get()
             Log.i(
                 TAG,
-                "receipt_completion_summary strategy=$strategyName sequencingMode=$sequencingMode usesTimeoutFallback=$usesTimeoutFallback completionBoundary=$completionBoundary callbackObservedThisAttempt=$callbackObservedThisAttempt callbackEverObservedAfterAttempt=$callbackEverObservedAfterAttempt secondPrintTextUsed=$usesSecondPrintTextCall usedFeedPrimitive=$usedFeedPrimitive",
+                "receipt_completion_summary strategy=$strategyName sequencingMode=$sequencingMode usesTimeoutFallback=$usesTimeoutFallback completionBoundary=$completionBoundary callbackObservedThisAttempt=$callbackObservedThisAttempt callbackEverObservedAfterAttempt=$callbackEverObservedAfterAttempt secondPrintTextUsed=$usesSecondPrintTextCall usedFeedPrimitive=$usedFeedPrimitive printerLikelyStillBusy=$printerLikelyStillBusy",
             )
             val operationSequence = if (finalFeedEnabled) "setAlignment->printTextSections(${sectionCount})->${usedFeedPrimitive}" else "setAlignment->printTextSections(${sectionCount})"
             Log.i(TAG, "receipt_operation_sequence sequence=$operationSequence operationCount=$dispatchOperationCount")
@@ -492,6 +520,12 @@ class SunmiPrinterManager(private val context: Context) {
                 put("finalTextCharLength", finalTextCharLength)
                 put("feedDelayMode", feedDelayMode)
                 put("deterministicFeedDelayMs", deterministicFeedDelayMs)
+                put("interSectionGapMs", interSectionGapMs)
+                put("printerStateBeforePrint", printerStateBeforePrint)
+                put("printerStateAfterFeed", printerStateAfterFeed)
+                put("printerStateFinalPolled", settleObservedState)
+                put("printerLikelyStillBusy", printerLikelyStillBusy)
+                put("successBoundary", completionBoundary)
                 put("callbackErrors", JSONArray(callbackErrors))
             }
         } catch (e: RemoteException) {
@@ -500,6 +534,8 @@ class SunmiPrinterManager(private val context: Context) {
         } catch (t: Throwable) {
             Log.e(TAG, "printReceipt failed", t)
             fail("SUNMI_PRINT_FAILED", "Print attempt failed.", t.message)
+        } finally {
+            PRINT_IN_PROGRESS.set(false)
         }
     }
 
@@ -726,5 +762,6 @@ class SunmiPrinterManager(private val context: Context) {
     companion object {
         private const val TAG = "SunmiPrinterManager"
         private val CALLBACK_OBSERVED_EVER = AtomicBoolean(false)
+        private val PRINT_IN_PROGRESS = AtomicBoolean(false)
     }
 }
