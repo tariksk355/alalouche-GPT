@@ -239,11 +239,18 @@ class SunmiPrinterManager(private val context: Context) {
         val printJob = printJobRoot.optJSONObject("printJob") ?: printJobRoot
         val displayModel = printJob.optJSONObject("displayModel")
         val formattingHints = printJob.optJSONObject("formattingHints")
-        val requestedOutputStrategy = firstNonBlank(
+        val requestedOutputStrategyRaw = firstNonBlank(
             formattingHints?.optString("outputStrategy"),
             formattingHints?.optString("printerOutputMode"),
             printJob.optString("printerOutputMode"),
         ).lowercase(Locale.ROOT)
+        val forcedOutputStrategy = FORCE_OUTPUT_STRATEGY.trim().lowercase(Locale.ROOT)
+        val requestedOutputStrategy = if (forcedOutputStrategy.isNotBlank()) forcedOutputStrategy else requestedOutputStrategyRaw
+        Log.i(
+            TAG,
+            "native_requested_output_strategy requested=$requestedOutputStrategyRaw forced=$forcedOutputStrategy effective=$requestedOutputStrategy",
+        )
+
         val bitmapExperimentRequested = requestedOutputStrategy == "bitmap" || requestedOutputStrategy == "bitmap_experiment"
         val bitmapSmokeTestRequested = requestedOutputStrategy == "bitmap_smoke_test"
         val textInitFirstRequested = requestedOutputStrategy == "text_init_first" || requestedOutputStrategy == "text_init_first_single_block"
@@ -588,7 +595,15 @@ class SunmiPrinterManager(private val context: Context) {
                 }
             }
             val textStrategyName = when (requestedOutputStrategy) {
-                "", "text_single_block_center_rawfeed", "text_init_first", "text_init_first_single_block" -> "text_single_block_center_rawfeed"
+                "", "text_single_block_center_rawfeed", "text_init_first", "text_init_first_single_block" -> {
+                    if (requestedOutputStrategy.isBlank()) {
+                        Log.w(
+                            TAG,
+                            "output_strategy_fallback requested=$requestedOutputStrategyRaw fallback=text_single_block_center_rawfeed reason=missing_or_unrecognized_strategy",
+                        )
+                    }
+                    "text_single_block_center_rawfeed"
+                }
                 "text_single_block_left_rawfeed" -> "text_single_block_left_rawfeed"
                 "text_sections_left_linewrap" -> "text_sections_left_linewrap"
                 "text_sections_left_mixedfeed" -> "text_sections_left_mixedfeed"
@@ -1150,5 +1165,7 @@ class SunmiPrinterManager(private val context: Context) {
         private const val TEXT_PATH_SETTLE_WAIT_MS = 1500L
         private const val BITMAP_SETTLE_WAIT_MS = 1500L
         private const val SECTION_INTER_DISPATCH_DELAY_MS = 120L
+        // TEMP device-test override: force one strategy regardless of web payload.
+        private const val FORCE_OUTPUT_STRATEGY = "text_sections_left_linewrap"
     }
 }

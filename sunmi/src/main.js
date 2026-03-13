@@ -799,12 +799,12 @@ async function printOrderTicket(order, options = {}) {
   render();
 
   const forcedStrategy = resolveForcedOutputStrategy();
-  debugLog('web_to_native_print_strategy', {
+  debugLog('web_to_native_print_strategy_json', JSON.stringify({
     orderId: order.id,
     orderNumber: printJob.orderNumber || order.orderNumber || order.id || null,
     outputStrategy: outputStrategy || 'default(text_single_block_center_rawfeed)',
     forcedBy: forcedStrategy ? 'override' : 'payload_or_default',
-  });
+  }));
 
   debugLog('print_job_dispatch', {
     fromFunction: isReprint ? 'reprintOrderTicket' : 'printAcceptedOrder',

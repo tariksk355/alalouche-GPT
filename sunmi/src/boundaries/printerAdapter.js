@@ -1,3 +1,5 @@
+import { debugLog } from '../debug.js';
+
 /**
  * Printer adapter contract for Sunmi web shell.
  *
@@ -54,6 +56,14 @@ function createNativeBridgePrinterAdapter(nativeBridge) {
   }
 
   function invokePrint(printJob) {
+    const outputStrategy = typeof printJob?.formattingHints?.outputStrategy === 'string' ? printJob.formattingHints.outputStrategy : '';
+    debugLog('js_bridge_print_strategy_json', JSON.stringify({
+      outputStrategy: outputStrategy || 'default(text_single_block_center_rawfeed)',
+      hasFormattingHints: Boolean(printJob?.formattingHints),
+      printJobId: printJob?.printJobId || null,
+      orderId: printJob?.orderId || null,
+    }));
+
     const payload = JSON.stringify(printJob);
     const methodName = resolvePrintMethod();
 
