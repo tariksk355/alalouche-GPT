@@ -18,6 +18,8 @@ const PRINT_STATUS_POLL_INTERVAL_MS = 3000;
 const PRINT_TERMINAL_STATES = new Set(['PRINTED', 'NEEDS_ATTENTION']);
 const PRINT_JOB_TRACKING_STORAGE_KEY = 'receiver_print_job_tracking_v1';
 const TERMINAL_JOB_RETENTION_MS = 30 * 60 * 1000;
+const PRINT_STRATEGY_OVERRIDE_STORAGE_KEY = 'sunmi_print_strategy_override_v1';
+const PRINT_DISPATCH_DEDUP_MS = 15000;
 
 const state = {
   mode: 'booting', // booting | not_paired | pairing_submitting | pairing_waiting | verifying | server_error | receiver_loaded
@@ -38,6 +40,8 @@ const state = {
   prepMinutesByOrderId: {},
   printJobsByOrderId: {},
   printRetryInFlightByOrderId: {},
+  printDispatchInFlightByOrderId: {},
+  lastPrintDispatchAtByOrderId: {},
   printDebug: {
     at: null,
     mode: 'idle',
@@ -66,6 +70,48 @@ function safeStringify(value) {
   } catch {
     return String(value);
   }
+}
+
+function resolveForcedOutputStrategy() {
+  const urlParams = new URLSearchParams(window.location.search || '');
+  const fromQuery = (urlParams.get('printStrategy') || '').trim();
+  if (fromQuery) return fromQuery;
+
+  const fromWindow = (window.__SUNMI_PRINT_STRATEGY_OVERRIDE__ || '').trim?.() || '';
+  if (fromWindow) return fromWindow;
+
+  try {
+    const fromStorage = (localStorage.getItem(PRINT_STRATEGY_OVERRIDE_STORAGE_KEY) || '').trim();
+    if (fromStorage) return fromStorage;
+  } catch {
+    // ignore
+  }
+
+  return '';
+}
+
+function applyOutputStrategyOverride(printJob) {
+  const forced = resolveForcedOutputStrategy();
+  if (!printJob || typeof printJob !== 'object') return { printJob, outputStrategy: '' };
+
+  const currentHints = (printJob.formattingHints && typeof printJob.formattingHints === 'object') ? printJob.formattingHints : {};
+  const fromPayload = typeof currentHints.outputStrategy === 'string' ? currentHints.outputStrategy.trim() : '';
+  const outputStrategy = forced || fromPayload;
+
+  if (!outputStrategy) {
+    return { printJob: { ...printJob, formattingHints: { ...currentHints } }, outputStrategy: '' };
+  }
+
+  return {
+    printJob: {
+      ...printJob,
+      formattingHints: {
+        ...currentHints,
+        outputStrategy,
+      },
+    },
+    outputStrategy,
+  };
 }
 
 function escapeHtml(value) {
@@ -526,6 +572,8 @@ async function validateDeviceOnceAndEnterReceiver() {
     state.prepMinutesByOrderId = {};
     state.printJobsByOrderId = {};
     state.printRetryInFlightByOrderId = {};
+    state.printDispatchInFlightByOrderId = {};
+    state.lastPrintDispatchAtByOrderId = {};
     clearPersistedPrintJobTracking();
     stopReceiverPolling();
     debugLog('device_validation_not_paired', { message: state.error || 'no_message' });
@@ -581,6 +629,8 @@ async function refreshOperations() {
     state.prepMinutesByOrderId = {};
     state.printJobsByOrderId = {};
     state.printRetryInFlightByOrderId = {};
+    state.printDispatchInFlightByOrderId = {};
+    state.lastPrintDispatchAtByOrderId = {};
     clearPersistedPrintJobTracking();
     stopReceiverPolling();
     debugLog('operations_poll_auth_failed', { message: state.error || 'token_invalid' });
@@ -696,10 +746,36 @@ async function showPrinterInfo() {
 
 async function printOrderTicket(order, options = {}) {
   const isReprint = Boolean(options?.reprint);
+  const orderId = order?.id || order?.orderId || '';
+  const now = Date.now();
+
+  if (!isReprint && orderId) {
+    if (state.printDispatchInFlightByOrderId[orderId]) {
+      debugLog('print_dispatch_suppressed_inflight', { orderId });
+      state.printerMessage = `Impression déjà en cours pour ${order.orderNumber || orderId}.`;
+      render();
+      return;
+    }
+    const lastDispatchedAt = Number(state.lastPrintDispatchAtByOrderId[orderId] || 0);
+    if (lastDispatchedAt > 0 && now - lastDispatchedAt < PRINT_DISPATCH_DEDUP_MS) {
+      debugLog('print_dispatch_suppressed_dedup', { orderId, dedupMs: PRINT_DISPATCH_DEDUP_MS });
+      state.printerMessage = `Impression déjà envoyée récemment pour ${order.orderNumber || orderId}.`;
+      render();
+      return;
+    }
+  }
+
+  if (orderId) {
+    state.printDispatchInFlightByOrderId[orderId] = true;
+  }
+
   const displayModel = normalizeOrderForDisplay(order);
-  const printJob = toPrintJob(order, {
+  const rawPrintJob = toPrintJob(order, {
     name: 'À la Louche',
   });
+  const strategyApplied = applyOutputStrategyOverride(rawPrintJob);
+  const printJob = strategyApplied.printJob;
+  const outputStrategy = strategyApplied.outputStrategy;
 
   const resolvedMethod = typeof window.SunmiBridge?.printReceipt === 'function'
     ? 'printReceipt'
@@ -722,6 +798,14 @@ async function printOrderTicket(order, options = {}) {
   });
   render();
 
+  const forcedStrategy = resolveForcedOutputStrategy();
+  debugLog('web_to_native_print_strategy', {
+    orderId: order.id,
+    orderNumber: printJob.orderNumber || order.orderNumber || order.id || null,
+    outputStrategy: outputStrategy || 'default(text_single_block_center_rawfeed)',
+    forcedBy: forcedStrategy ? 'override' : 'payload_or_default',
+  });
+
   debugLog('print_job_dispatch', {
     fromFunction: isReprint ? 'reprintOrderTicket' : 'printAcceptedOrder',
     orderId: printJob.orderId,
@@ -730,6 +814,7 @@ async function printOrderTicket(order, options = {}) {
     hasTotals: Boolean(printJob.totals && printJob.totals.total != null),
     displayModelItemCount: Array.isArray(displayModel.items) ? displayModel.items.length : 0,
     printItemsSource: printJob.itemsSource || 'unknown',
+    outputStrategy: outputStrategy || null,
   });
   debugLog('ui_order_normalized_for_display', safeStringify({
     orderId: order.id,
@@ -754,38 +839,48 @@ async function printOrderTicket(order, options = {}) {
     displayModelKeys: printJob.displayModel ? Object.keys(printJob.displayModel) : [],
   }));
 
-  const res = await printerAdapter.printReceipt(printJob);
-  debugLog('print_job_result', res);
-  debugLog('print_job_result_json', safeStringify(res));
+  try {
+    const res = await printerAdapter.printReceipt(printJob);
+    debugLog('print_job_result', res);
+    debugLog('print_job_result_json', safeStringify(res));
 
-  setPrintDebug({
-    mode: 'native_response',
-    method: res?.bridgeMethod || resolvedMethod,
-    payloadBuilt: true,
-    orderNumber: printJob?.orderNumber || order.orderNumber || order.id || null,
-    lineCount: Array.isArray(printJob?.lines) ? printJob.lines.length : 0,
-    ok: Boolean(res?.ok),
-    message: `${res?.code || 'UNKNOWN'}${res?.message ? ` - ${res.message}` : ''}`,
-    fallbackUsed: false,
-    receiptPreview: typeof res?.renderedReceiptText === 'string' ? res.renderedReceiptText : '',
-  });
+    setPrintDebug({
+      mode: 'native_response',
+      method: res?.bridgeMethod || resolvedMethod,
+      payloadBuilt: true,
+      orderNumber: printJob?.orderNumber || order.orderNumber || order.id || null,
+      lineCount: Array.isArray(printJob?.lines) ? printJob.lines.length : 0,
+      ok: Boolean(res?.ok),
+      message: `${res?.code || 'UNKNOWN'}${res?.message ? ` - ${res.message}` : ''}`,
+      fallbackUsed: false,
+      receiptPreview: typeof res?.renderedReceiptText === 'string' ? res.renderedReceiptText : '',
+    });
 
-  if (res.ok && res.jobId) {
-    ensurePrintJobTracking(order.id, res.jobId);
-    state.printerMessage = isReprint
-      ? `Commande ${order.orderNumber || order.id}: réimpression mise en file d'impression.`
-      : `Commande ${order.orderNumber || order.id}: ticket en file d'impression.`;
-    pollPrintStatusesOnce();
-  } else if (res.ok) {
-    state.printerMessage = isReprint
-      ? `Réimpression envoyée pour ${order.orderNumber || order.id}.`
-      : `Impression envoyée pour ${order.orderNumber || order.id}.`;
-  } else {
-    state.printerMessage = isReprint
-      ? `Réimpression indisponible: ${res.code || 'UNKNOWN'} - ${res.message || ''}`
-      : `Commande acceptée, mais impression indisponible: ${res.code || 'UNKNOWN'} - ${res.message || ''}`;
+    if (res.ok && res.jobId) {
+      ensurePrintJobTracking(order.id, res.jobId);
+      state.printerMessage = isReprint
+        ? `Commande ${order.orderNumber || order.id}: réimpression mise en file d'impression.`
+        : `Commande ${order.orderNumber || order.id}: ticket en file d'impression.`;
+      pollPrintStatusesOnce();
+    } else if (res.ok) {
+      state.printerMessage = isReprint
+        ? `Réimpression envoyée pour ${order.orderNumber || order.id}.`
+        : `Impression envoyée pour ${order.orderNumber || order.id}.`;
+    } else {
+      state.printerMessage = isReprint
+        ? `Réimpression indisponible: ${res.code || 'UNKNOWN'} - ${res.message || ''}`
+        : `Commande acceptée, mais impression indisponible: ${res.code || 'UNKNOWN'} - ${res.message || ''}`;
+    }
+
+    if (res?.ok && orderId) {
+      state.lastPrintDispatchAtByOrderId[orderId] = Date.now();
+    }
+    render();
+  } finally {
+    if (orderId) {
+      state.printDispatchInFlightByOrderId[orderId] = false;
+    }
   }
-  render();
 }
 
 app.addEventListener('input', (event) => {
@@ -826,6 +921,8 @@ app.addEventListener('click', async (event) => {
     state.prepMinutesByOrderId = {};
     state.printJobsByOrderId = {};
     state.printRetryInFlightByOrderId = {};
+    state.printDispatchInFlightByOrderId = {};
+    state.lastPrintDispatchAtByOrderId = {};
     clearPersistedPrintJobTracking();
     stopReceiverPolling();
     stopPairingPolling();

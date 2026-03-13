@@ -248,6 +248,23 @@ class SunmiPrinterManager(private val context: Context) {
         val bitmapSmokeTestRequested = requestedOutputStrategy == "bitmap_smoke_test"
         val textInitFirstRequested = requestedOutputStrategy == "text_init_first" || requestedOutputStrategy == "text_init_first_single_block"
         val bitmapInitFirstRequested = bitmapSmokeTestRequested || requestedOutputStrategy == "bitmap_init_first"
+        val knownTextStrategies = setOf(
+            "",
+            "text_single_block_center_rawfeed",
+            "text_single_block_left_rawfeed",
+            "text_sections_left_linewrap",
+            "text_sections_left_mixedfeed",
+            "text_init_first",
+            "text_init_first_single_block",
+        )
+        val knownBitmapStrategies = setOf("bitmap", "bitmap_experiment", "bitmap_smoke_test", "bitmap_init_first")
+        if (requestedOutputStrategy.isNotBlank() &&
+            requestedOutputStrategy !in knownTextStrategies &&
+            requestedOutputStrategy !in knownBitmapStrategies
+        ) {
+            Log.e(TAG, "printReceipt invalid_output_strategy value=$requestedOutputStrategy")
+            return fail("INVALID_OUTPUT_STRATEGY", "Unsupported outputStrategy: $requestedOutputStrategy")
+        }
 
         val serviceBound = ensureServiceBound(2000)
         val service = printerService
@@ -571,10 +588,14 @@ class SunmiPrinterManager(private val context: Context) {
                 }
             }
             val textStrategyName = when (requestedOutputStrategy) {
+                "", "text_single_block_center_rawfeed", "text_init_first", "text_init_first_single_block" -> "text_single_block_center_rawfeed"
                 "text_single_block_left_rawfeed" -> "text_single_block_left_rawfeed"
                 "text_sections_left_linewrap" -> "text_sections_left_linewrap"
                 "text_sections_left_mixedfeed" -> "text_sections_left_mixedfeed"
-                else -> "text_single_block_center_rawfeed"
+                else -> {
+                    Log.e(TAG, "printReceipt unsupported_text_strategy value=$requestedOutputStrategy")
+                    return fail("INVALID_OUTPUT_STRATEGY", "Unsupported text outputStrategy: $requestedOutputStrategy")
+                }
             }
             val useSectionDispatch = textStrategyName == "text_sections_left_linewrap" || textStrategyName == "text_sections_left_mixedfeed"
             val mixedSectionFeed = textStrategyName == "text_sections_left_mixedfeed"
