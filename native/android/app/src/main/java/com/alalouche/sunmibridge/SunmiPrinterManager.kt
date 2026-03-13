@@ -277,6 +277,7 @@ class SunmiPrinterManager(private val context: Context) {
         val textInitFirstRequested = requestedOutputStrategy == "text_init_first" || requestedOutputStrategy == "text_init_first_single_block"
         val bitmapInitFirstRequested = bitmapSmokeTestRequested || requestedOutputStrategy == "bitmap_init_first"
         val bitmapChunksAsciiTestRequested = requestedOutputStrategy == "bitmap_chunks_ascii_test"
+        val bitmapTest3LinesChunkedRequested = requestedOutputStrategy == "bitmap_test_3lines_chunked"
         val syntheticTextTestRequested = requestedOutputStrategy.startsWith("text_test_")
         val knownTextStrategies = setOf(
             "",
@@ -298,7 +299,7 @@ class SunmiPrinterManager(private val context: Context) {
             "text_test_10lines_rawfeed",
             "text_test_10lines_sections_rawfeed",
         )
-        val knownBitmapStrategies = setOf("bitmap", "bitmap_experiment", "bitmap_smoke_test", "bitmap_init_first", "bitmap_chunks_ascii_test")
+        val knownBitmapStrategies = setOf("bitmap", "bitmap_experiment", "bitmap_smoke_test", "bitmap_init_first", "bitmap_chunks_ascii_test", "bitmap_test_3lines_chunked")
         if (forcedSyntheticTestName.isNotBlank() && forcedSyntheticTestName !in requiredSyntheticStrategies) {
             Log.e(TAG, "synthetic_test_invalid forcedSynthetic=$forcedSyntheticTestName required=${requiredSyntheticStrategies.joinToString(",")}")
             return fail("INVALID_OUTPUT_STRATEGY", "Unsupported forced synthetic strategy: $forcedSyntheticTestName")
@@ -377,7 +378,7 @@ class SunmiPrinterManager(private val context: Context) {
         val finalPhone = firstNonBlank(customerPhone, parsedNotes.phone)
         val finalAddress = firstNonBlank(customerAddress, parsedNotes.address)
 
-        if (!syntheticTextTestRequested && (orderNumber.isBlank() || lines.length() == 0)) {
+        if (!syntheticTextTestRequested && !bitmapTest3LinesChunkedRequested && (orderNumber.isBlank() || lines.length() == 0)) {
             Log.e(TAG, "native printReceipt invalid payload orderNumber='$orderNumber' lines=${lines.length()} syntheticTest=$syntheticTextTestRequested")
             return fail("INVALID_PRINT_JOB_CONTENT", "printJob must include order number and at least one line item.")
         }
@@ -589,8 +590,8 @@ class SunmiPrinterManager(private val context: Context) {
             Log.i(TAG, "receipt_articles_presence finalTextContainsArticles=$finalTextContainsArticles")
             Log.i(TAG, "receipt_text_metrics finalTextLineCount=$finalTextLineCount finalTextCharLength=$finalTextCharLength")
 
-            if (bitmapExperimentRequested || bitmapSmokeTestRequested || bitmapChunksAsciiTestRequested) {
-                Log.i(TAG, "receipt_bitmap_experiment requested=true smokeTest=$bitmapSmokeTestRequested chunksTest=$bitmapChunksAsciiTestRequested initFirst=$bitmapInitFirstRequested strategy=$requestedOutputStrategy")
+            if (bitmapExperimentRequested || bitmapSmokeTestRequested || bitmapChunksAsciiTestRequested || bitmapTest3LinesChunkedRequested) {
+                Log.i(TAG, "receipt_bitmap_experiment requested=true smokeTest=$bitmapSmokeTestRequested chunksTest=$bitmapChunksAsciiTestRequested synthetic3LinesChunked=$bitmapTest3LinesChunkedRequested initFirst=$bitmapInitFirstRequested strategy=$requestedOutputStrategy")
                 runCatching {
                     val printerStateBeforeBitmap = runCatching { service.updatePrinterState() }.getOrDefault(-999)
                     runPrinterInit("before_bitmap")
@@ -602,22 +603,34 @@ class SunmiPrinterManager(private val context: Context) {
                     var bitmapConfig = "UNKNOWN"
                     var bitmapIsMonochrome = false
 
-                    if (bitmapChunksAsciiTestRequested) {
-                        val chunkSource = toStrictAsciiOnly(buildSyntheticAsciiTestText("text_test_10lines_rawfeed")).lines().filter { it.isNotBlank() }
-                        val chunks = chunkSource.chunked(BITMAP_CHUNK_LINES)
-                        Log.i(TAG, "bitmap_chunk_test start chunks=${chunks.size} lines=${chunkSource.size} chunkLines=$BITMAP_CHUNK_LINES")
-                        for ((chunkIdx, chunkLines) in chunks.withIndex()) {
-                            val chunkBitmap = buildReceiptBitmap(chunkLines.joinToString("\n"))
+                    if (bitmapChunksAsciiTestRequested || bitmapTest3LinesChunkedRequested) {
+                        val chunkSource = if (bitmapTest3LinesChunkedRequested) {
+                            toStrictAsciiOnly(buildSyntheticAsciiTestText("text_test_3lines_rawfeed")).lines().filter { it.isNotBlank() }
+                        } else {
+                            toStrictAsciiOnly(buildSyntheticAsciiTestText("text_test_10lines_rawfeed")).lines().filter { it.isNotBlank() }
+                        }
+                        val chunkLines = if (bitmapTest3LinesChunkedRequested) BITMAP_SYNTHETIC_TEST_CHUNK_LINES else BITMAP_CHUNK_LINES
+                        val chunks = chunkSource.chunked(chunkLines)
+                        if (bitmapTest3LinesChunkedRequested) {
+                            Log.i(TAG, "bitmap_synthetic_test_name=bitmap_test_3lines_chunked")
+                            Log.i(TAG, "bitmap_synthetic_test_payload_lines=${chunkSource.size}")
+                            Log.i(TAG, "bitmap_synthetic_test_text_start\n${chunkSource.joinToString("\n")}\nbitmap_synthetic_test_text_end")
+                        }
+                        Log.i(TAG, "bitmap_chunk_test start chunks=${chunks.size} lines=${chunkSource.size} chunkLines=$chunkLines synthetic3LinesChunked=$bitmapTest3LinesChunkedRequested")
+                        for ((chunkIdx, chunkLinesPayload) in chunks.withIndex()) {
+                            val chunkBitmap = buildReceiptBitmap(chunkLinesPayload.joinToString("\n"))
                             bitmapWidth = chunkBitmap.width
                             bitmapHeight = chunkBitmap.height
                             bitmapConfig = chunkBitmap.config?.name ?: "UNKNOWN"
                             bitmapIsMonochrome = isBitmapMonochrome(chunkBitmap)
-                            Log.i(TAG, "bitmap_chunk_diagnostics chunk=$chunkIdx width=$bitmapWidth height=$bitmapHeight config=$bitmapConfig monochrome=$bitmapIsMonochrome")
+                            Log.i(TAG, "bitmap_chunk_diagnostics chunk=$chunkIdx width=$bitmapWidth height=$bitmapHeight config=$bitmapConfig monochrome=$bitmapIsMonochrome lines=${chunkLinesPayload.size}")
                             try {
                                 service.printBitmap(chunkBitmap, callbackFor("printBitmapChunk_$chunkIdx"))
                                 if (chunkIdx < chunks.lastIndex) {
-                                    Thread.sleep(SECTION_INTER_DISPATCH_DELAY_MS)
-                                    service.lineWrap(1, callbackFor("lineWrapAfterBitmapChunk_$chunkIdx"))
+                                    Thread.sleep(BITMAP_INTER_CHUNK_DELAY_MS)
+                                    if (BITMAP_INTER_CHUNK_ADVANCE_LINES > 0) {
+                                        service.lineWrap(BITMAP_INTER_CHUNK_ADVANCE_LINES, callbackFor("lineWrapAfterBitmapChunk_$chunkIdx"))
+                                    }
                                 }
                             } finally {
                                 chunkBitmap.recycle()
@@ -663,6 +676,7 @@ class SunmiPrinterManager(private val context: Context) {
                         put("ok", true)
                         put("code", "PRINT_SENT")
                         put("message", when {
+                            bitmapTest3LinesChunkedRequested -> "Bitmap synthetic 3-lines chunked commands sent to Sunmi service."
                             bitmapChunksAsciiTestRequested -> "Bitmap chunk test commands sent to Sunmi service."
                             bitmapSmokeTestRequested -> "Bitmap smoke-test commands sent to Sunmi service."
                             else -> "Bitmap print commands sent to Sunmi service."
@@ -672,6 +686,7 @@ class SunmiPrinterManager(private val context: Context) {
                         put("renderedLineCount", renderedLines.size)
                         put("renderedReceiptText", renderedReceiptTextRaw)
                         put("strategyName", when {
+                            bitmapTest3LinesChunkedRequested -> "bitmap_test_3lines_chunked"
                             bitmapChunksAsciiTestRequested -> "bitmap_chunks_ascii_test"
                             bitmapSmokeTestRequested -> "bitmap_smoke_test_2lines"
                             else -> "bitmap_single_image_with_linewrap_feed"
@@ -687,6 +702,7 @@ class SunmiPrinterManager(private val context: Context) {
                         put("bitmapExperimentRequested", bitmapExperimentRequested)
                         put("bitmapSmokeTestRequested", bitmapSmokeTestRequested)
                         put("bitmapChunksAsciiTestRequested", bitmapChunksAsciiTestRequested)
+                        put("bitmapTest3LinesChunkedRequested", bitmapTest3LinesChunkedRequested)
                         put("bitmapInitFirstRequested", bitmapInitFirstRequested)
                         put("bitmapConfig", bitmapConfig)
                         put("bitmapMonochrome", bitmapIsMonochrome)
@@ -696,6 +712,10 @@ class SunmiPrinterManager(private val context: Context) {
                         put("finalTextCharLength", finalTextCharLength)
                     }
                 }.onFailure { bitmapErr ->
+                    if (bitmapTest3LinesChunkedRequested) {
+                        Log.e(TAG, "receipt_bitmap_experiment failed_no_fallback strategy=bitmap_test_3lines_chunked reason=${bitmapErr.message ?: "unknown"}")
+                        return fail("BITMAP_SYNTHETIC_TEST_FAILED", "bitmap_test_3lines_chunked failed: ${bitmapErr.message ?: "unknown"}")
+                    }
                     Log.w(TAG, "receipt_bitmap_experiment failed -> fallback_to_text reason=${bitmapErr.message ?: "unknown"}")
                     callbackErrors.clear()
                 }
@@ -1324,6 +1344,8 @@ class SunmiPrinterManager(private val context: Context) {
         private const val TEXT_PATH_PRINTER_INIT_ENABLED = true
         private const val TEXT_PATH_SETTLE_WAIT_MS = 1500L
         private const val BITMAP_SETTLE_WAIT_MS = 1500L
+        private const val BITMAP_INTER_CHUNK_DELAY_MS = 90L
+        private const val BITMAP_INTER_CHUNK_ADVANCE_LINES = 0
         private const val SECTION_INTER_DISPATCH_DELAY_MS = 120L
         // TEMP device-test override: force one strategy regardless of web payload.
         private const val FORCE_OUTPUT_STRATEGY = ""
@@ -1331,5 +1353,6 @@ class SunmiPrinterManager(private val context: Context) {
         private const val SYNTHETIC_TEST_NAME = "text_test_3lines_rawfeed"
         private const val FORCE_SYNTHETIC_TEST_NAME = ""
         private const val BITMAP_CHUNK_LINES = 3
+        private const val BITMAP_SYNTHETIC_TEST_CHUNK_LINES = 2
     }
 }
