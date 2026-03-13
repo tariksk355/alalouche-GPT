@@ -1053,7 +1053,7 @@ class SunmiPrinterManager(private val context: Context) {
         private val CALLBACK_OBSERVED_EVER = AtomicBoolean(false)
         private val PRINT_IN_PROGRESS = AtomicBoolean(false)
         private const val DEBUG_SINGLE_ATTEMPT_MODE = true
-        private const val DEFAULT_MAX_ATTEMPTS = if (DEBUG_SINGLE_ATTEMPT_MODE) 1 else 3
+        private val DEFAULT_MAX_ATTEMPTS = if (DEBUG_SINGLE_ATTEMPT_MODE) 1 else 3
         private const val INIT_FIRST_EXPERIMENT_ENABLED = true
         private const val INIT_FIRST_DELAY_MS = 180L
         private const val TEXT_PATH_PRINTER_INIT_ENABLED = true
