@@ -55,20 +55,35 @@
  */
 export function buildPrintJobFromOrder(order, restaurant) {
   const payload = (order?.payload && typeof order.payload === 'object') ? order.payload : {};
-  const items = Array.isArray(payload.items) ? payload.items : [];
+  const itemSource =
+    Array.isArray(payload.items) ? 'payload.items'
+      : Array.isArray(payload.lines) ? 'payload.lines'
+        : Array.isArray(order?.items) ? 'order.items'
+          : 'none';
+  const rawItems = itemSource === 'payload.items'
+    ? payload.items
+    : itemSource === 'payload.lines'
+      ? payload.lines
+      : itemSource === 'order.items'
+        ? order.items
+        : [];
 
-  const lines = items.map((item) => {
-    const qty = Number(item.quantity || 1);
-    const unitPrice = item.price != null ? Number(item.price) : undefined;
-    const totalPrice = unitPrice != null ? unitPrice * qty : undefined;
+  const lines = rawItems.map((item) => {
+    const qty = Number(item.quantity ?? item.qty ?? item.count ?? 1);
+    const unitPriceRaw = item.price ?? item.unitPrice ?? item.unit_price;
+    const totalPriceRaw = item.totalPrice ?? item.total_price ?? item.lineTotal ?? item.line_total ?? item.amount;
+    const unitPrice = unitPriceRaw != null ? Number(unitPriceRaw) : undefined;
+    const totalPrice = totalPriceRaw != null
+      ? Number(totalPriceRaw)
+      : unitPrice != null ? unitPrice * qty : undefined;
 
     return {
-      name: String(item.name || 'Article'),
+      name: String(item.name || item.title || item.label || 'Article'),
       quantity: qty,
       unitPrice,
       totalPrice,
       modifiers: Array.isArray(item.modifiers) ? item.modifiers : undefined,
-      note: item.note ? String(item.note) : undefined,
+      note: item.note ? String(item.note) : item.notes ? String(item.notes) : undefined,
     };
   });
 
@@ -101,6 +116,7 @@ export function buildPrintJobFromOrder(order, restaurant) {
     customer_name: order.customerName,
     customerTotalOrderCount,
     customer_total_order_count: customerTotalOrderCount,
+    itemsSource: itemSource,
     lines,
     items: lines,
     totals: (payload.totalAmount != null || payload.total != null) ? {

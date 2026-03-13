@@ -122,6 +122,7 @@ class SunmiPrinterManager(private val context: Context) {
         }
         val totals = printJob.optJSONObject("totals")
         val notes = printJob.optString("notes")
+        val itemsSource = firstNonBlank(printJob.optString("itemsSource"), "unknown")
         val customerName = firstNonBlank(printJob.optString("customerName"), printJob.optString("customer_name"))
         val createdAt = firstNonBlank(printJob.optString("createdAtIso"), printJob.optString("created_at_iso"), printJob.optString("createdAt"))
         val customerPhone = firstNonBlank(printJob.optString("customerPhone"), printJob.optString("customer_phone"))
@@ -228,7 +229,11 @@ class SunmiPrinterManager(private val context: Context) {
                 val totalPrice = when {
                     item.has("totalPrice") -> item.optDouble("totalPrice", 0.0)
                     item.has("total_price") -> item.optDouble("total_price", 0.0)
+                    item.has("lineTotal") -> item.optDouble("lineTotal", 0.0)
+                    item.has("line_total") -> item.optDouble("line_total", 0.0)
                     item.has("price") -> item.optDouble("price", 0.0) * quantity
+                    item.has("unitPrice") -> item.optDouble("unitPrice", 0.0) * quantity
+                    item.has("unit_price") -> item.optDouble("unit_price", 0.0) * quantity
                     else -> Double.NaN
                 }
 
@@ -277,6 +282,21 @@ class SunmiPrinterManager(private val context: Context) {
 
             val renderedReceiptText = renderedLines.joinToString("\n")
             Log.i(TAG, "rendered_receipt_text_start\n$renderedReceiptText\nrendered_receipt_text_end")
+            val itemsWithName = (0 until lines.length()).count { idx ->
+                val item = lines.optJSONObject(idx)
+                item != null && firstNonBlank(item.optString("name"), item.optString("title")).isNotBlank()
+            }
+            val itemsWithPrice = (0 until lines.length()).count { idx ->
+                val item = lines.optJSONObject(idx)
+                item != null && (
+                    item.has("totalPrice") || item.has("total_price") || item.has("lineTotal") || item.has("line_total") ||
+                        item.has("price") || item.has("unitPrice") || item.has("unit_price")
+                    )
+            }
+            Log.i(
+                TAG,
+                "receipt_payload_integrity itemsCount=${lines.length()} itemsWithName=$itemsWithName itemsWithPrice=$itemsWithPrice itemsSource=$itemsSource derivedFromUiOrderData=true",
+            )
 
             val asciiReceiptText = toAsciiSafeReceiptText(renderedReceiptText)
             val asciiNormalized = asciiReceiptText != renderedReceiptText
@@ -293,9 +313,12 @@ class SunmiPrinterManager(private val context: Context) {
                 .take(220)
             Log.i(TAG, "low_level_call printText single_block_preview='${blockPreview}'")
             service.printText(finalReceiptBlock, callbackFor("printTextSingleBlock"))
+            val explicitPostFeedLines = 14
+            Log.i(TAG, "low_level_call lineWrap explicit_post_print_feed_lines=$explicitPostFeedLines")
+            service.lineWrap(explicitPostFeedLines, callbackFor("lineWrapPostPrint"))
             Log.i(
                 TAG,
-                "receipt_path mode=no_buffer_live_text completed_calls=setAlignment,printTextSingleBlock fontSizeStyling=skipped_v2s_compat",
+                "receipt_path mode=no_buffer_live_text completed_calls=setAlignment,printTextSingleBlock,lineWrapPostPrint fontSizeStyling=skipped_v2s_compat",
             )
 
             if (callbackErrors.isNotEmpty()) {
