@@ -158,15 +158,21 @@ class SunmiPrinterManager(private val context: Context) {
             Log.i(TAG, "printReceipt attempt order=$orderNumber lines=${lines.length()}")
             val renderedLines = mutableListOf<String>()
             val callbackErrors = mutableListOf<String>()
+            var callbackObservedThisAttempt = false
+            val callbackEverObservedBeforeAttempt = CALLBACK_OBSERVED_EVER.get()
             Log.i(TAG, "runtime_path ui_click->printAcceptedOrder->toPrintJob->printerAdapter->SunmiBridge->SunmiPrinterManager.printReceipt")
 
             fun callbackFor(op: String): ICallback {
                 return object : ICallback.Stub() {
                     override fun onRunResult(isSuccess: Boolean) {
+                        callbackObservedThisAttempt = true
+                        CALLBACK_OBSERVED_EVER.set(true)
                         Log.i(TAG, "low_level_callback op=$op onRunResult success=$isSuccess")
                     }
 
                     override fun onReturnString(result: String?) {
+                        callbackObservedThisAttempt = true
+                        CALLBACK_OBSERVED_EVER.set(true)
                         Log.i(TAG, "low_level_callback op=$op onReturnString result=${result ?: ""}")
                     }
 
@@ -334,115 +340,53 @@ class SunmiPrinterManager(private val context: Context) {
                 .replace("\r", "\\r")
                 .replace("\n", "\\n")
                 .take(220)
-            data class AwaitOutcome(
-                val callbackInvoked: Boolean,
-                val timedOut: Boolean,
-                val elapsedMs: Long,
-                val callbackRaisedException: Boolean,
-            )
-
-            fun runAndAwait(op: String, timeoutMs: Long, action: (ICallback) -> Unit): AwaitOutcome {
-                val lock = Object()
-                var callbackInvoked = false
-                var callbackRaisedException = false
-                val waitStartAt = System.currentTimeMillis()
-                val cb = object : ICallback.Stub() {
-                    override fun onRunResult(isSuccess: Boolean) {
-                        Log.i(TAG, "low_level_callback op=$op onRunResult success=$isSuccess")
-                        synchronized(lock) {
-                            callbackInvoked = true
-                            lock.notifyAll()
-                        }
-                    }
-
-                    override fun onReturnString(result: String?) {
-                        Log.i(TAG, "low_level_callback op=$op onReturnString result=${result ?: ""}")
-                    }
-
-                    override fun onRaiseException(code: Int, msg: String?) {
-                        val err = "op=$op code=$code msg=${msg ?: ""}"
-                        callbackErrors += err
-                        callbackRaisedException = true
-                        Log.e(TAG, "low_level_callback onRaiseException $err")
-                        synchronized(lock) {
-                            callbackInvoked = true
-                            lock.notifyAll()
-                        }
-                    }
-                }
-
-                action(cb)
-
-                val deadline = waitStartAt + timeoutMs
-                synchronized(lock) {
-                    while (!callbackInvoked && System.currentTimeMillis() < deadline) {
-                        lock.wait(150)
-                    }
-                }
-
-                val elapsedMs = System.currentTimeMillis() - waitStartAt
-                val timedOut = !callbackInvoked
-                Log.i(
-                    TAG,
-                    "low_level_callback op=$op callbackInvoked=$callbackInvoked timedOut=$timedOut elapsedMs=$elapsedMs timeoutMs=$timeoutMs callbackRaisedException=$callbackRaisedException",
-                )
-                return AwaitOutcome(
-                    callbackInvoked = callbackInvoked,
-                    timedOut = timedOut,
-                    elapsedMs = elapsedMs,
-                    callbackRaisedException = callbackRaisedException,
-                )
-            }
-
-            val usesSeparatePostFeedPrintText = true
-            val usesLineWrapPostFeed = false
+            val callbackReliableForV2sPath = false
+            val sequencingMode = "deterministic_nonblocking"
+            val usesTimeoutFallback = false
+            val usesSeparatePostFeedPrintText = false
+            val usesLineWrapPostFeed = true
+            val usesSecondPrintTextCall = false
             val finalFeedEnabled = true
-            val finalFeedLineCount = 10
-            val mainPrintTimeoutMs = 12000L
-            val postFeedTimeoutMs = 6000L
-            val fallbackSettlingDelayMs = 1500L
+            val finalFeedLineCount = 8
+            val deterministicFeedDelayMs = 120L
             val dispatchOperationCount = 1 + if (finalFeedEnabled) 1 else 0
+
             Log.i(
                 TAG,
-                "receipt_dispatch_plan operationCount=$dispatchOperationCount embeddedTrailingBlankLines=$bottomMarginLines separatePostFeedPrintText=$usesSeparatePostFeedPrintText separateLineWrapPostFeed=$usesLineWrapPostFeed trailingWhitespacePreservedBeforeDispatch=$finalBlockEndsWithNewline finalFeedEnabled=$finalFeedEnabled finalFeedLineCount=$finalFeedLineCount mainPrintTimeoutMs=$mainPrintTimeoutMs postFeedTimeoutMs=$postFeedTimeoutMs fallbackSettlingDelayMs=$fallbackSettlingDelayMs",
+                "receipt_callback_reliability callbackEverObservedBeforeAttempt=$callbackEverObservedBeforeAttempt callbackReliableForV2sPath=$callbackReliableForV2sPath mode=$sequencingMode",
+            )
+            Log.i(
+                TAG,
+                "receipt_dispatch_plan operationCount=$dispatchOperationCount sequencingMode=$sequencingMode usesTimeoutFallback=$usesTimeoutFallback secondPrintTextUsed=$usesSecondPrintTextCall embeddedTrailingBlankLines=$bottomMarginLines separatePostFeedPrintText=$usesSeparatePostFeedPrintText separateLineWrapPostFeed=$usesLineWrapPostFeed finalFeedEnabled=$finalFeedEnabled finalFeedLineCount=$finalFeedLineCount deterministicFeedDelayMs=$deterministicFeedDelayMs",
             )
 
             val mainStartAt = System.currentTimeMillis()
             Log.i(TAG, "low_level_call printTextSingleBlock start_at_ms=$mainStartAt blockLength=${finalReceiptBlock.length} preview='${blockPreview}'")
-            val mainOutcome = runAndAwait("printTextSingleBlock", mainPrintTimeoutMs) { callback ->
-                service.printText(finalReceiptBlock, callback)
-            }
+            service.printText(finalReceiptBlock, callbackFor("printTextSingleBlock"))
             val mainEndAt = System.currentTimeMillis()
-            Log.i(TAG, "low_level_call printTextSingleBlock end_at_ms=$mainEndAt duration_ms=${mainEndAt - mainStartAt} callbackInvoked=${mainOutcome.callbackInvoked} timedOut=${mainOutcome.timedOut}")
+            Log.i(TAG, "low_level_call printTextSingleBlock dispatch_end_at_ms=$mainEndAt dispatch_duration_ms=${mainEndAt - mainStartAt}")
 
-            if (mainOutcome.timedOut) {
-                Log.w(TAG, "receipt_completion_fallback main_print_callback_missing=true decision=wait_before_final_feed waitMs=$fallbackSettlingDelayMs")
-                Thread.sleep(fallbackSettlingDelayMs)
-            }
-
-            val finalFeedOutcome = if (finalFeedEnabled) {
-                val feedText = "\n".repeat(finalFeedLineCount)
-                val feedStartAt = System.currentTimeMillis()
-                Log.i(TAG, "low_level_call printTextPostFeed start_at_ms=$feedStartAt feedLineCount=$finalFeedLineCount")
-                val outcome = runAndAwait("printTextPostFeed", postFeedTimeoutMs) { callback ->
-                    service.printText(feedText, callback)
+            if (finalFeedEnabled) {
+                if (deterministicFeedDelayMs > 0) {
+                    Thread.sleep(deterministicFeedDelayMs)
                 }
+                val feedStartAt = System.currentTimeMillis()
+                Log.i(TAG, "low_level_call lineWrapFinalFeed start_at_ms=$feedStartAt lines=$finalFeedLineCount")
+                service.lineWrap(finalFeedLineCount, callbackFor("lineWrapFinalFeed"))
                 val feedEndAt = System.currentTimeMillis()
-                Log.i(TAG, "low_level_call printTextPostFeed end_at_ms=$feedEndAt duration_ms=${feedEndAt - feedStartAt} callbackInvoked=${outcome.callbackInvoked} timedOut=${outcome.timedOut}")
-                outcome
+                Log.i(TAG, "low_level_call lineWrapFinalFeed dispatch_end_at_ms=$feedEndAt dispatch_duration_ms=${feedEndAt - feedStartAt}")
             } else {
-                Log.i(TAG, "low_level_call printTextPostFeed skipped=true reason=disabled")
-                AwaitOutcome(callbackInvoked = true, timedOut = false, elapsedMs = 0L, callbackRaisedException = false)
+                Log.i(TAG, "low_level_call lineWrapFinalFeed skipped=true reason=disabled")
             }
-            Log.i(TAG, "low_level_call lineWrapPostPrint skipped=true reason=using_printText_post_feed")
+
+            val callbackEverObservedAfterAttempt = CALLBACK_OBSERVED_EVER.get()
             Log.i(
                 TAG,
-                "receipt_path mode=no_buffer_live_text completed_calls=${if (finalFeedEnabled) "setAlignment,printTextSingleBlock,printTextPostFeed" else "setAlignment,printTextSingleBlock"} fontSizeStyling=skipped_v2s_compat",
+                "receipt_completion_summary sequencingMode=$sequencingMode usesTimeoutFallback=$usesTimeoutFallback callbackObservedThisAttempt=$callbackObservedThisAttempt callbackEverObservedAfterAttempt=$callbackEverObservedAfterAttempt secondPrintTextUsed=$usesSecondPrintTextCall",
             )
-            val successUsesTimeoutFallback = mainOutcome.timedOut || (finalFeedEnabled && finalFeedOutcome.timedOut)
             Log.i(
                 TAG,
-                "receipt_completion_summary successUsesTimeoutFallback=$successUsesTimeoutFallback mainCallbackInvoked=${mainOutcome.callbackInvoked} mainTimedOut=${mainOutcome.timedOut} postFeedCallbackInvoked=${finalFeedOutcome.callbackInvoked} postFeedTimedOut=${finalFeedOutcome.timedOut}",
+                "receipt_path mode=no_buffer_live_text completed_calls=${if (finalFeedEnabled) "setAlignment,printTextSingleBlock,lineWrapFinalFeed" else "setAlignment,printTextSingleBlock"} fontSizeStyling=skipped_v2s_compat",
             )
 
             if (callbackErrors.isNotEmpty()) {
@@ -462,9 +406,13 @@ class SunmiPrinterManager(private val context: Context) {
                 put("lineCount", lines.length())
                 put("renderedLineCount", renderedLines.size)
                 put("renderedReceiptText", renderedReceiptText)
-                put("successUsesTimeoutFallback", successUsesTimeoutFallback)
-                put("mainPrintCallbackTimedOut", mainOutcome.timedOut)
-                put("postFeedCallbackTimedOut", finalFeedOutcome.timedOut)
+                put("sequencingMode", sequencingMode)
+                put("usesTimeoutFallback", usesTimeoutFallback)
+                put("callbackReliableForV2sPath", callbackReliableForV2sPath)
+                put("callbackObservedThisAttempt", callbackObservedThisAttempt)
+                put("callbackEverObservedOnDevice", CALLBACK_OBSERVED_EVER.get())
+                put("secondPrintTextUsed", usesSecondPrintTextCall)
+                put("feedPrimitive", if (finalFeedEnabled) "lineWrap" else "none")
                 put("callbackErrors", JSONArray(callbackErrors))
             }
         } catch (e: RemoteException) {
@@ -698,5 +646,6 @@ class SunmiPrinterManager(private val context: Context) {
 
     companion object {
         private const val TAG = "SunmiPrinterManager"
+        private val CALLBACK_OBSERVED_EVER = AtomicBoolean(false)
     }
 }
