@@ -414,7 +414,7 @@ function render() {
           <strong>${order.orderNumber || order.id}</strong>
           <span class="status-pill">${formatOrderStatus(order.status)}</span>
         </div>
-        ${printUiState ? `<div class="print-state-row"><span class="print-status-pill print-status-pill-${printUiState.toLowerCase()}">${printMessage}</span>${printUiState === 'NEEDS_ATTENTION' && printJob?.jobId ? `<button class="btn-secondary-inline print-retry-btn" data-action="retry-print" data-job-id="${printJob.jobId}" data-id="${order.id}" ${state.printRetryInFlightByOrderId[order.id] ? 'disabled' : ''}>Réessayer</button>` : ''}</div>` : ''}
+        ${printUiState ? `<div class="print-state-row"><span class="print-status-pill print-status-pill-${printUiState.toLowerCase()}">${printMessage}</span>${printUiState === 'NEEDS_ATTENTION' && printJob?.jobId ? `<button class="btn-secondary-inline print-retry-btn" data-action="retry-print" data-job-id="${printJob.jobId}" data-id="${order.id}" ${state.printRetryInFlightByOrderId[order.id] ? 'disabled' : ''}>Réessayer</button>` : ''}${printUiState === 'PRINTED' ? `<button class="btn-secondary-inline print-retry-btn" data-action="reprint-order" data-id="${order.id}">Réimprimer</button>` : ''}</div>` : ''}
         ${printJob?.transientUnavailable ? '<div class="subtle print-status-unavailable">Statut impression temporairement indisponible.</div>' : ''}
         ${sectionRowsHtml}
         <div class="prep-row">
@@ -694,7 +694,8 @@ async function showPrinterInfo() {
   render();
 }
 
-async function printAcceptedOrder(order) {
+async function printOrderTicket(order, options = {}) {
+  const isReprint = Boolean(options?.reprint);
   const displayModel = normalizeOrderForDisplay(order);
   const printJob = toPrintJob(order, {
     name: 'À la Louche',
@@ -722,7 +723,7 @@ async function printAcceptedOrder(order) {
   render();
 
   debugLog('print_job_dispatch', {
-    fromFunction: 'printAcceptedOrder',
+    fromFunction: isReprint ? 'reprintOrderTicket' : 'printAcceptedOrder',
     orderId: printJob.orderId,
     orderNumber: printJob.orderNumber,
     lineCount: Array.isArray(printJob.lines) ? printJob.lines.length : 0,
@@ -771,12 +772,18 @@ async function printAcceptedOrder(order) {
 
   if (res.ok && res.jobId) {
     ensurePrintJobTracking(order.id, res.jobId);
-    state.printerMessage = `Commande ${order.orderNumber || order.id}: ticket en file d'impression.`;
+    state.printerMessage = isReprint
+      ? `Commande ${order.orderNumber || order.id}: réimpression mise en file d'impression.`
+      : `Commande ${order.orderNumber || order.id}: ticket en file d'impression.`;
     pollPrintStatusesOnce();
   } else if (res.ok) {
-    state.printerMessage = `Impression envoyée pour ${order.orderNumber || order.id}.`;
+    state.printerMessage = isReprint
+      ? `Réimpression envoyée pour ${order.orderNumber || order.id}.`
+      : `Impression envoyée pour ${order.orderNumber || order.id}.`;
   } else {
-    state.printerMessage = `Commande acceptée, mais impression indisponible: ${res.code || 'UNKNOWN'} - ${res.message || ''}`;
+    state.printerMessage = isReprint
+      ? `Réimpression indisponible: ${res.code || 'UNKNOWN'} - ${res.message || ''}`
+      : `Commande acceptée, mais impression indisponible: ${res.code || 'UNKNOWN'} - ${res.message || ''}`;
   }
   render();
 }
@@ -905,6 +912,19 @@ app.addEventListener('click', async (event) => {
     return;
   }
 
+
+  if (target.dataset.action === 'reprint-order' && target.dataset.id) {
+    const orderForReprint = state.orders.find((item) => item.id === target.dataset.id);
+    if (!orderForReprint) {
+      state.printerMessage = 'Commande introuvable pour la réimpression.';
+      render();
+      return;
+    }
+
+    await printOrderTicket(orderForReprint, { reprint: true });
+    return;
+  }
+
   const reservationAction = target.dataset.action;
   const reservationId = target.dataset.id;
   if (reservationAction === 'reservation_confirmed' || reservationAction === 'reservation_cancelled') {
@@ -956,7 +976,7 @@ app.addEventListener('click', async (event) => {
     const acceptedOrder = state.orders.find((item) => item.id === orderId);
     const liveAcceptedOrder = res.order || acceptedOrder;
     if (liveAcceptedOrder) {
-      await printAcceptedOrder({
+      await printOrderTicket({
         ...(acceptedOrder || {}),
         ...(liveAcceptedOrder || {}),
         payload: (liveAcceptedOrder && liveAcceptedOrder.payload) || acceptedOrder?.payload,
