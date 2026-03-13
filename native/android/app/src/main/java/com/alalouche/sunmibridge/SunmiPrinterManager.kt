@@ -339,9 +339,9 @@ class SunmiPrinterManager(private val context: Context) {
                 "receipt_path single_block_plain_text enabled=true asciiNormalized=$asciiNormalized topMarginLines=$topMarginLines bottomMarginLines=$bottomMarginLines blockLength=${finalReceiptBlock.length} trailingNewlinesBeforeTrim=$trailingNewlinesBeforeTrim trailingNewlinesTrimmed=$trailingNewlinesTrimmed trailingNewlinesInFinalBlock=$trailingNewlinesInFinalBlock finalBlockEndsWithNewline=$finalBlockEndsWithNewline",
             )
             val callbackReliableForV2sPath = false
-            val strategyName = "sectioned_text_dispatch_v2s"
-            val sequencingMode = "deterministic_nonblocking"
-            val completionBoundary = "dispatch_only"
+            val strategyName = "buffered_sectioned_commit_v2s"
+            val sequencingMode = "buffered_transaction_commit"
+            val completionBoundary = "after_buffer_exit_commit"
             val usesTimeoutFallback = false
             val usesSeparatePostFeedPrintText = false
             val usesLineWrapPostFeed = false
@@ -359,6 +359,8 @@ class SunmiPrinterManager(private val context: Context) {
             val charChunks = (finalTextCharLength / charChunkSize).toLong()
             val derivedFeedDelayMs = baseDelayMs + (finalTextLineCount.toLong() * perLineDelayMs) + (charChunks * perCharChunkDelayMs)
             val deterministicFeedDelayMs = derivedFeedDelayMs.coerceIn(700L, 2600L)
+            val bufferCommitWaitMs = 6000L
+            val usesBufferTransaction = true
 
             val contentLines = coreReceiptText.lines().filter { it.isNotBlank() }
             val articlesIndex = contentLines.indexOfFirst { it.trim().equals("Articles:", ignoreCase = true) }
@@ -389,6 +391,7 @@ class SunmiPrinterManager(private val context: Context) {
             val sectionLengthSummary = sectionedPayloads.joinToString(",") { "${it.first}:${it.second.length}" }
             val dispatchOperationCount = sectionCount + if (finalFeedEnabled) 1 else 0
 
+            val printerStateBefore = runCatching { service.updatePrinterState() }.getOrDefault(-999)
             Log.i(
                 TAG,
                 "receipt_callback_reliability callbackEverObservedBeforeAttempt=$callbackEverObservedBeforeAttempt callbackReliableForV2sPath=$callbackReliableForV2sPath mode=$sequencingMode strategy=$strategyName",
@@ -397,9 +400,16 @@ class SunmiPrinterManager(private val context: Context) {
                 TAG,
                 "receipt_dispatch_plan operationCount=$dispatchOperationCount strategy=$strategyName sectionCount=$sectionCount sectionLengths=$sectionLengthSummary sequencingMode=$sequencingMode usesTimeoutFallback=$usesTimeoutFallback secondPrintTextUsed=$usesSecondPrintTextCall embeddedTrailingBlankLines=$bottomMarginLines separatePostFeedPrintText=$usesSeparatePostFeedPrintText separateLineWrapPostFeed=$usesLineWrapPostFeed finalFeedEnabled=$finalFeedEnabled finalFeedLineCount=$finalFeedLineCount finalFeedPrimitive=$finalFeedPrimitive fallbackFeedPrimitive=$fallbackFeedPrimitive feedPrimitiveReason=$feedPrimitiveReason deterministicFeedDelayMs=$deterministicFeedDelayMs feedDelayMode=$feedDelayMode baseDelayMs=$baseDelayMs perLineDelayMs=$perLineDelayMs perCharChunkDelayMs=$perCharChunkDelayMs charChunkSize=$charChunkSize charChunks=$charChunks",
             )
-            Log.i(TAG, "receipt_buffer_strategy considered=true enabled=false reason=v2s_buffer_path_previously_unstable_for_live_content")
+            Log.i(TAG, "receipt_buffer_strategy considered=true enabled=$usesBufferTransaction reason=explicit_queue_flush_boundary_for_v2s")
+            Log.i(TAG, "printer_status_check stage=before_buffer printerStateCode=$printerStateBefore")
 
+            var commitCallbackInvoked = false
+            var commitCallbackSuccess: Boolean? = null
+            val commitLock = Object()
             val mainStartAt = System.currentTimeMillis()
+            Log.i(TAG, "low_level_call enterPrinterBuffer clean=true start_at_ms=$mainStartAt")
+            service.enterPrinterBuffer(true)
+
             sectionedPayloads.forEachIndexed { idx, (sectionName, payload, sectionCoreText) ->
                 val sectionStartAt = System.currentTimeMillis()
                 Log.i(
@@ -413,8 +423,6 @@ class SunmiPrinterManager(private val context: Context) {
                     "low_level_call printTextSection index=$idx/$sectionCount section=$sectionName dispatch_end_at_ms=$sectionEndAt dispatch_duration_ms=${sectionEndAt - sectionStartAt}",
                 )
             }
-            val mainEndAt = System.currentTimeMillis()
-            Log.i(TAG, "low_level_call printTextSections dispatch_end_at_ms=$mainEndAt dispatch_duration_ms=${mainEndAt - mainStartAt} sectionCount=$sectionCount")
 
             var usedFeedPrimitive = if (finalFeedEnabled) finalFeedPrimitive else "none"
             if (finalFeedEnabled) {
@@ -422,7 +430,7 @@ class SunmiPrinterManager(private val context: Context) {
                     Thread.sleep(deterministicFeedDelayMs)
                 }
                 val feedStartAt = System.currentTimeMillis()
-                val feedGapAfterMainDispatchMs = feedStartAt - mainEndAt
+                val feedGapAfterMainDispatchMs = feedStartAt - mainStartAt
                 val rawFeedCmd = byteArrayOf(0x1B, 0x64, finalFeedLineCount.coerceIn(0, 255).toByte())
                 Log.i(TAG, "low_level_call finalFeed start_at_ms=$feedStartAt primitive=$finalFeedPrimitive lines=$finalFeedLineCount feedGapAfterMainDispatchMs=$feedGapAfterMainDispatchMs deterministicFeedDelayMs=$deterministicFeedDelayMs feedDelayMode=$feedDelayMode reason=$feedPrimitiveReason")
                 usedFeedPrimitive = runCatching {
@@ -439,16 +447,56 @@ class SunmiPrinterManager(private val context: Context) {
                 Log.i(TAG, "low_level_call lineWrapFinalFeed skipped=true reason=disabled")
             }
 
+            val commitStartAt = System.currentTimeMillis()
+            Log.i(TAG, "low_level_call exitPrinterBufferWithCallback commit=true start_at_ms=$commitStartAt")
+            service.exitPrinterBufferWithCallback(true, object : ICallback.Stub() {
+                override fun onRunResult(isSuccess: Boolean) {
+                    callbackObservedThisAttempt = true
+                    CALLBACK_OBSERVED_EVER.set(true)
+                    commitCallbackInvoked = true
+                    commitCallbackSuccess = isSuccess
+                    Log.i(TAG, "low_level_callback op=exitPrinterBufferWithCallback onRunResult success=$isSuccess")
+                    synchronized(commitLock) { commitLock.notifyAll() }
+                }
+
+                override fun onReturnString(result: String?) {
+                    callbackObservedThisAttempt = true
+                    CALLBACK_OBSERVED_EVER.set(true)
+                    Log.i(TAG, "low_level_callback op=exitPrinterBufferWithCallback onReturnString result=${result ?: ""}")
+                }
+
+                override fun onRaiseException(code: Int, msg: String?) {
+                    val err = "op=exitPrinterBufferWithCallback code=$code msg=${msg ?: ""}"
+                    callbackErrors += err
+                    commitCallbackInvoked = true
+                    commitCallbackSuccess = false
+                    Log.e(TAG, "low_level_callback onRaiseException $err")
+                    synchronized(commitLock) { commitLock.notifyAll() }
+                }
+            })
+
+            synchronized(commitLock) {
+                if (!commitCallbackInvoked) {
+                    commitLock.wait(bufferCommitWaitMs)
+                }
+            }
+            val commitEndAt = System.currentTimeMillis()
+            val commitWaitElapsedMs = commitEndAt - commitStartAt
+            val commitWaitTimedOut = !commitCallbackInvoked
+            val printerStateAfter = runCatching { service.updatePrinterState() }.getOrDefault(-999)
+            Log.i(TAG, "printer_status_check stage=after_commit printerStateCode=$printerStateAfter")
+            Log.i(TAG, "receipt_flush_boundary commitCallbackInvoked=$commitCallbackInvoked commitCallbackSuccess=${commitCallbackSuccess ?: false} commitWaitTimedOut=$commitWaitTimedOut commitWaitElapsedMs=$commitWaitElapsedMs bufferCommitWaitMs=$bufferCommitWaitMs")
+
             val callbackEverObservedAfterAttempt = CALLBACK_OBSERVED_EVER.get()
             Log.i(
                 TAG,
-                "receipt_completion_summary strategy=$strategyName sequencingMode=$sequencingMode usesTimeoutFallback=$usesTimeoutFallback completionBoundary=$completionBoundary callbackObservedThisAttempt=$callbackObservedThisAttempt callbackEverObservedAfterAttempt=$callbackEverObservedAfterAttempt secondPrintTextUsed=$usesSecondPrintTextCall usedFeedPrimitive=$usedFeedPrimitive",
+                "receipt_completion_summary strategy=$strategyName sequencingMode=$sequencingMode usesTimeoutFallback=$usesTimeoutFallback completionBoundary=$completionBoundary callbackObservedThisAttempt=$callbackObservedThisAttempt callbackEverObservedAfterAttempt=$callbackEverObservedAfterAttempt secondPrintTextUsed=$usesSecondPrintTextCall usedFeedPrimitive=$usedFeedPrimitive successReturnedAfterFlush=${!commitWaitTimedOut}",
             )
-            val operationSequence = if (finalFeedEnabled) "setAlignment->printTextSections(${sectionCount})->${usedFeedPrimitive}" else "setAlignment->printTextSections(${sectionCount})"
-            Log.i(TAG, "receipt_operation_sequence sequence=$operationSequence operationCount=$dispatchOperationCount")
+            val operationSequence = if (finalFeedEnabled) "setAlignment->enterBuffer->printTextSections(${sectionCount})->${usedFeedPrimitive}->exitBufferCommit" else "setAlignment->enterBuffer->printTextSections(${sectionCount})->exitBufferCommit"
+            Log.i(TAG, "receipt_operation_sequence sequence=$operationSequence operationCount=${dispatchOperationCount + 2}")
             Log.i(
                 TAG,
-                "receipt_path mode=no_buffer_live_text completed_calls=${if (finalFeedEnabled) "setAlignment,printTextSections,finalFeed" else "setAlignment,printTextSections"} fontSizeStyling=skipped_v2s_compat",
+                "receipt_path mode=buffered_transaction completed_calls=${if (finalFeedEnabled) "setAlignment,enterBuffer,printTextSections,finalFeed,exitBufferCommit" else "setAlignment,enterBuffer,printTextSections,exitBufferCommit"} fontSizeStyling=skipped_v2s_compat",
             )
 
             if (callbackErrors.isNotEmpty()) {
@@ -471,6 +519,7 @@ class SunmiPrinterManager(private val context: Context) {
                 put("strategyName", strategyName)
                 put("sequencingMode", sequencingMode)
                 put("usesTimeoutFallback", usesTimeoutFallback)
+                put("usesBufferTransaction", usesBufferTransaction)
                 put("callbackReliableForV2sPath", callbackReliableForV2sPath)
                 put("callbackObservedThisAttempt", callbackObservedThisAttempt)
                 put("callbackEverObservedOnDevice", CALLBACK_OBSERVED_EVER.get())
@@ -483,6 +532,12 @@ class SunmiPrinterManager(private val context: Context) {
                 put("finalTextCharLength", finalTextCharLength)
                 put("feedDelayMode", feedDelayMode)
                 put("deterministicFeedDelayMs", deterministicFeedDelayMs)
+                put("commitCallbackInvoked", commitCallbackInvoked)
+                put("commitCallbackSuccess", commitCallbackSuccess)
+                put("commitWaitTimedOut", commitWaitTimedOut)
+                put("bufferCommitWaitMs", bufferCommitWaitMs)
+                put("printerStateBefore", printerStateBefore)
+                put("printerStateAfter", printerStateAfter)
                 put("callbackErrors", JSONArray(callbackErrors))
             }
         } catch (e: RemoteException) {
