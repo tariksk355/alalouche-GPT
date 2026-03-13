@@ -51,6 +51,20 @@ class SunmiJsBridge(context: Context) {
         return printReceipt(printJobJson)
     }
 
+
+    @JavascriptInterface
+    fun getPrintStatus(requestJson: String?): String {
+        return safeResponse("getPrintStatus") {
+            val parsed = runCatching { JSONObject(requestJson ?: "") }.getOrNull()
+            val jobId = when {
+                !parsed?.optString("jobId").isNullOrBlank() -> parsed?.optString("jobId") ?: ""
+                !requestJson.isNullOrBlank() && requestJson.trim().startsWith("{") -> ""
+                else -> requestJson?.trim() ?: ""
+            }
+            printerManager.getPrintStatus(jobId)
+        }
+    }
+
     @JavascriptInterface
     fun openCashDrawer(requestJson: String?): String {
         return safeResponse("openCashDrawer") {

@@ -8,6 +8,11 @@ import android.os.Build
 import android.os.IBinder
 import android.os.RemoteException
 import android.util.Log
+import com.alalouche.sunmibridge.printservice.PrintDatabase
+import com.alalouche.sunmibridge.printservice.PrintExecutionResult
+import com.alalouche.sunmibridge.printservice.PrintJobEntity
+import com.alalouche.sunmibridge.printservice.PrintJobState
+import com.alalouche.sunmibridge.printservice.PrintQueueOrchestrator
 import com.alalouche.sunmibridge.transport.AidlTransport
 import com.alalouche.sunmibridge.transport.ReceiptRenderContext
 import com.alalouche.sunmibridge.transport.SunmiSdkTransport
@@ -34,6 +39,21 @@ class SunmiPrinterManager(private val context: Context) {
 
     // Keep AIDL as default backend until Sunmi SDK artifact is installed and implemented.
     private val activeTransportMode = TransportSelector.MODE_AIDL
+
+    private val printDatabase = PrintDatabase(context)
+    private val printJobDao = printDatabase.printJobDao()
+    private val printQueueOrchestrator = PrintQueueOrchestrator(printJobDao) { job ->
+        val response = executeTransportPrintReceipt(job.payloadJson)
+        if (response.optBoolean("ok", false)) {
+            PrintExecutionResult(success = true)
+        } else {
+            PrintExecutionResult(
+                success = false,
+                errorCode = response.optString("code", "PRINT_FAILED"),
+                errorMessage = response.optString("message", "Print execution failed."),
+            )
+        }
+    }
 
     private val serviceConnection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
@@ -67,6 +87,7 @@ class SunmiPrinterManager(private val context: Context) {
         }
         printerService = null
         isBinding.set(false)
+        runCatching { printDatabase.close() }
     }
 
     fun getPrinterInfo(): JSONObject {
@@ -98,6 +119,69 @@ class SunmiPrinterManager(private val context: Context) {
     }
 
     fun printReceipt(printJobJson: String?): JSONObject {
+        if (printJobJson.isNullOrBlank()) {
+            return fail("INVALID_PRINT_JOB", "printJob JSON is required.")
+        }
+
+        val now = System.currentTimeMillis()
+        val payload = runCatching { JSONObject(printJobJson) }.getOrNull()
+        val printJob = payload?.optJSONObject("printJob") ?: payload
+        val orderId = firstNonBlank(
+            printJob?.optString("orderId"),
+            printJob?.optString("order_id"),
+            printJob?.optString("orderNumber"),
+            printJob?.optString("order_number"),
+        ).ifBlank { null }
+
+        val jobId = java.util.UUID.randomUUID().toString()
+        val job = PrintJobEntity(
+            jobId = jobId,
+            orderId = orderId,
+            payloadJson = printJobJson,
+            state = PrintJobState.QUEUED,
+            attemptCount = 0,
+            maxAttempts = DEFAULT_MAX_ATTEMPTS,
+            errorCode = null,
+            errorMessage = null,
+            createdAtEpochMs = now,
+            updatedAtEpochMs = now,
+            nextAttemptAtEpochMs = null,
+        )
+
+        printQueueOrchestrator.enqueue(job)
+
+        return JSONObject().apply {
+            put("ok", true)
+            put("mode", "native_bridge")
+            put("queued", true)
+            put("jobId", jobId)
+            put("state", PrintJobState.QUEUED.name)
+            put("message", "Print job accepted and queued.")
+        }
+    }
+
+    fun getPrintStatus(jobId: String): JSONObject {
+        if (jobId.isBlank()) {
+            return fail("INVALID_JOB_ID", "jobId is required.")
+        }
+        val job = printJobDao.getById(jobId)
+            ?: return fail("PRINT_JOB_NOT_FOUND", "No print job found for the provided jobId.")
+
+        return JSONObject().apply {
+            put("ok", true)
+            put("jobId", job.jobId)
+            put("orderId", job.orderId)
+            put("state", job.state.name)
+            put("attemptCount", job.attemptCount)
+            put("maxAttempts", job.maxAttempts)
+            put("errorCode", job.errorCode ?: JSONObject.NULL)
+            put("errorMessage", job.errorMessage ?: JSONObject.NULL)
+            put("updatedAt", job.updatedAtEpochMs)
+            put("createdAt", job.createdAtEpochMs)
+        }
+    }
+
+    private fun executeTransportPrintReceipt(printJobJson: String?): JSONObject {
         val selection = transportSelector.select(activeTransportMode)
         Log.i(TAG, "printReceipt transport_selected mode=${selection.mode}")
         val response = selection.transport.printReceipt(ReceiptRenderContext(printJobJson)).response
@@ -720,5 +804,6 @@ class SunmiPrinterManager(private val context: Context) {
         private const val TAG = "SunmiPrinterManager"
         private val CALLBACK_OBSERVED_EVER = AtomicBoolean(false)
         private val PRINT_IN_PROGRESS = AtomicBoolean(false)
+        private const val DEFAULT_MAX_ATTEMPTS = 3
     }
 }
