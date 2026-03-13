@@ -14,6 +14,8 @@ import { tokenStore } from './storage/tokenStore.js';
 
 const app = document.getElementById('app');
 const printerAdapter = createPrinterAdapter();
+const PRINT_STATUS_POLL_INTERVAL_MS = 3000;
+const PRINT_TERMINAL_STATES = new Set(['PRINTED', 'NEEDS_ATTENTION']);
 
 const state = {
   mode: 'booting', // booting | not_paired | pairing_submitting | pairing_waiting | verifying | server_error | receiver_loaded
@@ -27,10 +29,13 @@ const state = {
   receiverInFlight: false,
   pairingInFlight: false,
   receiverPollId: null,
+  printStatusPollId: null,
   pairingPollId: null,
   pairingTimeoutId: null,
   printerMessage: '',
   prepMinutesByOrderId: {},
+  printJobsByOrderId: {},
+  printRetryInFlightByOrderId: {},
   printDebug: {
     at: null,
     mode: 'idle',
@@ -70,6 +75,71 @@ function escapeHtml(value) {
     .replaceAll("'", '&#39;');
 }
 
+
+
+function normalizePrintUiState(nativeState) {
+  if (nativeState === 'RETRY_SCHEDULED') return 'QUEUED';
+  if (['QUEUED', 'PRINTING', 'PRINTED', 'NEEDS_ATTENTION'].includes(nativeState)) return nativeState;
+  return null;
+}
+
+function printStateMessage(uiState) {
+  if (uiState === 'QUEUED') return "Ticket en file d'impression...";
+  if (uiState === 'PRINTING') return 'Impression en cours...';
+  if (uiState === 'PRINTED') return 'Imprimé';
+  if (uiState === 'NEEDS_ATTENTION') return 'Impression échouée. Réessayez.';
+  return '';
+}
+
+function ensurePrintJobTracking(orderId, jobId) {
+  if (!orderId || !jobId) return;
+  const existing = state.printJobsByOrderId[orderId] || {};
+  state.printJobsByOrderId[orderId] = {
+    orderId,
+    jobId,
+    nativeState: existing.nativeState || 'QUEUED',
+    uiState: existing.uiState || 'QUEUED',
+    transientUnavailable: false,
+    message: existing.message || printStateMessage('QUEUED'),
+    updatedAt: Date.now(),
+  };
+}
+
+async function pollPrintStatusesOnce() {
+  const tracked = Object.values(state.printJobsByOrderId || {});
+  if (!tracked.length) return;
+
+  let changed = false;
+  for (const entry of tracked) {
+    if (!entry?.jobId) continue;
+    if (PRINT_TERMINAL_STATES.has(entry.nativeState)) continue;
+
+    const status = await printerAdapter.getPrintStatus(entry.jobId);
+    if (status?.ok) {
+      const nativeState = String(status.state || '').toUpperCase();
+      const uiState = normalizePrintUiState(nativeState);
+      state.printJobsByOrderId[entry.orderId] = {
+        ...entry,
+        nativeState: nativeState || entry.nativeState,
+        uiState: uiState || entry.uiState,
+        transientUnavailable: false,
+        message: (uiState && printStateMessage(uiState)) || entry.message || '',
+        updatedAt: Number(status.updatedAt || Date.now()),
+      };
+      changed = true;
+      continue;
+    }
+
+    state.printJobsByOrderId[entry.orderId] = {
+      ...entry,
+      transientUnavailable: true,
+      message: entry.message || printStateMessage(entry.uiState),
+    };
+    changed = true;
+  }
+
+  if (changed) render();
+}
 function stopPairingPolling() {
   if (state.pairingPollId) {
     clearInterval(state.pairingPollId);
@@ -86,6 +156,10 @@ function stopReceiverPolling() {
     clearInterval(state.receiverPollId);
     state.receiverPollId = null;
     debugLog('receiver_poll_stop');
+  }
+  if (state.printStatusPollId) {
+    clearInterval(state.printStatusPollId);
+    state.printStatusPollId = null;
   }
 }
 
@@ -203,12 +277,18 @@ function render() {
         }).join('')
         : '<div class="subtle" style="margin-top:8px;">Détails indisponibles</div>';
 
+      const printJob = state.printJobsByOrderId[order.id];
+      const printUiState = printJob?.uiState ? normalizePrintUiState(printJob.uiState) : null;
+      const printMessage = printUiState ? printStateMessage(printUiState) : '';
+
       return `
       <div class="card" data-order-id="${order.id}">
         <div class="topbar">
           <strong>${order.orderNumber || order.id}</strong>
           <span class="status-pill">${formatOrderStatus(order.status)}</span>
         </div>
+        ${printUiState ? `<div class="print-state-row"><span class="print-status-pill print-status-pill-${printUiState.toLowerCase()}">${printMessage}</span>${printUiState === 'NEEDS_ATTENTION' && printJob?.jobId ? `<button class="btn-secondary-inline print-retry-btn" data-action="retry-print" data-job-id="${printJob.jobId}" data-id="${order.id}" ${state.printRetryInFlightByOrderId[order.id] ? 'disabled' : ''}>Réessayer</button>` : ''}</div>` : ''}
+        ${printJob?.transientUnavailable ? '<div class="subtle print-status-unavailable">Statut impression temporairement indisponible.</div>' : ''}
         ${sectionRowsHtml}
         <div class="prep-row">
           <span class="subtle">Temps prep</span>
@@ -317,6 +397,8 @@ async function validateDeviceOnceAndEnterReceiver() {
     state.reservations = [];
     state.printerMessage = '';
     state.prepMinutesByOrderId = {};
+    state.printJobsByOrderId = {};
+    state.printRetryInFlightByOrderId = {};
     stopReceiverPolling();
     debugLog('device_validation_not_paired', { message: state.error || 'no_message' });
     render();
@@ -369,6 +451,8 @@ async function refreshOperations() {
     state.reservations = [];
     state.printerMessage = '';
     state.prepMinutesByOrderId = {};
+    state.printJobsByOrderId = {};
+    state.printRetryInFlightByOrderId = {};
     stopReceiverPolling();
     debugLog('operations_poll_auth_failed', { message: state.error || 'token_invalid' });
   } else {
@@ -381,6 +465,16 @@ async function refreshOperations() {
   render();
 }
 
+function startPrintStatusPolling() {
+  if (state.printStatusPollId) {
+    clearInterval(state.printStatusPollId);
+  }
+  state.printStatusPollId = setInterval(() => {
+    if (state.mode !== 'receiver_loaded') return;
+    pollPrintStatusesOnce();
+  }, PRINT_STATUS_POLL_INTERVAL_MS);
+}
+
 function startReceiverPolling() {
   stopReceiverPolling();
   debugLog('receiver_poll_start', { intervalMs: POLL_INTERVAL_MS });
@@ -388,6 +482,7 @@ function startReceiverPolling() {
     if (state.mode !== 'receiver_loaded') return;
     refreshOperations();
   }, POLL_INTERVAL_MS);
+  startPrintStatusPolling();
 }
 
 async function startPairingSubmit() {
@@ -545,7 +640,11 @@ async function printAcceptedOrder(order) {
     receiptPreview: typeof res?.renderedReceiptText === 'string' ? res.renderedReceiptText : '',
   });
 
-  if (res.ok) {
+  if (res.ok && res.jobId) {
+    ensurePrintJobTracking(order.id, res.jobId);
+    state.printerMessage = `Commande ${order.orderNumber || order.id}: ticket en file d'impression.`;
+    pollPrintStatusesOnce();
+  } else if (res.ok) {
     state.printerMessage = `Impression envoyée pour ${order.orderNumber || order.id}.`;
   } else {
     state.printerMessage = `Commande acceptée, mais impression indisponible: ${res.code || 'UNKNOWN'} - ${res.message || ''}`;
@@ -589,6 +688,8 @@ app.addEventListener('click', async (event) => {
     state.pairingMessage = '';
     state.printerMessage = '';
     state.prepMinutesByOrderId = {};
+    state.printJobsByOrderId = {};
+    state.printRetryInFlightByOrderId = {};
     stopReceiverPolling();
     stopPairingPolling();
     render();
@@ -641,6 +742,38 @@ app.addEventListener('click', async (event) => {
     }
     return;
   }
+
+  if (target.dataset.action === 'retry-print' && target.dataset.jobId && target.dataset.id) {
+    const orderIdForRetry = target.dataset.id;
+    state.printRetryInFlightByOrderId[orderIdForRetry] = true;
+    render();
+
+    try {
+      const retryRes = await printerAdapter.retryPrint(target.dataset.jobId);
+      if (retryRes?.ok) {
+        const existing = state.printJobsByOrderId[orderIdForRetry] || {};
+        state.printJobsByOrderId[orderIdForRetry] = {
+          ...existing,
+          orderId: orderIdForRetry,
+          jobId: target.dataset.jobId,
+          nativeState: 'QUEUED',
+          uiState: 'QUEUED',
+          transientUnavailable: false,
+          message: printStateMessage('QUEUED'),
+          updatedAt: Date.now(),
+        };
+        state.printerMessage = "Ticket remis en file d'impression.";
+      } else {
+        state.printerMessage = `Impossible de relancer l'impression: ${retryRes?.message || retryRes?.code || 'UNKNOWN'}`;
+      }
+      pollPrintStatusesOnce();
+    } finally {
+      state.printRetryInFlightByOrderId[orderIdForRetry] = false;
+      render();
+    }
+    return;
+  }
+
   const reservationAction = target.dataset.action;
   const reservationId = target.dataset.id;
   if (reservationAction === 'reservation_confirmed' || reservationAction === 'reservation_cancelled') {

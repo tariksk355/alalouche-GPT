@@ -27,6 +27,8 @@
  * @typedef {Object} PrinterAdapter
  * @property {() => Promise<boolean>} isAvailable
  * @property {(printJob: import('./printJobContract.js').PrintJob) => Promise<PrinterResult>} printReceipt
+ * @property {(jobId: string) => Promise<PrinterResult>} getPrintStatus
+ * @property {(jobId: string) => Promise<PrinterResult>} retryPrint
  * @property {() => Promise<PrinterResult>} openCashDrawer
  * @property {() => Promise<PrinterInfo>} getPrinterInfo
  */
@@ -80,6 +82,58 @@ function createNativeBridgePrinterAdapter(nativeBridge) {
     };
   }
 
+  function invokeGetPrintStatus(jobId) {
+    if (typeof nativeBridge.getPrintStatus !== 'function') {
+      return {
+        ok: false,
+        code: 'BRIDGE_METHOD_MISSING',
+        message: 'Print status method unavailable on native bridge.',
+      };
+    }
+
+    const raw = nativeBridge.getPrintStatus?.(JSON.stringify({ jobId }));
+    const parsed = safeParseBridgeResponse(raw, null);
+    if (parsed && typeof parsed === 'object') {
+      return parsed;
+    }
+
+    return {
+      ok: false,
+      code: 'BRIDGE_BAD_RESPONSE',
+      message: 'Invalid native bridge response for getPrintStatus.',
+    };
+  }
+
+  function invokeRetryPrint(jobId) {
+    if (!jobId) {
+      return {
+        ok: false,
+        code: 'INVALID_JOB_ID',
+        message: 'jobId is required for retryPrint.',
+      };
+    }
+
+    if (typeof nativeBridge.retryPrint !== 'function') {
+      return {
+        ok: false,
+        code: 'BRIDGE_METHOD_MISSING',
+        message: 'Retry print method unavailable on native bridge.',
+      };
+    }
+
+    const raw = nativeBridge.retryPrint?.(JSON.stringify({ jobId }));
+    const parsed = safeParseBridgeResponse(raw, null);
+    if (parsed && typeof parsed === 'object') {
+      return parsed;
+    }
+
+    return {
+      ok: false,
+      code: 'BRIDGE_BAD_RESPONSE',
+      message: 'Invalid native bridge response for retryPrint.',
+    };
+  }
+
   return {
     async isAvailable() {
       const res = safeParseBridgeResponse(nativeBridge.isAvailable?.('{}'), {
@@ -91,6 +145,14 @@ function createNativeBridgePrinterAdapter(nativeBridge) {
 
     async printReceipt(printJob) {
       return invokePrint(printJob);
+    },
+
+    async getPrintStatus(jobId) {
+      return invokeGetPrintStatus(jobId);
+    },
+
+    async retryPrint(jobId) {
+      return invokeRetryPrint(jobId);
     },
 
     async openCashDrawer() {
@@ -124,6 +186,22 @@ function createUnavailableWebPrinterAdapter() {
         ok: false,
         code: 'PRINTER_UNAVAILABLE',
         message: 'Direct Sunmi printer access is unavailable in pure web mode.',
+      };
+    },
+
+    async getPrintStatus() {
+      return {
+        ok: false,
+        code: 'PRINTER_STATUS_UNAVAILABLE',
+        message: 'Statut impression indisponible sans bridge natif.',
+      };
+    },
+
+    async retryPrint() {
+      return {
+        ok: false,
+        code: 'PRINTER_RETRY_UNAVAILABLE',
+        message: 'Réessai impression indisponible sans bridge natif.',
       };
     },
 

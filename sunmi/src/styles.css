@@ -61,3 +61,45 @@ button:disabled { opacity: 0.6; }
   overflow: auto;
   font-size: 12px;
 }
+
+.print-state-row {
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.print-status-pill {
+  display: inline-block;
+  font-size: 12px;
+  border-radius: 999px;
+  padding: 4px 10px;
+  border: 1px solid #475569;
+}
+
+.print-status-pill-queued {
+  background: #1e293b;
+  border-color: #475569;
+}
+
+.print-status-pill-printing {
+  background: #1d4ed8;
+  border-color: #2563eb;
+}
+
+.print-status-pill-printed {
+  background: #065f46;
+  border-color: #059669;
+}
+
+.print-status-pill-needs_attention {
+  background: #7f1d1d;
+  border-color: #ef4444;
+}
+
+.print-status-unavailable {
+  margin-bottom: 8px;
+}
+
+.print-retry-btn { margin-top: 0; min-height: 0; padding: 6px 10px; font-size: 12px; }
