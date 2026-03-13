@@ -311,11 +311,54 @@ class SunmiPrinterManager(private val context: Context) {
                 .replace("\r", "\\r")
                 .replace("\n", "\\n")
                 .take(220)
+            fun runAndAwait(op: String, timeoutMs: Long = 3000, action: (ICallback) -> Unit) {
+                val lock = Object()
+                var done = false
+                val cb = object : ICallback.Stub() {
+                    override fun onRunResult(isSuccess: Boolean) {
+                        Log.i(TAG, "low_level_callback op=$op onRunResult success=$isSuccess")
+                        synchronized(lock) {
+                            done = true
+                            lock.notifyAll()
+                        }
+                    }
+
+                    override fun onReturnString(result: String?) {
+                        Log.i(TAG, "low_level_callback op=$op onReturnString result=${result ?: ""}")
+                    }
+
+                    override fun onRaiseException(code: Int, msg: String?) {
+                        val err = "op=$op code=$code msg=${msg ?: ""}"
+                        callbackErrors += err
+                        Log.e(TAG, "low_level_callback onRaiseException $err")
+                        synchronized(lock) {
+                            done = true
+                            lock.notifyAll()
+                        }
+                    }
+                }
+
+                action(cb)
+
+                val deadline = System.currentTimeMillis() + timeoutMs
+                synchronized(lock) {
+                    while (!done && System.currentTimeMillis() < deadline) {
+                        lock.wait(150)
+                    }
+                }
+                Log.i(TAG, "low_level_callback op=$op completion_wait_done=$done timeoutMs=$timeoutMs")
+            }
+
             Log.i(TAG, "low_level_call printText single_block_preview='${blockPreview}'")
-            service.printText(finalReceiptBlock, callbackFor("printTextSingleBlock"))
-            val explicitPostFeedLines = 14
+            runAndAwait("printTextSingleBlock") { callback ->
+                service.printText(finalReceiptBlock, callback)
+            }
+
+            val explicitPostFeedLines = 18
             Log.i(TAG, "low_level_call lineWrap explicit_post_print_feed_lines=$explicitPostFeedLines")
-            service.lineWrap(explicitPostFeedLines, callbackFor("lineWrapPostPrint"))
+            runAndAwait("lineWrapPostPrint") { callback ->
+                service.lineWrap(explicitPostFeedLines, callback)
+            }
             Log.i(
                 TAG,
                 "receipt_path mode=no_buffer_live_text completed_calls=setAlignment,printTextSingleBlock,lineWrapPostPrint fontSizeStyling=skipped_v2s_compat",

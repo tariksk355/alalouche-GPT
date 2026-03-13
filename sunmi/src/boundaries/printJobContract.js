@@ -53,7 +53,7 @@
  * @param {{id?:string,name:string,address?:string,phone?:string}} restaurant
  * @returns {PrintJob}
  */
-export function buildPrintJobFromOrder(order, restaurant) {
+export function normalizeOrderForPrint(order) {
   const payload = (order?.payload && typeof order.payload === 'object') ? order.payload : {};
   const itemSource =
     Array.isArray(payload.items) ? 'payload.items'
@@ -98,10 +98,40 @@ export function buildPrintJobFromOrder(order, restaurant) {
       ? Number(order.customerOrderCount) + 1
       : 0;
 
+  const totals = (payload.totalAmount != null || payload.total != null) ? {
+    total: Number(payload.totalAmount ?? payload.total),
+    currency: payload.currency || 'CHF',
+  } : undefined;
+
+  const structuredNotes = [
+    orderType ? `Type: ${orderType === 'delivery' ? 'Livraison' : 'À emporter'}` : null,
+    customerPhone ? `Tel: ${customerPhone}` : null,
+    customerAddress ? `Adresse: ${customerAddress}` : null,
+    paymentMethod ? `Paiement: ${paymentMethod}` : null,
+    order.notes || payload.notes || null,
+  ].filter(Boolean).join(' | ') || undefined;
+
+  return {
+    lines,
+    itemsSource: itemSource,
+    createdAtIso,
+    customerPhone,
+    customerAddress,
+    paymentMethod,
+    orderType,
+    customerTotalOrderCount,
+    totals,
+    notes: structuredNotes,
+  };
+}
+
+export function buildPrintJobFromOrder(order, restaurant) {
+  const normalized = normalizeOrderForPrint(order);
+
   return {
     printJobId: `job_${order.id}_${Date.now()}`,
     schemaVersion: '1.1',
-    createdAtIso,
+    createdAtIso: normalized.createdAtIso,
     restaurant: {
       id: restaurant.id,
       name: restaurant.name,
@@ -114,22 +144,13 @@ export function buildPrintJobFromOrder(order, restaurant) {
     order_number: order.orderNumber || order.id,
     customerName: order.customerName,
     customer_name: order.customerName,
-    customerTotalOrderCount,
-    customer_total_order_count: customerTotalOrderCount,
-    itemsSource: itemSource,
-    lines,
-    items: lines,
-    totals: (payload.totalAmount != null || payload.total != null) ? {
-      total: Number(payload.totalAmount ?? payload.total),
-      currency: payload.currency || 'CHF',
-    } : undefined,
-    notes: [
-      orderType ? `Type: ${orderType === 'delivery' ? 'Livraison' : 'À emporter'}` : null,
-      customerPhone ? `Tel: ${customerPhone}` : null,
-      customerAddress ? `Adresse: ${customerAddress}` : null,
-      paymentMethod ? `Paiement: ${paymentMethod}` : null,
-      order.notes || payload.notes || null,
-    ].filter(Boolean).join(' | ') || undefined,
+    customerTotalOrderCount: normalized.customerTotalOrderCount,
+    customer_total_order_count: normalized.customerTotalOrderCount,
+    itemsSource: normalized.itemsSource,
+    lines: normalized.lines,
+    items: normalized.lines,
+    totals: normalized.totals,
+    notes: normalized.notes,
     formattingHints: {
       paperWidth: '58mm',
       locale: 'fr-CH',

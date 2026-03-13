@@ -2,6 +2,7 @@ import { POLL_INTERVAL_MS } from './config.js';
 import { debugLog } from './debug.js';
 import { formatOrderStatus, toPrintJob } from './boundaries/orderFormatter.js';
 import { createPrinterAdapter } from './boundaries/printerAdapter.js';
+import { normalizeOrderForPrint } from './boundaries/printJobContract.js';
 import {
   changeOrderStatus,
   changeReservationStatus,
@@ -182,7 +183,26 @@ function render() {
 
   const ordersHtml = state.orders.length === 0
     ? '<div class="card"><p class="subtle">Aucune commande en attente.</p></div>'
-    : state.orders.map((order) => `
+    : state.orders.map((order) => {
+      const normalized = normalizeOrderForPrint(order);
+      const itemRowsHtml = normalized.lines.length
+        ? `
+          <div class="subtle" style="margin-top:8px;">Articles:</div>
+          ${normalized.lines.map((line) => {
+            const qty = Number(line.quantity || 1);
+            const lineTotal = Number.isFinite(Number(line.totalPrice)) ? Number(line.totalPrice) : null;
+            const unitPrice = Number.isFinite(Number(line.unitPrice)) ? Number(line.unitPrice) : null;
+            const priceText = lineTotal != null
+              ? `${lineTotal.toFixed(2)} CHF`
+              : unitPrice != null
+                ? `${unitPrice.toFixed(2)} CHF`
+                : '-';
+            return `<div class="subtle">• ${qty} x ${line.name} — ${priceText}</div>`;
+          }).join('')}
+        `
+        : '<div class="subtle" style="margin-top:8px;">Articles: (aucun)</div>';
+
+      return `
       <div class="card" data-order-id="${order.id}">
         <div class="topbar">
           <strong>${order.orderNumber || order.id}</strong>
@@ -193,6 +213,9 @@ function render() {
         ${order.paymentMethod ? `<div class="subtle">Paiement: ${order.paymentMethod}</div>` : ''}
         <div class="subtle">Commande: ${formatOrderDate(order.createdAt)}</div>
         <div class="subtle">Historique client: ${Number(order.customerOrderCount || 0)} commande${Number(order.customerOrderCount || 0) > 1 ? 's' : ''} précédente${Number(order.customerOrderCount || 0) > 1 ? 's' : ''}</div>
+        ${itemRowsHtml}
+        ${normalized.totals && Number.isFinite(Number(normalized.totals.total)) ? `<div class="subtle">Total: ${Number(normalized.totals.total).toFixed(2)} ${normalized.totals.currency || 'CHF'}</div>` : ''}
+        ${normalized.notes ? `<div class="subtle">Notes: ${escapeHtml(normalized.notes)}</div>` : ''}
         <div class="subtle">Préparation: ${order.prepMinutes ? `${order.prepMinutes} min` : `${prepMinutesForOrder(order)} min (proposé)`}</div>
         <div class="prep-row">
           <span class="subtle">Temps prep</span>
@@ -206,7 +229,8 @@ function render() {
           <button class="btn-done" data-action="completed" data-id="${order.id}">Terminé</button>
         </div>
       </div>
-    `).join('');
+    `;
+    }).join('');
 
   const reservationsHtml = state.reservations.length === 0
     ? '<div class="card"><p class="subtle">Aucune réservation en cours.</p></div>'
@@ -454,6 +478,7 @@ async function showPrinterInfo() {
 }
 
 async function printAcceptedOrder(order) {
+  const uiNormalized = normalizeOrderForPrint(order);
   const printJob = toPrintJob(order, {
     name: 'À la Louche',
   });
@@ -480,11 +505,30 @@ async function printAcceptedOrder(order) {
   render();
 
   debugLog('print_job_dispatch', {
+    fromFunction: 'printAcceptedOrder',
     orderId: printJob.orderId,
     orderNumber: printJob.orderNumber,
     lineCount: Array.isArray(printJob.lines) ? printJob.lines.length : 0,
     hasTotals: Boolean(printJob.totals && printJob.totals.total != null),
+    uiNormalizedLineCount: Array.isArray(uiNormalized.lines) ? uiNormalized.lines.length : 0,
+    printItemsSource: printJob.itemsSource || 'unknown',
   });
+  debugLog('ui_order_normalized_for_display', safeStringify({
+    orderId: order.id,
+    itemsSource: uiNormalized.itemsSource,
+    lineCount: uiNormalized.lines.length,
+    lines: uiNormalized.lines,
+    totals: uiNormalized.totals || null,
+    notes: uiNormalized.notes || null,
+  }));
+  debugLog('ui_vs_print_item_parity', safeStringify({
+    uiLineCount: uiNormalized.lines.length,
+    printLineCount: Array.isArray(printJob.lines) ? printJob.lines.length : 0,
+    uiItemNames: uiNormalized.lines.map((line) => line.name),
+    printItemNames: Array.isArray(printJob.lines) ? printJob.lines.map((line) => line.name) : [],
+    uiItemPrices: uiNormalized.lines.map((line) => line.totalPrice ?? line.unitPrice ?? null),
+    printItemPrices: Array.isArray(printJob.lines) ? printJob.lines.map((line) => line.totalPrice ?? line.unitPrice ?? null) : [],
+  }));
   debugLog('print_job_dispatch_json', safeStringify(printJob));
 
   const res = await printerAdapter.printReceipt(printJob);
