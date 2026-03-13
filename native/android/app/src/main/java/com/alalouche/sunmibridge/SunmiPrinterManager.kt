@@ -245,17 +245,22 @@ class SunmiPrinterManager(private val context: Context) {
             printJob.optString("printerOutputMode"),
         ).lowercase(Locale.ROOT)
         val forcedOutputStrategy = FORCE_OUTPUT_STRATEGY.trim().lowercase(Locale.ROOT)
-        val forcedSyntheticTestName = FORCE_SYNTHETIC_TEST_NAME.trim().lowercase(Locale.ROOT)
-        val syntheticTestOnlyRequested = formattingHints?.optBoolean("syntheticTestOnly", false) == true ||
+        val syntheticTestNameFromPayload = firstNonBlank(
+            formattingHints?.optString("syntheticTestName"),
+            printJob.optString("syntheticTestName"),
+        ).lowercase(Locale.ROOT)
+        val forcedSyntheticTestName = firstNonBlank(FORCE_SYNTHETIC_TEST_NAME, syntheticTestNameFromPayload).trim().lowercase(Locale.ROOT)
+        val syntheticEntryModeRequested = forcedSyntheticTestName.isNotBlank()
+        val syntheticTestOnlyRequested = syntheticEntryModeRequested || formattingHints?.optBoolean("syntheticTestOnly", false) == true ||
             printJob.optBoolean("syntheticTestOnly", false)
         val requestedOutputStrategy = when {
-            forcedSyntheticTestName.isNotBlank() -> forcedSyntheticTestName
+            syntheticEntryModeRequested -> forcedSyntheticTestName
             forcedOutputStrategy.isNotBlank() -> forcedOutputStrategy
             else -> requestedOutputStrategyRaw
         }
         Log.i(
             TAG,
-            "native_requested_output_strategy requested=$requestedOutputStrategyRaw forced=$forcedOutputStrategy forcedSynthetic=$forcedSyntheticTestName syntheticTestOnlyRequested=$syntheticTestOnlyRequested effective=$requestedOutputStrategy",
+            "native_requested_output_strategy requested=$requestedOutputStrategyRaw forced=$forcedOutputStrategy forcedSynthetic=$forcedSyntheticTestName syntheticEntryModeRequested=$syntheticEntryModeRequested syntheticTestOnlyRequested=$syntheticTestOnlyRequested effective=$requestedOutputStrategy",
         )
 
         val bitmapExperimentRequested = requestedOutputStrategy == "bitmap" || requestedOutputStrategy == "bitmap_experiment"
@@ -290,8 +295,12 @@ class SunmiPrinterManager(private val context: Context) {
             return fail("INVALID_OUTPUT_STRATEGY", "Unsupported forced synthetic strategy: $forcedSyntheticTestName")
         }
         if (syntheticTestOnlyRequested && requestedOutputStrategy.isBlank()) {
-            Log.e(TAG, "synthetic_test_missing_strategy syntheticTestOnlyRequested=true requested=$requestedOutputStrategyRaw forced=$forcedOutputStrategy forcedSynthetic=$forcedSyntheticTestName")
+            Log.e(TAG, "synthetic_test_missing_strategy syntheticEntryModeRequested=$syntheticEntryModeRequested syntheticTestOnlyRequested=true requested=$requestedOutputStrategyRaw forced=$forcedOutputStrategy forcedSynthetic=$forcedSyntheticTestName")
             return fail("INVALID_OUTPUT_STRATEGY", "Synthetic test requested but outputStrategy is empty.")
+        }
+        if (syntheticTestOnlyRequested && requestedOutputStrategy !in requiredSyntheticStrategies) {
+            Log.e(TAG, "synthetic_test_unresolved syntheticEntryModeRequested=$syntheticEntryModeRequested syntheticTestOnlyRequested=$syntheticTestOnlyRequested forcedSynthetic=$forcedSyntheticTestName effective=$requestedOutputStrategy")
+            return fail("INVALID_OUTPUT_STRATEGY", "Synthetic test requested but strategy is unresolved: $requestedOutputStrategy")
         }
         if (requestedOutputStrategy.isNotBlank() &&
             requestedOutputStrategy !in knownTextStrategies &&
@@ -436,6 +445,7 @@ class SunmiPrinterManager(private val context: Context) {
                     .filter { it.isNotBlank() }
                     .forEach { line -> pushRenderedLine(line) }
                 Log.i(TAG, "synthetic_test_name=$requestedOutputStrategy")
+                Log.i(TAG, "synthetic_test_only=true")
                 Log.i(TAG, "synthetic_test_payload_lines=${renderedLines.size}")
                 Log.i(TAG, "synthetic_test_text_start\n${renderedLines.joinToString("\n")}\nsynthetic_test_text_end")
                 Log.i(TAG, "synthetic_text_test_payload strategy=$requestedOutputStrategy lines=${renderedLines.size} content=${renderedLines.joinToString(" | ")}")
@@ -684,7 +694,7 @@ class SunmiPrinterManager(private val context: Context) {
             val textStrategyName = when (requestedOutputStrategy) {
                 "", "text_single_block_center_rawfeed", "text_init_first", "text_init_first_single_block" -> {
                     if (requestedOutputStrategy.isBlank()) {
-                        if (syntheticTestOnlyRequested || forcedSyntheticTestName.isNotBlank()) {
+                        if (syntheticTestOnlyRequested || syntheticEntryModeRequested || forcedSyntheticTestName.isNotBlank()) {
                             Log.e(TAG, "synthetic_test_missing_strategy_at_dispatch requested=$requestedOutputStrategyRaw forcedSynthetic=$forcedSyntheticTestName effective=$requestedOutputStrategy")
                             return fail("INVALID_OUTPUT_STRATEGY", "Synthetic test requested but effective strategy is empty.")
                         }
