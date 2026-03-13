@@ -16,6 +16,8 @@ const app = document.getElementById('app');
 const printerAdapter = createPrinterAdapter();
 const PRINT_STATUS_POLL_INTERVAL_MS = 3000;
 const PRINT_TERMINAL_STATES = new Set(['PRINTED', 'NEEDS_ATTENTION']);
+const PRINT_JOB_TRACKING_STORAGE_KEY = 'receiver_print_job_tracking_v1';
+const TERMINAL_JOB_RETENTION_MS = 30 * 60 * 1000;
 
 const state = {
   mode: 'booting', // booting | not_paired | pairing_submitting | pairing_waiting | verifying | server_error | receiver_loaded
@@ -91,6 +93,129 @@ function printStateMessage(uiState) {
   return '';
 }
 
+function safeReadPrintJobTrackingStorage() {
+  try {
+    const raw = localStorage.getItem(PRINT_JOB_TRACKING_STORAGE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object') return {};
+    return parsed;
+  } catch {
+    return {};
+  }
+}
+
+function persistPrintJobTracking() {
+  try {
+    const compact = {};
+    Object.entries(state.printJobsByOrderId || {}).forEach(([orderId, entry]) => {
+      if (!entry?.jobId) return;
+      compact[orderId] = {
+        orderId,
+        jobId: String(entry.jobId),
+        nativeState: entry.nativeState || null,
+        uiState: entry.uiState || null,
+        updatedAt: Number(entry.updatedAt || Date.now()),
+      };
+    });
+    localStorage.setItem(PRINT_JOB_TRACKING_STORAGE_KEY, JSON.stringify(compact));
+  } catch {
+    // ignore persistence failures to keep receiver flow resilient
+  }
+}
+
+function clearPersistedPrintJobTracking() {
+  try {
+    localStorage.removeItem(PRINT_JOB_TRACKING_STORAGE_KEY);
+  } catch {
+    // ignore
+  }
+}
+
+function cleanupStaleTrackedPrintJobs() {
+  const now = Date.now();
+  let changed = false;
+  Object.entries(state.printJobsByOrderId || {}).forEach(([orderId, entry]) => {
+    if (!entry) return;
+    const updatedAt = Number(entry.updatedAt || 0);
+    const isTerminal = PRINT_TERMINAL_STATES.has(String(entry.nativeState || '').toUpperCase());
+    if (isTerminal && updatedAt > 0 && now - updatedAt > TERMINAL_JOB_RETENTION_MS) {
+      delete state.printJobsByOrderId[orderId];
+      delete state.printRetryInFlightByOrderId[orderId];
+      changed = true;
+    }
+  });
+  if (changed) {
+    persistPrintJobTracking();
+  }
+}
+
+function hydratePrintJobTrackingFromStorage() {
+  const stored = safeReadPrintJobTrackingStorage();
+  const hydrated = {};
+  Object.entries(stored).forEach(([orderId, entry]) => {
+    if (!entry?.jobId) return;
+    const nativeState = String(entry.nativeState || 'QUEUED').toUpperCase();
+    const uiState = normalizePrintUiState(String(entry.uiState || nativeState).toUpperCase()) || normalizePrintUiState(nativeState) || 'QUEUED';
+    hydrated[orderId] = {
+      orderId,
+      jobId: String(entry.jobId),
+      nativeState,
+      uiState,
+      transientUnavailable: false,
+      message: printStateMessage(uiState),
+      updatedAt: Number(entry.updatedAt || Date.now()),
+    };
+  });
+  state.printJobsByOrderId = hydrated;
+  cleanupStaleTrackedPrintJobs();
+}
+
+async function reconcilePrintJobTrackingWithNative() {
+  const tracked = Object.values(state.printJobsByOrderId || {});
+  if (!tracked.length) return;
+
+  let changed = false;
+  for (const entry of tracked) {
+    if (!entry?.jobId || !entry?.orderId) continue;
+    const status = await printerAdapter.getPrintStatus(entry.jobId);
+    if (status?.ok) {
+      const nativeState = String(status.state || '').toUpperCase();
+      const uiState = normalizePrintUiState(nativeState) || entry.uiState || 'QUEUED';
+      state.printJobsByOrderId[entry.orderId] = {
+        ...entry,
+        nativeState: nativeState || entry.nativeState,
+        uiState,
+        transientUnavailable: false,
+        message: printStateMessage(uiState),
+        updatedAt: Number(status.updatedAt || Date.now()),
+      };
+      changed = true;
+      continue;
+    }
+
+    if (status?.code === 'PRINT_JOB_NOT_FOUND') {
+      delete state.printJobsByOrderId[entry.orderId];
+      delete state.printRetryInFlightByOrderId[entry.orderId];
+      changed = true;
+      continue;
+    }
+
+    state.printJobsByOrderId[entry.orderId] = {
+      ...entry,
+      transientUnavailable: true,
+      message: entry.message || printStateMessage(entry.uiState),
+    };
+    changed = true;
+  }
+
+  cleanupStaleTrackedPrintJobs();
+  if (changed) {
+    persistPrintJobTracking();
+    render();
+  }
+}
+
 function ensurePrintJobTracking(orderId, jobId) {
   if (!orderId || !jobId) return;
   const existing = state.printJobsByOrderId[orderId] || {};
@@ -103,6 +228,7 @@ function ensurePrintJobTracking(orderId, jobId) {
     message: existing.message || printStateMessage('QUEUED'),
     updatedAt: Date.now(),
   };
+  persistPrintJobTracking();
 }
 
 async function pollPrintStatusesOnce() {
@@ -139,6 +265,7 @@ async function pollPrintStatusesOnce() {
   }
 
   if (changed) render();
+  if (changed) persistPrintJobTracking();
 }
 function stopPairingPolling() {
   if (state.pairingPollId) {
@@ -399,6 +526,7 @@ async function validateDeviceOnceAndEnterReceiver() {
     state.prepMinutesByOrderId = {};
     state.printJobsByOrderId = {};
     state.printRetryInFlightByOrderId = {};
+    clearPersistedPrintJobTracking();
     stopReceiverPolling();
     debugLog('device_validation_not_paired', { message: state.error || 'no_message' });
     render();
@@ -453,6 +581,7 @@ async function refreshOperations() {
     state.prepMinutesByOrderId = {};
     state.printJobsByOrderId = {};
     state.printRetryInFlightByOrderId = {};
+    clearPersistedPrintJobTracking();
     stopReceiverPolling();
     debugLog('operations_poll_auth_failed', { message: state.error || 'token_invalid' });
   } else {
@@ -690,6 +819,7 @@ app.addEventListener('click', async (event) => {
     state.prepMinutesByOrderId = {};
     state.printJobsByOrderId = {};
     state.printRetryInFlightByOrderId = {};
+    clearPersistedPrintJobTracking();
     stopReceiverPolling();
     stopPairingPolling();
     render();
@@ -762,6 +892,7 @@ app.addEventListener('click', async (event) => {
           message: printStateMessage('QUEUED'),
           updatedAt: Date.now(),
         };
+        persistPrintJobTracking();
         state.printerMessage = "Ticket remis en file d'impression.";
       } else {
         state.printerMessage = `Impossible de relancer l'impression: ${retryRes?.message || retryRes?.code || 'UNKNOWN'}`;
@@ -844,6 +975,7 @@ window.addEventListener('beforeunload', () => {
 
 async function boot() {
   debugLog('app_boot');
+  hydratePrintJobTrackingFromStorage();
   render();
 
   if (!tokenStore.get()) {
@@ -856,6 +988,7 @@ async function boot() {
   if (!validated) return;
 
   await refreshOperations();
+  await reconcilePrintJobTrackingWithNative();
   if (state.mode === 'receiver_loaded') {
     startReceiverPolling();
   }
