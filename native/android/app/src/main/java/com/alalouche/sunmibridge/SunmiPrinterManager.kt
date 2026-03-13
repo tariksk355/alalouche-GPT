@@ -246,6 +246,8 @@ class SunmiPrinterManager(private val context: Context) {
         ).lowercase(Locale.ROOT)
         val bitmapExperimentRequested = requestedOutputStrategy == "bitmap" || requestedOutputStrategy == "bitmap_experiment"
         val bitmapSmokeTestRequested = requestedOutputStrategy == "bitmap_smoke_test"
+        val textInitFirstRequested = requestedOutputStrategy == "text_init_first" || requestedOutputStrategy == "text_init_first_single_block"
+        val bitmapInitFirstRequested = bitmapSmokeTestRequested || requestedOutputStrategy == "bitmap_init_first"
 
         val serviceBound = ensureServiceBound(2000)
         val service = printerService
@@ -335,6 +337,18 @@ class SunmiPrinterManager(private val context: Context) {
                 }
             }
 
+            fun runPrinterInit(stage: String) {
+                if (!INIT_FIRST_EXPERIMENT_ENABLED) {
+                    Log.i(TAG, "low_level_call printerInit stage=$stage enabled=false")
+                    return
+                }
+                Log.i(TAG, "low_level_call printerInit stage=$stage enabled=true")
+                runCatching { service.printerInit(callbackFor("printerInit_$stage")) }
+                    .onFailure { err -> Log.w(TAG, "low_level_call printerInit stage=$stage failed=${err.message ?: "unknown"}") }
+                Thread.sleep(INIT_FIRST_DELAY_MS)
+                Log.i(TAG, "low_level_call printerInit stage=$stage settle_ms=$INIT_FIRST_DELAY_MS")
+            }
+
             fun pushRenderedLine(line: String) {
                 renderedLines += line
             }
@@ -346,16 +360,13 @@ class SunmiPrinterManager(private val context: Context) {
             val hasArticlesInReceiptLines = containsArticlesLine(displayModelReceiptLines)
             Log.i(TAG, "display_model_usage printed_from_display_model=${printJob.optBoolean("printed_from_display_model", false)} useDisplayModel=$useDisplayModel hasDisplaySections=${displayModelSections != null} hasArticlesSectionInDisplaySections=$hasArticlesSectionInDisplaySections hasArticlesInReceiptLines=$hasArticlesInReceiptLines receiptLinesCount=${displayModelReceiptLines?.length() ?: 0}")
 
-            if (TEXT_PATH_PRINTER_INIT_ENABLED) {
-                Log.i(TAG, "low_level_call printerInit before_text_path enabled=true")
-                runCatching { service.printerInit(callbackFor("printerInitBeforeText")) }
-                    .onFailure { err -> Log.w(TAG, "low_level_call printerInit failed=${err.message ?: "unknown"}") }
-                Thread.sleep(TEXT_PATH_PRINTER_INIT_SETTLE_MS)
+            if (TEXT_PATH_PRINTER_INIT_ENABLED || textInitFirstRequested) {
+                runPrinterInit("before_text")
             }
-            // Keep buffer mode disabled on V2s due previous instability, but now test printerInit reset before content dispatch.
+            // Keep buffer mode disabled on V2s due previous instability; init-first experiment is now enabled before text dispatch.
             Log.i(
                 TAG,
-                "receipt_path mode=no_buffer_live_text printerInit=${TEXT_PATH_PRINTER_INIT_ENABLED} bufferApi=false fontSizeStyling=skipped_v2s_compat sequence=setAlignment/printTextSingleBlock",
+                "receipt_path mode=no_buffer_live_text printerInit=true bufferApi=false fontSizeStyling=skipped_v2s_compat sequence=printerInit->setAlignment->printTextSingleBlock->lineWrap",
             )
             Log.i(TAG, "low_level_call setAlignment alignment=1")
             service.setAlignment(1, callbackFor("setAlignment"))
@@ -491,10 +502,11 @@ class SunmiPrinterManager(private val context: Context) {
             Log.i(TAG, "receipt_text_metrics finalTextLineCount=$finalTextLineCount finalTextCharLength=$finalTextCharLength")
 
             if (bitmapExperimentRequested || bitmapSmokeTestRequested) {
-                Log.i(TAG, "receipt_bitmap_experiment requested=true smokeTest=$bitmapSmokeTestRequested strategy=$requestedOutputStrategy")
+                Log.i(TAG, "receipt_bitmap_experiment requested=true smokeTest=$bitmapSmokeTestRequested initFirst=$bitmapInitFirstRequested strategy=$requestedOutputStrategy")
                 runCatching {
                     val printerStateBeforeBitmap = runCatching { service.updatePrinterState() }.getOrDefault(-999)
-                    val bitmap = if (bitmapSmokeTestRequested) buildBitmapSmokeTestImage() else buildReceiptBitmap(coreReceiptText)
+                    runPrinterInit("before_bitmap")
+                    val bitmap = if (bitmapInitFirstRequested) buildBitmapSmokeTestImage() else buildReceiptBitmap(coreReceiptText)
                     val bitmapWidth = bitmap.width
                     val bitmapHeight = bitmap.height
                     val bitmapConfig = bitmap.config?.name ?: "UNKNOWN"
@@ -506,7 +518,7 @@ class SunmiPrinterManager(private val context: Context) {
                         Log.i(TAG, "low_level_call printBitmap width=$bitmapWidth height=$bitmapHeight")
                         service.printBitmap(bitmap, callbackFor("printBitmapReceipt"))
                         Log.i(TAG, "low_level_call printBitmap dispatched=true")
-                        val bitmapFeedLines = 8
+                        val bitmapFeedLines = 6
                         Log.i(TAG, "low_level_call lineWrap after_printBitmap lines=$bitmapFeedLines")
                         service.lineWrap(bitmapFeedLines, callbackFor("lineWrapBitmapFinalFeed"))
                         Log.i(TAG, "low_level_call commitPrinterBufferWithCallback after_printBitmap attempt=true")
@@ -545,6 +557,7 @@ class SunmiPrinterManager(private val context: Context) {
                         put("callbackErrors", JSONArray(callbackErrors))
                         put("bitmapExperimentRequested", bitmapExperimentRequested)
                         put("bitmapSmokeTestRequested", bitmapSmokeTestRequested)
+                        put("bitmapInitFirstRequested", bitmapInitFirstRequested)
                         put("bitmapConfig", bitmapConfig)
                         put("bitmapMonochrome", bitmapIsMonochrome)
                         put("bitmapWidthPx", bitmapWidth)
@@ -575,7 +588,7 @@ class SunmiPrinterManager(private val context: Context) {
             val usesSecondPrintTextCall = false
             val mainContentPrimitive = "printText_single_block"
             val finalFeedEnabled = true
-            val finalFeedLineCount = 8
+            val finalFeedLineCount = 6
             val finalFeedPrimitive = "raw_esc_d"
             val fallbackFeedPrimitive = "lineWrap"
             val finalFeedReason = "explicit_post_content_advance"
@@ -669,6 +682,7 @@ class SunmiPrinterManager(private val context: Context) {
                 put("mainContentPrimitive", mainContentPrimitive)
                 put("feedPrimitive", usedFeedPrimitive)
                 put("feedPrimitiveReason", finalFeedReason)
+                put("textInitFirstRequested", textInitFirstRequested)
                 put("sectionCount", sectionCount)
                 put("sectionLengths", sectionLengthSummary)
                 put("sectionGapsMs", sectionGapSummary)
@@ -1040,8 +1054,9 @@ class SunmiPrinterManager(private val context: Context) {
         private val PRINT_IN_PROGRESS = AtomicBoolean(false)
         private const val DEBUG_SINGLE_ATTEMPT_MODE = true
         private const val DEFAULT_MAX_ATTEMPTS = if (DEBUG_SINGLE_ATTEMPT_MODE) 1 else 3
+        private const val INIT_FIRST_EXPERIMENT_ENABLED = true
+        private const val INIT_FIRST_DELAY_MS = 180L
         private const val TEXT_PATH_PRINTER_INIT_ENABLED = true
-        private const val TEXT_PATH_PRINTER_INIT_SETTLE_MS = 120L
         private const val TEXT_PATH_SETTLE_WAIT_MS = 1500L
         private const val BITMAP_SETTLE_WAIT_MS = 1500L
     }
