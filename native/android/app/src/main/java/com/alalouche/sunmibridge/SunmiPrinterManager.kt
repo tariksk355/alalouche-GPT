@@ -8,6 +8,9 @@ import android.os.Build
 import android.os.IBinder
 import android.os.RemoteException
 import android.util.Log
+import com.alalouche.sunmibridge.transport.AidlTransport
+import com.alalouche.sunmibridge.transport.ReceiptRenderContext
+import com.alalouche.sunmibridge.transport.TransportSelector
 import org.json.JSONArray
 import org.json.JSONObject
 import woyou.aidlservice.jiuiv5.ICallback
@@ -22,6 +25,10 @@ class SunmiPrinterManager(private val context: Context) {
 
     private var printerService: IWoyouService? = null
     private val isBinding = AtomicBoolean(false)
+
+    private val transportSelector = TransportSelector(
+        aidlTransport = AidlTransport(::printReceiptWithAidl),
+    )
 
     private val serviceConnection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
@@ -86,6 +93,12 @@ class SunmiPrinterManager(private val context: Context) {
     }
 
     fun printReceipt(printJobJson: String?): JSONObject {
+        val transport = transportSelector.select("aidl")
+        return transport.printReceipt(ReceiptRenderContext(printJobJson)).response
+    }
+
+    private fun printReceiptWithAidl(renderContext: ReceiptRenderContext): JSONObject {
+        val printJobJson = renderContext.printJobJson
         if (printJobJson.isNullOrBlank()) {
             return fail("INVALID_PRINT_JOB", "printJob JSON is required.")
         }
