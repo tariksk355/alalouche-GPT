@@ -334,14 +334,23 @@ class SunmiPrinterManager(private val context: Context) {
                 .replace("\r", "\\r")
                 .replace("\n", "\\n")
                 .take(220)
-            fun runAndAwait(op: String, timeoutMs: Long = 3000, action: (ICallback) -> Unit) {
+            data class AwaitOutcome(
+                val callbackInvoked: Boolean,
+                val timedOut: Boolean,
+                val elapsedMs: Long,
+                val callbackRaisedException: Boolean,
+            )
+
+            fun runAndAwait(op: String, timeoutMs: Long, action: (ICallback) -> Unit): AwaitOutcome {
                 val lock = Object()
-                var done = false
+                var callbackInvoked = false
+                var callbackRaisedException = false
+                val waitStartAt = System.currentTimeMillis()
                 val cb = object : ICallback.Stub() {
                     override fun onRunResult(isSuccess: Boolean) {
                         Log.i(TAG, "low_level_callback op=$op onRunResult success=$isSuccess")
                         synchronized(lock) {
-                            done = true
+                            callbackInvoked = true
                             lock.notifyAll()
                         }
                     }
@@ -353,9 +362,10 @@ class SunmiPrinterManager(private val context: Context) {
                     override fun onRaiseException(code: Int, msg: String?) {
                         val err = "op=$op code=$code msg=${msg ?: ""}"
                         callbackErrors += err
+                        callbackRaisedException = true
                         Log.e(TAG, "low_level_callback onRaiseException $err")
                         synchronized(lock) {
-                            done = true
+                            callbackInvoked = true
                             lock.notifyAll()
                         }
                     }
@@ -363,47 +373,76 @@ class SunmiPrinterManager(private val context: Context) {
 
                 action(cb)
 
-                val deadline = System.currentTimeMillis() + timeoutMs
+                val deadline = waitStartAt + timeoutMs
                 synchronized(lock) {
-                    while (!done && System.currentTimeMillis() < deadline) {
+                    while (!callbackInvoked && System.currentTimeMillis() < deadline) {
                         lock.wait(150)
                     }
                 }
-                Log.i(TAG, "low_level_callback op=$op completion_wait_done=$done timeoutMs=$timeoutMs")
+
+                val elapsedMs = System.currentTimeMillis() - waitStartAt
+                val timedOut = !callbackInvoked
+                Log.i(
+                    TAG,
+                    "low_level_callback op=$op callbackInvoked=$callbackInvoked timedOut=$timedOut elapsedMs=$elapsedMs timeoutMs=$timeoutMs callbackRaisedException=$callbackRaisedException",
+                )
+                return AwaitOutcome(
+                    callbackInvoked = callbackInvoked,
+                    timedOut = timedOut,
+                    elapsedMs = elapsedMs,
+                    callbackRaisedException = callbackRaisedException,
+                )
             }
 
-            val usesSeparatePostFeedPrintText = false
+            val usesSeparatePostFeedPrintText = true
             val usesLineWrapPostFeed = false
             val finalFeedEnabled = true
-            val finalFeedLineCount = 6
+            val finalFeedLineCount = 10
+            val mainPrintTimeoutMs = 12000L
+            val postFeedTimeoutMs = 6000L
+            val fallbackSettlingDelayMs = 1500L
             val dispatchOperationCount = 1 + if (finalFeedEnabled) 1 else 0
             Log.i(
                 TAG,
-                "receipt_dispatch_plan operationCount=$dispatchOperationCount embeddedTrailingBlankLines=$bottomMarginLines separatePostFeedPrintText=$usesSeparatePostFeedPrintText separateLineWrapPostFeed=$usesLineWrapPostFeed trailingWhitespacePreservedBeforeDispatch=$finalBlockEndsWithNewline finalFeedEnabled=$finalFeedEnabled finalFeedLineCount=$finalFeedLineCount",
+                "receipt_dispatch_plan operationCount=$dispatchOperationCount embeddedTrailingBlankLines=$bottomMarginLines separatePostFeedPrintText=$usesSeparatePostFeedPrintText separateLineWrapPostFeed=$usesLineWrapPostFeed trailingWhitespacePreservedBeforeDispatch=$finalBlockEndsWithNewline finalFeedEnabled=$finalFeedEnabled finalFeedLineCount=$finalFeedLineCount mainPrintTimeoutMs=$mainPrintTimeoutMs postFeedTimeoutMs=$postFeedTimeoutMs fallbackSettlingDelayMs=$fallbackSettlingDelayMs",
             )
 
             val mainStartAt = System.currentTimeMillis()
             Log.i(TAG, "low_level_call printTextSingleBlock start_at_ms=$mainStartAt blockLength=${finalReceiptBlock.length} preview='${blockPreview}'")
-            runAndAwait("printTextSingleBlock") { callback ->
+            val mainOutcome = runAndAwait("printTextSingleBlock", mainPrintTimeoutMs) { callback ->
                 service.printText(finalReceiptBlock, callback)
             }
             val mainEndAt = System.currentTimeMillis()
-            Log.i(TAG, "low_level_call printTextSingleBlock end_at_ms=$mainEndAt duration_ms=${mainEndAt - mainStartAt}")
-            if (finalFeedEnabled) {
+            Log.i(TAG, "low_level_call printTextSingleBlock end_at_ms=$mainEndAt duration_ms=${mainEndAt - mainStartAt} callbackInvoked=${mainOutcome.callbackInvoked} timedOut=${mainOutcome.timedOut}")
+
+            if (mainOutcome.timedOut) {
+                Log.w(TAG, "receipt_completion_fallback main_print_callback_missing=true decision=wait_before_final_feed waitMs=$fallbackSettlingDelayMs")
+                Thread.sleep(fallbackSettlingDelayMs)
+            }
+
+            val finalFeedOutcome = if (finalFeedEnabled) {
+                val feedText = "\n".repeat(finalFeedLineCount)
                 val feedStartAt = System.currentTimeMillis()
-                Log.i(TAG, "low_level_call lineWrapFinalFeed start_at_ms=$feedStartAt lines=$finalFeedLineCount")
-                runAndAwait("lineWrapFinalFeed") { callback ->
-                    service.lineWrap(finalFeedLineCount, callback)
+                Log.i(TAG, "low_level_call printTextPostFeed start_at_ms=$feedStartAt feedLineCount=$finalFeedLineCount")
+                val outcome = runAndAwait("printTextPostFeed", postFeedTimeoutMs) { callback ->
+                    service.printText(feedText, callback)
                 }
                 val feedEndAt = System.currentTimeMillis()
-                Log.i(TAG, "low_level_call lineWrapFinalFeed end_at_ms=$feedEndAt duration_ms=${feedEndAt - feedStartAt}")
+                Log.i(TAG, "low_level_call printTextPostFeed end_at_ms=$feedEndAt duration_ms=${feedEndAt - feedStartAt} callbackInvoked=${outcome.callbackInvoked} timedOut=${outcome.timedOut}")
+                outcome
             } else {
-                Log.i(TAG, "low_level_call lineWrapFinalFeed skipped=true reason=disabled")
+                Log.i(TAG, "low_level_call printTextPostFeed skipped=true reason=disabled")
+                AwaitOutcome(callbackInvoked = true, timedOut = false, elapsedMs = 0L, callbackRaisedException = false)
             }
-            Log.i(TAG, "low_level_call printTextPostFeed skipped=true reason=single_pass_content_output")
+            Log.i(TAG, "low_level_call lineWrapPostPrint skipped=true reason=using_printText_post_feed")
             Log.i(
                 TAG,
-                "receipt_path mode=no_buffer_live_text completed_calls=${if (finalFeedEnabled) "setAlignment,printTextSingleBlock,lineWrapFinalFeed" else "setAlignment,printTextSingleBlock"} fontSizeStyling=skipped_v2s_compat",
+                "receipt_path mode=no_buffer_live_text completed_calls=${if (finalFeedEnabled) "setAlignment,printTextSingleBlock,printTextPostFeed" else "setAlignment,printTextSingleBlock"} fontSizeStyling=skipped_v2s_compat",
+            )
+            val successUsesTimeoutFallback = mainOutcome.timedOut || (finalFeedEnabled && finalFeedOutcome.timedOut)
+            Log.i(
+                TAG,
+                "receipt_completion_summary successUsesTimeoutFallback=$successUsesTimeoutFallback mainCallbackInvoked=${mainOutcome.callbackInvoked} mainTimedOut=${mainOutcome.timedOut} postFeedCallbackInvoked=${finalFeedOutcome.callbackInvoked} postFeedTimedOut=${finalFeedOutcome.timedOut}",
             )
 
             if (callbackErrors.isNotEmpty()) {
@@ -423,6 +462,9 @@ class SunmiPrinterManager(private val context: Context) {
                 put("lineCount", lines.length())
                 put("renderedLineCount", renderedLines.size)
                 put("renderedReceiptText", renderedReceiptText)
+                put("successUsesTimeoutFallback", successUsesTimeoutFallback)
+                put("mainPrintCallbackTimedOut", mainOutcome.timedOut)
+                put("postFeedCallbackTimedOut", finalFeedOutcome.timedOut)
                 put("callbackErrors", JSONArray(callbackErrors))
             }
         } catch (e: RemoteException) {
