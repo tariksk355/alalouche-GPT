@@ -160,6 +160,7 @@ export class OrdersService {
           customerAddress: typeof payload.customerAddress === 'string' ? payload.customerAddress : null,
           paymentMethod: typeof payload.paymentMethod === 'string' ? payload.paymentMethod : null,
           notes: typeof payload.notes === 'string' ? payload.notes : null,
+          customerTotalOrderCount: customerOrderCount,
           customerOrderCount: Math.max(customerOrderCount - 1, 0),
         };
       }),

@@ -77,6 +77,11 @@ export function buildPrintJobFromOrder(order, restaurant) {
   const paymentMethod = typeof order?.paymentMethod === 'string' ? order.paymentMethod : payload.paymentMethod;
   const orderType = order?.orderType || payload.orderType;
   const createdAtIso = typeof order?.createdAt === 'string' ? order.createdAt : new Date().toISOString();
+  const customerTotalOrderCount = Number.isFinite(Number(order?.customerTotalOrderCount))
+    ? Number(order.customerTotalOrderCount)
+    : Number.isFinite(Number(order?.customerOrderCount))
+      ? Number(order.customerOrderCount) + 1
+      : 0;
 
   return {
     printJobId: `job_${order.id}_${Date.now()}`,
@@ -94,6 +99,8 @@ export function buildPrintJobFromOrder(order, restaurant) {
     order_number: order.orderNumber || order.id,
     customerName: order.customerName,
     customer_name: order.customerName,
+    customerTotalOrderCount,
+    customer_total_order_count: customerTotalOrderCount,
     lines,
     items: lines,
     totals: (payload.totalAmount != null || payload.total != null) ? {
