@@ -202,6 +202,10 @@ class SunmiPrinterManager(private val context: Context) {
                 TAG,
                 "receipt_path mode=no_buffer_live_text printerInit=false bufferApi=false fontSizeStyling=skipped_v2s_compat sequence=setAlignment/printTextSingleBlock",
             )
+            Log.i(
+                TAG,
+                "receipt_buffer_strategy considered=true enabled=false reason=v2s_buffer_path_previously_unstable_for_live_content",
+            )
 
             Log.i(TAG, "low_level_call setAlignment alignment=1")
             service.setAlignment(1, callbackFor("setAlignment"))
@@ -347,10 +351,13 @@ class SunmiPrinterManager(private val context: Context) {
             val sequencingMode = "deterministic_nonblocking"
             val usesTimeoutFallback = false
             val usesSeparatePostFeedPrintText = false
-            val usesLineWrapPostFeed = true
+            val usesLineWrapPostFeed = false
             val usesSecondPrintTextCall = false
             val finalFeedEnabled = true
             val finalFeedLineCount = 8
+            val finalFeedPrimitive = "raw_esc_d"
+            val fallbackFeedPrimitive = "lineWrap"
+            val feedPrimitiveReason = "raw_feed_more_reliable_for_physical_advance_than_linewrap_on_v2s"
             val feedDelayMode = "derived_from_text_metrics"
             val baseDelayMs = 700L
             val perLineDelayMs = 55L
@@ -367,7 +374,7 @@ class SunmiPrinterManager(private val context: Context) {
             )
             Log.i(
                 TAG,
-                "receipt_dispatch_plan operationCount=$dispatchOperationCount sequencingMode=$sequencingMode usesTimeoutFallback=$usesTimeoutFallback secondPrintTextUsed=$usesSecondPrintTextCall embeddedTrailingBlankLines=$bottomMarginLines separatePostFeedPrintText=$usesSeparatePostFeedPrintText separateLineWrapPostFeed=$usesLineWrapPostFeed finalFeedEnabled=$finalFeedEnabled finalFeedLineCount=$finalFeedLineCount deterministicFeedDelayMs=$deterministicFeedDelayMs feedDelayMode=$feedDelayMode baseDelayMs=$baseDelayMs perLineDelayMs=$perLineDelayMs perCharChunkDelayMs=$perCharChunkDelayMs charChunkSize=$charChunkSize charChunks=$charChunks",
+                "receipt_dispatch_plan operationCount=$dispatchOperationCount sequencingMode=$sequencingMode usesTimeoutFallback=$usesTimeoutFallback secondPrintTextUsed=$usesSecondPrintTextCall embeddedTrailingBlankLines=$bottomMarginLines separatePostFeedPrintText=$usesSeparatePostFeedPrintText separateLineWrapPostFeed=$usesLineWrapPostFeed finalFeedEnabled=$finalFeedEnabled finalFeedLineCount=$finalFeedLineCount finalFeedPrimitive=$finalFeedPrimitive fallbackFeedPrimitive=$fallbackFeedPrimitive feedPrimitiveReason=$feedPrimitiveReason deterministicFeedDelayMs=$deterministicFeedDelayMs feedDelayMode=$feedDelayMode baseDelayMs=$baseDelayMs perLineDelayMs=$perLineDelayMs perCharChunkDelayMs=$perCharChunkDelayMs charChunkSize=$charChunkSize charChunks=$charChunks",
             )
 
             val mainStartAt = System.currentTimeMillis()
@@ -376,16 +383,25 @@ class SunmiPrinterManager(private val context: Context) {
             val mainEndAt = System.currentTimeMillis()
             Log.i(TAG, "low_level_call printTextSingleBlock dispatch_end_at_ms=$mainEndAt dispatch_duration_ms=${mainEndAt - mainStartAt}")
 
+            var usedFeedPrimitive = if (finalFeedEnabled) finalFeedPrimitive else "none"
             if (finalFeedEnabled) {
                 if (deterministicFeedDelayMs > 0) {
                     Thread.sleep(deterministicFeedDelayMs)
                 }
                 val feedStartAt = System.currentTimeMillis()
                 val feedGapAfterMainDispatchMs = feedStartAt - mainEndAt
-                Log.i(TAG, "low_level_call lineWrapFinalFeed start_at_ms=$feedStartAt lines=$finalFeedLineCount feedGapAfterMainDispatchMs=$feedGapAfterMainDispatchMs deterministicFeedDelayMs=$deterministicFeedDelayMs feedDelayMode=$feedDelayMode")
-                service.lineWrap(finalFeedLineCount, callbackFor("lineWrapFinalFeed"))
+                val rawFeedCmd = byteArrayOf(0x1B, 0x64, finalFeedLineCount.coerceIn(0, 255).toByte())
+                Log.i(TAG, "low_level_call finalFeed start_at_ms=$feedStartAt primitive=$finalFeedPrimitive lines=$finalFeedLineCount feedGapAfterMainDispatchMs=$feedGapAfterMainDispatchMs deterministicFeedDelayMs=$deterministicFeedDelayMs feedDelayMode=$feedDelayMode reason=$feedPrimitiveReason")
+                usedFeedPrimitive = runCatching {
+                    service.sendRAWData(rawFeedCmd, callbackFor("sendRawDataFinalFeed"))
+                    finalFeedPrimitive
+                }.getOrElse { rawErr ->
+                    Log.w(TAG, "low_level_call finalFeed raw_failed=true fallbackPrimitive=$fallbackFeedPrimitive msg=${rawErr.message ?: "unknown"}")
+                    service.lineWrap(finalFeedLineCount, callbackFor("lineWrapFinalFeedFallback"))
+                    fallbackFeedPrimitive
+                }
                 val feedEndAt = System.currentTimeMillis()
-                Log.i(TAG, "low_level_call lineWrapFinalFeed dispatch_end_at_ms=$feedEndAt dispatch_duration_ms=${feedEndAt - feedStartAt}")
+                Log.i(TAG, "low_level_call finalFeed dispatch_end_at_ms=$feedEndAt dispatch_duration_ms=${feedEndAt - feedStartAt} usedFeedPrimitive=$usedFeedPrimitive")
             } else {
                 Log.i(TAG, "low_level_call lineWrapFinalFeed skipped=true reason=disabled")
             }
@@ -393,11 +409,13 @@ class SunmiPrinterManager(private val context: Context) {
             val callbackEverObservedAfterAttempt = CALLBACK_OBSERVED_EVER.get()
             Log.i(
                 TAG,
-                "receipt_completion_summary sequencingMode=$sequencingMode usesTimeoutFallback=$usesTimeoutFallback callbackObservedThisAttempt=$callbackObservedThisAttempt callbackEverObservedAfterAttempt=$callbackEverObservedAfterAttempt secondPrintTextUsed=$usesSecondPrintTextCall",
+                "receipt_completion_summary sequencingMode=$sequencingMode usesTimeoutFallback=$usesTimeoutFallback completionBoundary=dispatch_only callbackObservedThisAttempt=$callbackObservedThisAttempt callbackEverObservedAfterAttempt=$callbackEverObservedAfterAttempt secondPrintTextUsed=$usesSecondPrintTextCall usedFeedPrimitive=$usedFeedPrimitive",
             )
+            val operationSequence = if (finalFeedEnabled) "setAlignment->printTextSingleBlock->${usedFeedPrimitive}" else "setAlignment->printTextSingleBlock"
+            Log.i(TAG, "receipt_operation_sequence sequence=$operationSequence operationCount=$dispatchOperationCount")
             Log.i(
                 TAG,
-                "receipt_path mode=no_buffer_live_text completed_calls=${if (finalFeedEnabled) "setAlignment,printTextSingleBlock,lineWrapFinalFeed" else "setAlignment,printTextSingleBlock"} fontSizeStyling=skipped_v2s_compat",
+                "receipt_path mode=no_buffer_live_text completed_calls=${if (finalFeedEnabled) "setAlignment,printTextSingleBlock,finalFeed" else "setAlignment,printTextSingleBlock"} fontSizeStyling=skipped_v2s_compat",
             )
 
             if (callbackErrors.isNotEmpty()) {
@@ -423,7 +441,8 @@ class SunmiPrinterManager(private val context: Context) {
                 put("callbackObservedThisAttempt", callbackObservedThisAttempt)
                 put("callbackEverObservedOnDevice", CALLBACK_OBSERVED_EVER.get())
                 put("secondPrintTextUsed", usesSecondPrintTextCall)
-                put("feedPrimitive", if (finalFeedEnabled) "lineWrap" else "none")
+                put("feedPrimitive", usedFeedPrimitive)
+                put("feedPrimitiveReason", feedPrimitiveReason)
                 put("finalTextLineCount", finalTextLineCount)
                 put("finalTextCharLength", finalTextCharLength)
                 put("feedDelayMode", feedDelayMode)
