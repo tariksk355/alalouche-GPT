@@ -10,6 +10,7 @@ import android.os.RemoteException
 import android.util.Log
 import com.alalouche.sunmibridge.transport.AidlTransport
 import com.alalouche.sunmibridge.transport.ReceiptRenderContext
+import com.alalouche.sunmibridge.transport.SunmiSdkTransport
 import com.alalouche.sunmibridge.transport.TransportSelector
 import org.json.JSONArray
 import org.json.JSONObject
@@ -28,7 +29,11 @@ class SunmiPrinterManager(private val context: Context) {
 
     private val transportSelector = TransportSelector(
         aidlTransport = AidlTransport(::printReceiptWithAidl),
+        sunmiSdkTransport = SunmiSdkTransport(),
     )
+
+    // Keep AIDL as default backend until Sunmi SDK artifact is installed and implemented.
+    private val activeTransportMode = TransportSelector.MODE_AIDL
 
     private val serviceConnection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
@@ -93,8 +98,13 @@ class SunmiPrinterManager(private val context: Context) {
     }
 
     fun printReceipt(printJobJson: String?): JSONObject {
-        val transport = transportSelector.select("aidl")
-        return transport.printReceipt(ReceiptRenderContext(printJobJson)).response
+        val selection = transportSelector.select(activeTransportMode)
+        Log.i(TAG, "printReceipt transport_selected mode=${selection.mode}")
+        val response = selection.transport.printReceipt(ReceiptRenderContext(printJobJson)).response
+        if (!response.has("transport")) {
+            response.put("transport", selection.mode)
+        }
+        return response
     }
 
     private fun printReceiptWithAidl(renderContext: ReceiptRenderContext): JSONObject {
