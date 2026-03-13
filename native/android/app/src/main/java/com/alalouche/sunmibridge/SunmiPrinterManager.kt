@@ -200,13 +200,8 @@ class SunmiPrinterManager(private val context: Context) {
             // and can fail before any printText reaches paper.
             Log.i(
                 TAG,
-                "receipt_path mode=no_buffer_live_text printerInit=false bufferApi=false fontSizeStyling=skipped_v2s_compat sequence=setAlignment/printTextSingleBlock",
+                "receipt_path mode=no_buffer_live_text printerInit=false bufferApi=false fontSizeStyling=skipped_v2s_compat sequence=setAlignment/printTextSections",
             )
-            Log.i(
-                TAG,
-                "receipt_buffer_strategy considered=true enabled=false reason=v2s_buffer_path_previously_unstable_for_live_content",
-            )
-
             Log.i(TAG, "low_level_call setAlignment alignment=1")
             service.setAlignment(1, callbackFor("setAlignment"))
             Log.i(TAG, "receipt_style fontSize skipped reason=v2s_illegal_parameter")
@@ -343,12 +338,10 @@ class SunmiPrinterManager(private val context: Context) {
                 TAG,
                 "receipt_path single_block_plain_text enabled=true asciiNormalized=$asciiNormalized topMarginLines=$topMarginLines bottomMarginLines=$bottomMarginLines blockLength=${finalReceiptBlock.length} trailingNewlinesBeforeTrim=$trailingNewlinesBeforeTrim trailingNewlinesTrimmed=$trailingNewlinesTrimmed trailingNewlinesInFinalBlock=$trailingNewlinesInFinalBlock finalBlockEndsWithNewline=$finalBlockEndsWithNewline",
             )
-            val blockPreview = finalReceiptBlock
-                .replace("\r", "\\r")
-                .replace("\n", "\\n")
-                .take(220)
             val callbackReliableForV2sPath = false
+            val strategyName = "sectioned_text_dispatch_v2s"
             val sequencingMode = "deterministic_nonblocking"
+            val completionBoundary = "dispatch_only"
             val usesTimeoutFallback = false
             val usesSeparatePostFeedPrintText = false
             val usesLineWrapPostFeed = false
@@ -366,22 +359,62 @@ class SunmiPrinterManager(private val context: Context) {
             val charChunks = (finalTextCharLength / charChunkSize).toLong()
             val derivedFeedDelayMs = baseDelayMs + (finalTextLineCount.toLong() * perLineDelayMs) + (charChunks * perCharChunkDelayMs)
             val deterministicFeedDelayMs = derivedFeedDelayMs.coerceIn(700L, 2600L)
-            val dispatchOperationCount = 1 + if (finalFeedEnabled) 1 else 0
+
+            val contentLines = coreReceiptText.lines().filter { it.isNotBlank() }
+            val articlesIndex = contentLines.indexOfFirst { it.trim().equals("Articles:", ignoreCase = true) }
+            val footerStartIndex = if (articlesIndex >= 0) {
+                contentLines.withIndex().firstOrNull { (idx, line) ->
+                    idx > articlesIndex && (line.trim().startsWith("TOTAL:", ignoreCase = true) || line.trim().startsWith("Notes:", ignoreCase = true))
+                }?.index ?: -1
+            } else {
+                -1
+            }
+            val safeFooterStartIndex = if (footerStartIndex >= 0) footerStartIndex else contentLines.size
+            val metaLines = if (articlesIndex > 0) contentLines.subList(0, articlesIndex) else if (articlesIndex == -1) contentLines else emptyList()
+            val itemsLines = if (articlesIndex >= 0) contentLines.subList(articlesIndex, safeFooterStartIndex) else emptyList()
+            val footerLines = if (safeFooterStartIndex < contentLines.size) contentLines.subList(safeFooterStartIndex, contentLines.size) else emptyList()
+
+            val sectionEntries = mutableListOf<Pair<String, String>>()
+            if (metaLines.isNotEmpty()) sectionEntries += "meta" to metaLines.joinToString("\n")
+            if (itemsLines.isNotEmpty()) sectionEntries += "articles_items" to itemsLines.joinToString("\n")
+            if (footerLines.isNotEmpty()) sectionEntries += "footer" to footerLines.joinToString("\n")
+            if (sectionEntries.isEmpty()) sectionEntries += "full_fallback" to coreReceiptText
+
+            val sectionedPayloads = sectionEntries.mapIndexed { idx, entry ->
+                val prefix = if (idx == 0) "\n".repeat(topMarginLines) else ""
+                val suffix = "\n"
+                Triple(entry.first, prefix + entry.second + suffix, entry.second)
+            }
+            val sectionCount = sectionedPayloads.size
+            val sectionLengthSummary = sectionedPayloads.joinToString(",") { "${it.first}:${it.second.length}" }
+            val dispatchOperationCount = sectionCount + if (finalFeedEnabled) 1 else 0
 
             Log.i(
                 TAG,
-                "receipt_callback_reliability callbackEverObservedBeforeAttempt=$callbackEverObservedBeforeAttempt callbackReliableForV2sPath=$callbackReliableForV2sPath mode=$sequencingMode",
+                "receipt_callback_reliability callbackEverObservedBeforeAttempt=$callbackEverObservedBeforeAttempt callbackReliableForV2sPath=$callbackReliableForV2sPath mode=$sequencingMode strategy=$strategyName",
             )
             Log.i(
                 TAG,
-                "receipt_dispatch_plan operationCount=$dispatchOperationCount sequencingMode=$sequencingMode usesTimeoutFallback=$usesTimeoutFallback secondPrintTextUsed=$usesSecondPrintTextCall embeddedTrailingBlankLines=$bottomMarginLines separatePostFeedPrintText=$usesSeparatePostFeedPrintText separateLineWrapPostFeed=$usesLineWrapPostFeed finalFeedEnabled=$finalFeedEnabled finalFeedLineCount=$finalFeedLineCount finalFeedPrimitive=$finalFeedPrimitive fallbackFeedPrimitive=$fallbackFeedPrimitive feedPrimitiveReason=$feedPrimitiveReason deterministicFeedDelayMs=$deterministicFeedDelayMs feedDelayMode=$feedDelayMode baseDelayMs=$baseDelayMs perLineDelayMs=$perLineDelayMs perCharChunkDelayMs=$perCharChunkDelayMs charChunkSize=$charChunkSize charChunks=$charChunks",
+                "receipt_dispatch_plan operationCount=$dispatchOperationCount strategy=$strategyName sectionCount=$sectionCount sectionLengths=$sectionLengthSummary sequencingMode=$sequencingMode usesTimeoutFallback=$usesTimeoutFallback secondPrintTextUsed=$usesSecondPrintTextCall embeddedTrailingBlankLines=$bottomMarginLines separatePostFeedPrintText=$usesSeparatePostFeedPrintText separateLineWrapPostFeed=$usesLineWrapPostFeed finalFeedEnabled=$finalFeedEnabled finalFeedLineCount=$finalFeedLineCount finalFeedPrimitive=$finalFeedPrimitive fallbackFeedPrimitive=$fallbackFeedPrimitive feedPrimitiveReason=$feedPrimitiveReason deterministicFeedDelayMs=$deterministicFeedDelayMs feedDelayMode=$feedDelayMode baseDelayMs=$baseDelayMs perLineDelayMs=$perLineDelayMs perCharChunkDelayMs=$perCharChunkDelayMs charChunkSize=$charChunkSize charChunks=$charChunks",
             )
+            Log.i(TAG, "receipt_buffer_strategy considered=true enabled=false reason=v2s_buffer_path_previously_unstable_for_live_content")
 
             val mainStartAt = System.currentTimeMillis()
-            Log.i(TAG, "low_level_call printTextSingleBlock start_at_ms=$mainStartAt blockLength=${finalReceiptBlock.length} preview='${blockPreview}'")
-            service.printText(finalReceiptBlock, callbackFor("printTextSingleBlock"))
+            sectionedPayloads.forEachIndexed { idx, (sectionName, payload, sectionCoreText) ->
+                val sectionStartAt = System.currentTimeMillis()
+                Log.i(
+                    TAG,
+                    "low_level_call printTextSection index=$idx/$sectionCount section=$sectionName start_at_ms=$sectionStartAt sectionCoreLength=${sectionCoreText.length} payloadLength=${payload.length}",
+                )
+                service.printText(payload, callbackFor("printTextSection:$sectionName:$idx"))
+                val sectionEndAt = System.currentTimeMillis()
+                Log.i(
+                    TAG,
+                    "low_level_call printTextSection index=$idx/$sectionCount section=$sectionName dispatch_end_at_ms=$sectionEndAt dispatch_duration_ms=${sectionEndAt - sectionStartAt}",
+                )
+            }
             val mainEndAt = System.currentTimeMillis()
-            Log.i(TAG, "low_level_call printTextSingleBlock dispatch_end_at_ms=$mainEndAt dispatch_duration_ms=${mainEndAt - mainStartAt}")
+            Log.i(TAG, "low_level_call printTextSections dispatch_end_at_ms=$mainEndAt dispatch_duration_ms=${mainEndAt - mainStartAt} sectionCount=$sectionCount")
 
             var usedFeedPrimitive = if (finalFeedEnabled) finalFeedPrimitive else "none"
             if (finalFeedEnabled) {
@@ -409,13 +442,13 @@ class SunmiPrinterManager(private val context: Context) {
             val callbackEverObservedAfterAttempt = CALLBACK_OBSERVED_EVER.get()
             Log.i(
                 TAG,
-                "receipt_completion_summary sequencingMode=$sequencingMode usesTimeoutFallback=$usesTimeoutFallback completionBoundary=dispatch_only callbackObservedThisAttempt=$callbackObservedThisAttempt callbackEverObservedAfterAttempt=$callbackEverObservedAfterAttempt secondPrintTextUsed=$usesSecondPrintTextCall usedFeedPrimitive=$usedFeedPrimitive",
+                "receipt_completion_summary strategy=$strategyName sequencingMode=$sequencingMode usesTimeoutFallback=$usesTimeoutFallback completionBoundary=$completionBoundary callbackObservedThisAttempt=$callbackObservedThisAttempt callbackEverObservedAfterAttempt=$callbackEverObservedAfterAttempt secondPrintTextUsed=$usesSecondPrintTextCall usedFeedPrimitive=$usedFeedPrimitive",
             )
-            val operationSequence = if (finalFeedEnabled) "setAlignment->printTextSingleBlock->${usedFeedPrimitive}" else "setAlignment->printTextSingleBlock"
+            val operationSequence = if (finalFeedEnabled) "setAlignment->printTextSections(${sectionCount})->${usedFeedPrimitive}" else "setAlignment->printTextSections(${sectionCount})"
             Log.i(TAG, "receipt_operation_sequence sequence=$operationSequence operationCount=$dispatchOperationCount")
             Log.i(
                 TAG,
-                "receipt_path mode=no_buffer_live_text completed_calls=${if (finalFeedEnabled) "setAlignment,printTextSingleBlock,finalFeed" else "setAlignment,printTextSingleBlock"} fontSizeStyling=skipped_v2s_compat",
+                "receipt_path mode=no_buffer_live_text completed_calls=${if (finalFeedEnabled) "setAlignment,printTextSections,finalFeed" else "setAlignment,printTextSections"} fontSizeStyling=skipped_v2s_compat",
             )
 
             if (callbackErrors.isNotEmpty()) {
@@ -435,6 +468,7 @@ class SunmiPrinterManager(private val context: Context) {
                 put("lineCount", lines.length())
                 put("renderedLineCount", renderedLines.size)
                 put("renderedReceiptText", renderedReceiptText)
+                put("strategyName", strategyName)
                 put("sequencingMode", sequencingMode)
                 put("usesTimeoutFallback", usesTimeoutFallback)
                 put("callbackReliableForV2sPath", callbackReliableForV2sPath)
@@ -443,6 +477,8 @@ class SunmiPrinterManager(private val context: Context) {
                 put("secondPrintTextUsed", usesSecondPrintTextCall)
                 put("feedPrimitive", usedFeedPrimitive)
                 put("feedPrimitiveReason", feedPrimitiveReason)
+                put("sectionCount", sectionCount)
+                put("sectionLengths", sectionLengthSummary)
                 put("finalTextLineCount", finalTextLineCount)
                 put("finalTextCharLength", finalTextCharLength)
                 put("feedDelayMode", feedDelayMode)
