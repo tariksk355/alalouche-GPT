@@ -314,7 +314,7 @@ class SunmiPrinterManager(private val context: Context) {
             val asciiReceiptText = toAsciiSafeReceiptText(renderedReceiptText)
             val asciiNormalized = asciiReceiptText != renderedReceiptText
             val topMarginLines = 2
-            val bottomMarginLines = 8
+            val bottomMarginLines = 20
             val finalReceiptBlock = "\n".repeat(topMarginLines) + asciiReceiptText.trimEnd('\r', '\n') + "\n".repeat(bottomMarginLines)
             Log.i(
                 TAG,
@@ -362,26 +362,26 @@ class SunmiPrinterManager(private val context: Context) {
                 Log.i(TAG, "low_level_callback op=$op completion_wait_done=$done timeoutMs=$timeoutMs")
             }
 
-            Log.i(TAG, "low_level_call printText single_block_preview='${blockPreview}'")
+            val dispatchOperationCount = 1
+            val usesSeparatePostFeedPrintText = false
+            val usesLineWrapPostFeed = false
+            Log.i(
+                TAG,
+                "receipt_dispatch_plan operationCount=$dispatchOperationCount embeddedTrailingBlankLines=$bottomMarginLines separatePostFeedPrintText=$usesSeparatePostFeedPrintText separateLineWrapPostFeed=$usesLineWrapPostFeed",
+            )
+
+            val mainStartAt = System.currentTimeMillis()
+            Log.i(TAG, "low_level_call printTextSingleBlock start_at_ms=$mainStartAt blockLength=${finalReceiptBlock.length} preview='${blockPreview}'")
             runAndAwait("printTextSingleBlock") { callback ->
                 service.printText(finalReceiptBlock, callback)
             }
-
-            val explicitPostFeedTextLines = 20
-            val postFeedText = "\n".repeat(explicitPostFeedTextLines)
-            Log.i(TAG, "low_level_call printText post_feed_primitive=printText newline_count=$explicitPostFeedTextLines")
-            runAndAwait("printTextPostFeed") { callback ->
-                service.printText(postFeedText, callback)
-            }
-
-            val lineWrapPostFeedLines = 6
-            Log.i(TAG, "low_level_call lineWrap post_feed_primitive=lineWrap line_count=$lineWrapPostFeedLines")
-            runAndAwait("lineWrapPostPrint") { callback ->
-                service.lineWrap(lineWrapPostFeedLines, callback)
-            }
+            val mainEndAt = System.currentTimeMillis()
+            Log.i(TAG, "low_level_call printTextSingleBlock end_at_ms=$mainEndAt duration_ms=${mainEndAt - mainStartAt}")
+            Log.i(TAG, "low_level_call printTextPostFeed skipped=true reason=single_pass_continuous_output")
+            Log.i(TAG, "low_level_call lineWrapPostPrint skipped=true reason=single_pass_continuous_output")
             Log.i(
                 TAG,
-                "receipt_path mode=no_buffer_live_text completed_calls=setAlignment,printTextSingleBlock,printTextPostFeed,lineWrapPostPrint fontSizeStyling=skipped_v2s_compat",
+                "receipt_path mode=no_buffer_live_text completed_calls=setAlignment,printTextSingleBlock fontSizeStyling=skipped_v2s_compat",
             )
 
             if (callbackErrors.isNotEmpty()) {

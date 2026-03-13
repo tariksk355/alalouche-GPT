@@ -196,22 +196,12 @@ function render() {
         duplicateFieldCheck,
       });
 
-      const itemRowsHtml = displayModel.items.length
-        ? `
-          <div class="subtle" style="margin-top:8px;">Articles:</div>
-          ${displayModel.items.map((line) => {
-            const qty = Number(line.quantity || 1);
-            const lineTotal = Number.isFinite(Number(line.totalPrice)) ? Number(line.totalPrice) : null;
-            const unitPrice = Number.isFinite(Number(line.unitPrice)) ? Number(line.unitPrice) : null;
-            const priceText = lineTotal != null
-              ? `${lineTotal.toFixed(2)} CHF`
-              : unitPrice != null
-                ? `${unitPrice.toFixed(2)} CHF`
-                : '-';
-            return `<div class="subtle">• ${qty} x ${line.name} — ${priceText}</div>`;
-          }).join('')}
-        `
-        : '<div class="subtle" style="margin-top:8px;">Articles: (aucun)</div>';
+      const sectionRowsHtml = displayModel.displaySections.length
+        ? displayModel.displaySections.map((section, idx) => {
+          const marginStyle = idx === 0 ? '' : ' style="margin-top:6px;"';
+          return `<div class="subtle"${marginStyle}>${escapeHtml(section.line)}</div>`;
+        }).join('')
+        : '<div class="subtle" style="margin-top:8px;">Détails indisponibles</div>';
 
       return `
       <div class="card" data-order-id="${order.id}">
@@ -219,15 +209,7 @@ function render() {
           <strong>${order.orderNumber || order.id}</strong>
           <span class="status-pill">${formatOrderStatus(order.status)}</span>
         </div>
-        <div class="subtle">${order.customerName || 'Client'} • ${formatOrderType(order.orderType)}</div>
-        ${displayModel.customerAddress ? `<div class="subtle">Adresse: ${displayModel.customerAddress}</div>` : ''}
-        ${displayModel.paymentMethod ? `<div class="subtle">Paiement: ${displayModel.paymentMethod}</div>` : ''}
-        <div class="subtle">Commande: ${formatOrderDate(order.createdAt)}</div>
-        <div class="subtle">Historique client: ${Number(order.customerOrderCount || 0)} commande${Number(order.customerOrderCount || 0) > 1 ? 's' : ''} précédente${Number(order.customerOrderCount || 0) > 1 ? 's' : ''}</div>
-        ${itemRowsHtml}
-        ${displayModel.totals && Number.isFinite(Number(displayModel.totals.total)) ? `<div class="subtle">Total: ${Number(displayModel.totals.total).toFixed(2)} ${displayModel.totals.currency || 'CHF'}</div>` : ''}
-        ${displayModel.notesExtra ? `<div class="subtle">Notes: ${escapeHtml(displayModel.notesExtra)}</div>` : ''}
-        <div class="subtle">Préparation: ${order.prepMinutes ? `${order.prepMinutes} min` : `${prepMinutesForOrder(order)} min (proposé)`}</div>
+        ${sectionRowsHtml}
         <div class="prep-row">
           <span class="subtle">Temps prep</span>
           <div class="chip-row">
