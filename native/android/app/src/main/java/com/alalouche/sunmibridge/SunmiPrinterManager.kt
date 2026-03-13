@@ -4,6 +4,11 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.ServiceConnection
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.Paint
+import android.graphics.Typeface
 import android.os.Build
 import android.os.IBinder
 import android.os.RemoteException
@@ -233,6 +238,13 @@ class SunmiPrinterManager(private val context: Context) {
 
         val printJob = printJobRoot.optJSONObject("printJob") ?: printJobRoot
         val displayModel = printJob.optJSONObject("displayModel")
+        val formattingHints = printJob.optJSONObject("formattingHints")
+        val requestedOutputStrategy = firstNonBlank(
+            formattingHints?.optString("outputStrategy"),
+            formattingHints?.optString("printerOutputMode"),
+            printJob.optString("printerOutputMode"),
+        ).lowercase(Locale.ROOT)
+        val bitmapExperimentRequested = requestedOutputStrategy == "bitmap" || requestedOutputStrategy == "bitmap_experiment"
 
         val serviceBound = ensureServiceBound(2000)
         val service = printerService
@@ -472,6 +484,60 @@ class SunmiPrinterManager(private val context: Context) {
             val finalTextCharLength = coreReceiptText.length
             Log.i(TAG, "receipt_articles_presence finalTextContainsArticles=$finalTextContainsArticles")
             Log.i(TAG, "receipt_text_metrics finalTextLineCount=$finalTextLineCount finalTextCharLength=$finalTextCharLength")
+
+            if (bitmapExperimentRequested) {
+                Log.i(TAG, "receipt_bitmap_experiment requested=true strategy=$requestedOutputStrategy")
+                runCatching {
+                    val printerStateBeforeBitmap = runCatching { service.updatePrinterState() }.getOrDefault(-999)
+                    val bitmap = buildReceiptBitmap(coreReceiptText)
+                    val bitmapWidth = bitmap.width
+                    val bitmapHeight = bitmap.height
+                    try {
+                        Log.i(TAG, "low_level_call setAlignment alignment=1 primitive=printBitmap")
+                        service.setAlignment(1, callbackFor("setAlignmentBitmap"))
+                        Log.i(TAG, "low_level_call printBitmap width=$bitmapWidth height=$bitmapHeight")
+                        service.printBitmap(bitmap, callbackFor("printBitmapReceipt"))
+                        val bitmapFeedLines = 6
+                        service.lineWrap(bitmapFeedLines, callbackFor("lineWrapBitmapFinalFeed"))
+                        Thread.sleep(1200L)
+                    } finally {
+                        bitmap.recycle()
+                    }
+
+                    if (callbackErrors.isNotEmpty()) {
+                        throw IllegalStateException("bitmap callback errors: ${callbackErrors.joinToString(" | ")}")
+                    }
+
+                    val printerStateAfterBitmap = runCatching { service.updatePrinterState() }.getOrDefault(-999)
+                    Log.i(TAG, "receipt_bitmap_experiment success=true stateBefore=$printerStateBeforeBitmap stateAfter=$printerStateAfterBitmap")
+                    return JSONObject().apply {
+                        put("ok", true)
+                        put("code", "PRINT_SENT")
+                        put("message", "Bitmap print commands sent to Sunmi service.")
+                        put("orderNumber", orderNumber)
+                        put("lineCount", lines.length())
+                        put("renderedLineCount", renderedLines.size)
+                        put("renderedReceiptText", renderedReceiptText)
+                        put("strategyName", "bitmap_single_image_with_linewrap_feed")
+                        put("sequencingMode", "deterministic_nonbuffer_single_bitmap")
+                        put("mainContentPrimitive", "printBitmap")
+                        put("feedPrimitive", "lineWrap")
+                        put("printerStateBeforePrint", printerStateBeforeBitmap)
+                        put("printerStateAfterFeed", printerStateAfterBitmap)
+                        put("callbackObservedThisAttempt", callbackObservedThisAttempt)
+                        put("callbackEverObservedOnDevice", CALLBACK_OBSERVED_EVER.get())
+                        put("callbackErrors", JSONArray(callbackErrors))
+                        put("bitmapExperimentRequested", true)
+                        put("bitmapWidthPx", bitmapWidth)
+                        put("bitmapHeightPx", bitmapHeight)
+                        put("finalTextLineCount", finalTextLineCount)
+                        put("finalTextCharLength", finalTextCharLength)
+                    }
+                }.onFailure { bitmapErr ->
+                    Log.w(TAG, "receipt_bitmap_experiment failed -> fallback_to_text reason=${bitmapErr.message ?: "unknown"}")
+                    callbackErrors.clear()
+                }
+            }
             Log.i(
                 TAG,
                 "receipt_path single_block_plain_text enabled=true asciiNormalized=$asciiNormalized topMarginLines=$topMarginLines bottomMarginLines=$bottomMarginLines blockLength=${finalReceiptBlock.length} trailingNewlinesBeforeTrim=$trailingNewlinesBeforeTrim trailingNewlinesTrimmed=$trailingNewlinesTrimmed trailingNewlinesInFinalBlock=$trailingNewlinesInFinalBlock finalBlockEndsWithNewline=$finalBlockEndsWithNewline",
@@ -696,6 +762,92 @@ class SunmiPrinterManager(private val context: Context) {
             put("message", message)
             if (!details.isNullOrBlank()) put("details", details)
         }
+    }
+
+    private fun buildReceiptBitmap(receiptText: String): Bitmap {
+        val targetWidthPx = 384
+        val horizontalPaddingPx = 16f
+        val topPaddingPx = 16f
+        val bottomPaddingPx = 48f
+        val lineSpacingExtraPx = 6f
+
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.BLACK
+            textSize = 26f
+            typeface = Typeface.MONOSPACE
+        }
+
+        val contentWidth = (targetWidthPx - horizontalPaddingPx * 2f).coerceAtLeast(120f)
+        val wrappedLines = wrapTextForBitmap(receiptText, paint, contentWidth)
+        val lineHeight = paint.fontSpacing + lineSpacingExtraPx
+        val bitmapHeight = (topPaddingPx + bottomPaddingPx + (wrappedLines.size * lineHeight)).toInt().coerceAtLeast(200)
+
+        val bitmap = Bitmap.createBitmap(targetWidthPx, bitmapHeight, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bitmap)
+        canvas.drawColor(Color.WHITE)
+
+        var y = topPaddingPx - paint.fontMetrics.ascent
+        for (line in wrappedLines) {
+            canvas.drawText(line, horizontalPaddingPx, y, paint)
+            y += lineHeight
+        }
+        return bitmap
+    }
+
+    private fun wrapTextForBitmap(text: String, paint: Paint, maxWidthPx: Float): List<String> {
+        val output = mutableListOf<String>()
+        val normalizedLines = text.replace("\r\n", "\n").split('\n')
+        for (rawLine in normalizedLines) {
+            val line = rawLine.ifBlank { " " }
+            if (paint.measureText(line) <= maxWidthPx) {
+                output += line
+                continue
+            }
+
+            val words = line.split(' ')
+            var current = ""
+            for (word in words) {
+                val candidate = if (current.isBlank()) word else "$current $word"
+                if (paint.measureText(candidate) <= maxWidthPx) {
+                    current = candidate
+                    continue
+                }
+
+                if (current.isNotBlank()) {
+                    output += current
+                }
+
+                if (paint.measureText(word) <= maxWidthPx) {
+                    current = word
+                } else {
+                    output += breakWordForBitmap(word, paint, maxWidthPx)
+                    current = ""
+                }
+            }
+
+            if (current.isNotBlank()) {
+                output += current
+            }
+        }
+        return output
+    }
+
+    private fun breakWordForBitmap(word: String, paint: Paint, maxWidthPx: Float): List<String> {
+        val chunks = mutableListOf<String>()
+        var current = ""
+        for (ch in word) {
+            val candidate = current + ch
+            if (paint.measureText(candidate) <= maxWidthPx) {
+                current = candidate
+            } else {
+                if (current.isNotBlank()) {
+                    chunks += current
+                }
+                current = ch.toString()
+            }
+        }
+        if (current.isNotBlank()) chunks += current
+        return if (chunks.isEmpty()) listOf(" ") else chunks
     }
 
     private fun firstNonBlank(vararg values: String?): String {

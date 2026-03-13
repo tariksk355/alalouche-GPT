@@ -221,6 +221,7 @@ export function buildPrintJobFromOrder(order, restaurant) {
     formattingHints: {
       paperWidth: '58mm',
       locale: 'fr-CH',
+      outputStrategy: 'bitmap_experiment',
     },
   };
 }
