@@ -313,12 +313,17 @@ class SunmiPrinterManager(private val context: Context) {
 
             val asciiReceiptText = toAsciiSafeReceiptText(renderedReceiptText)
             val asciiNormalized = asciiReceiptText != renderedReceiptText
+            val trailingNewlinesBeforeTrim = asciiReceiptText.reversed().takeWhile { it == '\n' }.length
+            val coreReceiptText = asciiReceiptText.trimEnd('\r', '\n')
+            val trailingNewlinesTrimmed = asciiReceiptText.length - coreReceiptText.length
             val topMarginLines = 2
-            val bottomMarginLines = 20
-            val finalReceiptBlock = "\n".repeat(topMarginLines) + asciiReceiptText.trimEnd('\r', '\n') + "\n".repeat(bottomMarginLines)
+            val bottomMarginLines = 36
+            val finalReceiptBlock = "\n".repeat(topMarginLines) + coreReceiptText + "\n".repeat(bottomMarginLines)
+            val trailingNewlinesInFinalBlock = finalReceiptBlock.reversed().takeWhile { it == '\n' }.length
+            val finalBlockEndsWithNewline = finalReceiptBlock.endsWith("\n")
             Log.i(
                 TAG,
-                "receipt_path single_block_plain_text enabled=true asciiNormalized=$asciiNormalized topMarginLines=$topMarginLines bottomMarginLines=$bottomMarginLines blockLength=${finalReceiptBlock.length}",
+                "receipt_path single_block_plain_text enabled=true asciiNormalized=$asciiNormalized topMarginLines=$topMarginLines bottomMarginLines=$bottomMarginLines blockLength=${finalReceiptBlock.length} trailingNewlinesBeforeTrim=$trailingNewlinesBeforeTrim trailingNewlinesTrimmed=$trailingNewlinesTrimmed trailingNewlinesInFinalBlock=$trailingNewlinesInFinalBlock finalBlockEndsWithNewline=$finalBlockEndsWithNewline",
             )
             val blockPreview = finalReceiptBlock
                 .replace("\r", "\\r")
@@ -367,7 +372,7 @@ class SunmiPrinterManager(private val context: Context) {
             val usesLineWrapPostFeed = false
             Log.i(
                 TAG,
-                "receipt_dispatch_plan operationCount=$dispatchOperationCount embeddedTrailingBlankLines=$bottomMarginLines separatePostFeedPrintText=$usesSeparatePostFeedPrintText separateLineWrapPostFeed=$usesLineWrapPostFeed",
+                "receipt_dispatch_plan operationCount=$dispatchOperationCount embeddedTrailingBlankLines=$bottomMarginLines separatePostFeedPrintText=$usesSeparatePostFeedPrintText separateLineWrapPostFeed=$usesLineWrapPostFeed trailingWhitespacePreservedBeforeDispatch=$finalBlockEndsWithNewline",
             )
 
             val mainStartAt = System.currentTimeMillis()
