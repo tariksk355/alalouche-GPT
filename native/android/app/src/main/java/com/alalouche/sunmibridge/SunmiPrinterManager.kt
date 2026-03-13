@@ -701,6 +701,9 @@ class SunmiPrinterManager(private val context: Context) {
             val finalFeedEnabled = true
             val finalFeedLineCount = 6
             val finalFeedPrimitive = if (finalFeedModeLineWrap) "lineWrap" else "raw_esc_d"
+            if (isSyntheticTextTest && finalFeedPrimitive != "raw_esc_d") {
+                Log.w(TAG, "synthetic_text_feed_invariant violated=true expected=raw_esc_d actual=$finalFeedPrimitive strategy=$strategyName")
+            }
             val fallbackFeedPrimitive = "lineWrap"
             val finalFeedReason = if (finalFeedModeLineWrap) "linewrap_selected_for_strategy" else "explicit_post_content_advance"
             val settleWaitMs = TEXT_PATH_SETTLE_WAIT_MS
@@ -791,6 +794,9 @@ class SunmiPrinterManager(private val context: Context) {
             )
             val operationSequence = if (finalFeedEnabled) "setAlignment->printText(${if (useSectionDispatch) "sections" else "single"})->${usedFeedPrimitive}" else "setAlignment->printText"
             Log.i(TAG, "receipt_operation_sequence sequence=$operationSequence operationCount=$dispatchOperationCount")
+            if (isSyntheticTextTest) {
+                Log.i(TAG, "synthetic_text_test_result_note strategy=$strategyName note=if_physical_ticket_incomplete_with_exact_logged_ascii_then_aidl_printText_is_unreliable_on_this_firmware")
+            }
             Log.i(
                 TAG,
                 "receipt_path mode=no_buffer_print_text_content completed_calls=${if (finalFeedEnabled) "setAlignment,printText,finalFeed" else "setAlignment,printText"} fontSizeStyling=skipped_v2s_compat strategy=$strategyName",
@@ -1268,7 +1274,7 @@ class SunmiPrinterManager(private val context: Context) {
         private const val BITMAP_SETTLE_WAIT_MS = 1500L
         private const val SECTION_INTER_DISPATCH_DELAY_MS = 120L
         // TEMP device-test override: force one strategy regardless of web payload.
-        private const val FORCE_OUTPUT_STRATEGY = "text_sections_left_rawfeed"
+        private const val FORCE_OUTPUT_STRATEGY = ""
         private const val BITMAP_CHUNK_LINES = 3
     }
 }
