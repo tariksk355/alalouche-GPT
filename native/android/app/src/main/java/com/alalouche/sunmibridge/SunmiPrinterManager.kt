@@ -333,8 +333,8 @@ class SunmiPrinterManager(private val context: Context) {
         val finalPhone = firstNonBlank(customerPhone, parsedNotes.phone)
         val finalAddress = firstNonBlank(customerAddress, parsedNotes.address)
 
-        if (orderNumber.isBlank() || lines.length() == 0) {
-            Log.e(TAG, "native printReceipt invalid payload orderNumber='$orderNumber' lines=${lines.length()}")
+        if (!syntheticTextTestRequested && (orderNumber.isBlank() || lines.length() == 0)) {
+            Log.e(TAG, "native printReceipt invalid payload orderNumber='$orderNumber' lines=${lines.length()} syntheticTest=$syntheticTextTestRequested")
             return fail("INVALID_PRINT_JOB_CONTENT", "printJob must include order number and at least one line item.")
         }
 
@@ -706,6 +706,12 @@ class SunmiPrinterManager(private val context: Context) {
             val settleWaitMs = TEXT_PATH_SETTLE_WAIT_MS
             val sectionTexts = if (useSectionDispatch) buildTextSections(dispatchTextCore) else listOf(finalReceiptBlockForStrategy(dispatchTextCore))
             val sectionCount = sectionTexts.size
+            if (isSyntheticTextTest) {
+                Log.i(TAG, "synthetic_text_dispatch_core_start\n$dispatchTextCore\nsynthetic_text_dispatch_core_end")
+                sectionTexts.forEachIndexed { secIdx, secText ->
+                    Log.i(TAG, "synthetic_text_dispatch_section_start section=$secIdx\n$secText\nsynthetic_text_dispatch_section_end section=$secIdx")
+                }
+            }
             val sectionLengthSummary = sectionTexts.mapIndexed { secIdx, sec -> "s$secIdx:${sec.length}" }.joinToString(",")
             val sectionGapSummary = if (useSectionDispatch) "section_gap_ms:$SECTION_INTER_DISPATCH_DELAY_MS" else "single_block:0"
             val alignment = if (leftAlignedDispatch) 0 else 1
