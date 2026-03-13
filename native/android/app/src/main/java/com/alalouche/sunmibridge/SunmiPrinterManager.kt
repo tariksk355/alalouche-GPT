@@ -99,6 +99,7 @@ class SunmiPrinterManager(private val context: Context) {
         }
 
         val printJob = printJobRoot.optJSONObject("printJob") ?: printJobRoot
+        val displayModel = printJob.optJSONObject("displayModel")
 
         val serviceBound = ensureServiceBound(2000)
         val service = printerService
@@ -157,6 +158,7 @@ class SunmiPrinterManager(private val context: Context) {
             Log.i(TAG, "printReceipt attempt order=$orderNumber lines=${lines.length()}")
             val renderedLines = mutableListOf<String>()
             val callbackErrors = mutableListOf<String>()
+            Log.i(TAG, "runtime_path ui_click->printAcceptedOrder->toPrintJob->printerAdapter->SunmiBridge->SunmiPrinterManager.printReceipt")
 
             fun callbackFor(op: String): ICallback {
                 return object : ICallback.Stub() {
@@ -180,6 +182,10 @@ class SunmiPrinterManager(private val context: Context) {
                 renderedLines += line
             }
 
+            val displayModelReceiptLines = displayModel?.optJSONArray("receiptLines")
+            val useDisplayModel = displayModelReceiptLines != null && displayModelReceiptLines.length() > 0
+            Log.i(TAG, "display_model_usage printed_from_display_model=${printJob.optBoolean("printed_from_display_model", false)} useDisplayModel=$useDisplayModel")
+
             // IMPORTANT: no printerInit() and no buffer enter/exit in live receipt flow.
             // Some Sunmi V2s firmware/service paths are unstable with enterPrinterBuffer(...)
             // and can fail before any printText reaches paper.
@@ -191,93 +197,100 @@ class SunmiPrinterManager(private val context: Context) {
             Log.i(TAG, "low_level_call setAlignment alignment=1")
             service.setAlignment(1, callbackFor("setAlignment"))
             Log.i(TAG, "receipt_style fontSize skipped reason=v2s_illegal_parameter")
-            val restaurantName = firstNonBlank(restaurant.optString("name"), printJob.optString("restaurantName"))
-            if (restaurantName.isNotBlank()) {
-                pushRenderedLine(restaurantName)
-            }
-            Log.i(TAG, "low_level_call setAlignment alignment=0")
-            service.setAlignment(0, callbackFor("setAlignment"))
-            pushRenderedLine("Order: $orderNumber")
-            if (orderType.isNotBlank()) {
-                pushRenderedLine("Type: $orderType")
-            }
-            if (paymentMethod.isNotBlank()) {
-                pushRenderedLine("Paiement: $paymentMethod")
-            }
-            if (customerName.isNotBlank()) {
-                pushRenderedLine("Client: $customerName")
-            }
-            if (finalPhone.isNotBlank()) {
-                pushRenderedLine("Tel: $finalPhone")
-            }
-            if (finalAddress.isNotBlank()) {
-                pushRenderedLine("Adresse: $finalAddress")
-            }
-            val formattedCreatedAt = formatTicketDateTime(createdAt)
-            if (formattedCreatedAt.isNotBlank()) {
-                pushRenderedLine("Date/Heure: $formattedCreatedAt")
-            }
-            if (customerTotalOrderCount > 0) {
-                pushRenderedLine("Historique client: $customerTotalOrderCount commande(s)")
-            }
-            pushRenderedLine("------------------------------")
-
-            for (i in 0 until lines.length()) {
-                val item = lines.optJSONObject(i) ?: continue
-                val quantity = item.optInt("quantity", 1)
-                val name = firstNonBlank(item.optString("name"), item.optString("title"), "Article")
-                val totalPrice = when {
-                    item.has("totalPrice") -> item.optDouble("totalPrice", 0.0)
-                    item.has("total_price") -> item.optDouble("total_price", 0.0)
-                    item.has("lineTotal") -> item.optDouble("lineTotal", 0.0)
-                    item.has("line_total") -> item.optDouble("line_total", 0.0)
-                    item.has("price") -> item.optDouble("price", 0.0) * quantity
-                    item.has("unitPrice") -> item.optDouble("unitPrice", 0.0) * quantity
-                    item.has("unit_price") -> item.optDouble("unit_price", 0.0) * quantity
-                    else -> Double.NaN
+            if (useDisplayModel) {
+                for (i in 0 until displayModelReceiptLines!!.length()) {
+                    val line = displayModelReceiptLines.optString(i)
+                    if (line.isNotBlank()) pushRenderedLine(line)
                 }
-
-                val lineText = if (!totalPrice.isNaN()) {
-                    "$quantity x $name  ${"%.2f".format(totalPrice)}"
-                } else {
-                    "$quantity x $name"
+            } else {
+                val restaurantName = firstNonBlank(restaurant.optString("name"), printJob.optString("restaurantName"))
+                if (restaurantName.isNotBlank()) {
+                    pushRenderedLine(restaurantName)
                 }
-                pushRenderedLine(lineText)
+                Log.i(TAG, "low_level_call setAlignment alignment=0")
+                service.setAlignment(0, callbackFor("setAlignment"))
+                pushRenderedLine("Order: $orderNumber")
+                if (orderType.isNotBlank()) {
+                    pushRenderedLine("Type: $orderType")
+                }
+                if (paymentMethod.isNotBlank()) {
+                    pushRenderedLine("Paiement: $paymentMethod")
+                }
+                if (customerName.isNotBlank()) {
+                    pushRenderedLine("Client: $customerName")
+                }
+                if (finalPhone.isNotBlank()) {
+                    pushRenderedLine("Tel: $finalPhone")
+                }
+                if (finalAddress.isNotBlank()) {
+                    pushRenderedLine("Adresse: $finalAddress")
+                }
+                val formattedCreatedAt = formatTicketDateTime(createdAt)
+                if (formattedCreatedAt.isNotBlank()) {
+                    pushRenderedLine("Date/Heure: $formattedCreatedAt")
+                }
+                if (customerTotalOrderCount > 0) {
+                    pushRenderedLine("Historique client: $customerTotalOrderCount commande(s)")
+                }
+                pushRenderedLine("------------------------------")
 
-                val modifiers = item.optJSONArray("modifiers")
-                if (modifiers != null && modifiers.length() > 0) {
-                    for (j in 0 until modifiers.length()) {
-                        val modifier = modifiers.optString(j)
-                        if (modifier.isNotBlank()) {
-                            pushRenderedLine("  + $modifier")
+                for (i in 0 until lines.length()) {
+                    val item = lines.optJSONObject(i) ?: continue
+                    val quantity = item.optInt("quantity", 1)
+                    val name = firstNonBlank(item.optString("name"), item.optString("title"), "Article")
+                    val totalPrice = when {
+                        item.has("totalPrice") -> item.optDouble("totalPrice", 0.0)
+                        item.has("total_price") -> item.optDouble("total_price", 0.0)
+                        item.has("lineTotal") -> item.optDouble("lineTotal", 0.0)
+                        item.has("line_total") -> item.optDouble("line_total", 0.0)
+                        item.has("price") -> item.optDouble("price", 0.0) * quantity
+                        item.has("unitPrice") -> item.optDouble("unitPrice", 0.0) * quantity
+                        item.has("unit_price") -> item.optDouble("unit_price", 0.0) * quantity
+                        else -> Double.NaN
+                    }
+
+                    val lineText = if (!totalPrice.isNaN()) {
+                        "$quantity x $name  ${"%.2f".format(totalPrice)}"
+                    } else {
+                        "$quantity x $name"
+                    }
+                    pushRenderedLine(lineText)
+
+                    val modifiers = item.optJSONArray("modifiers")
+                    if (modifiers != null && modifiers.length() > 0) {
+                        for (j in 0 until modifiers.length()) {
+                            val modifier = modifiers.optString(j)
+                            if (modifier.isNotBlank()) {
+                                pushRenderedLine("  + $modifier")
+                            }
                         }
+                    }
+
+                    val itemNote = firstNonBlank(item.optString("note"), item.optString("notes"))
+                    if (itemNote.isNotBlank()) {
+                        pushRenderedLine("  note: $itemNote")
                     }
                 }
 
-                val itemNote = firstNonBlank(item.optString("note"), item.optString("notes"))
-                if (itemNote.isNotBlank()) {
-                    pushRenderedLine("  note: $itemNote")
+                pushRenderedLine("------------------------------")
+                val hasTotalsObject = totals != null && totals.has("total")
+                val total = when {
+                    hasTotalsObject -> totals!!.optDouble("total", 0.0)
+                    !totalAmountFallback.isNaN() -> totalAmountFallback
+                    else -> Double.NaN
                 }
-            }
+                if (!total.isNaN()) {
+                    val currency = if (hasTotalsObject) totals!!.optString("currency", "CHF") else "CHF"
+                    Log.i(TAG, "low_level_call setAlignment alignment=2")
+                    service.setAlignment(2, callbackFor("setAlignment"))
+                    pushRenderedLine("TOTAL: ${"%.2f".format(total)} $currency")
+                    Log.i(TAG, "low_level_call setAlignment alignment=0")
+                    service.setAlignment(0, callbackFor("setAlignment"))
+                }
 
-            pushRenderedLine("------------------------------")
-            val hasTotalsObject = totals != null && totals.has("total")
-            val total = when {
-                hasTotalsObject -> totals!!.optDouble("total", 0.0)
-                !totalAmountFallback.isNaN() -> totalAmountFallback
-                else -> Double.NaN
-            }
-            if (!total.isNaN()) {
-                val currency = if (hasTotalsObject) totals!!.optString("currency", "CHF") else "CHF"
-                Log.i(TAG, "low_level_call setAlignment alignment=2")
-                service.setAlignment(2, callbackFor("setAlignment"))
-                pushRenderedLine("TOTAL: ${"%.2f".format(total)} $currency")
-                Log.i(TAG, "low_level_call setAlignment alignment=0")
-                service.setAlignment(0, callbackFor("setAlignment"))
-            }
-
-            if (parsedNotes.extraNote.isNotBlank()) {
-                pushRenderedLine("Notes: ${parsedNotes.extraNote}")
+                if (parsedNotes.extraNote.isNotBlank()) {
+                    pushRenderedLine("Notes: ${parsedNotes.extraNote}")
+                }
             }
 
             val renderedReceiptText = renderedLines.joinToString("\n")
@@ -354,14 +367,21 @@ class SunmiPrinterManager(private val context: Context) {
                 service.printText(finalReceiptBlock, callback)
             }
 
-            val explicitPostFeedLines = 18
-            Log.i(TAG, "low_level_call lineWrap explicit_post_print_feed_lines=$explicitPostFeedLines")
+            val explicitPostFeedTextLines = 20
+            val postFeedText = "\n".repeat(explicitPostFeedTextLines)
+            Log.i(TAG, "low_level_call printText post_feed_primitive=printText newline_count=$explicitPostFeedTextLines")
+            runAndAwait("printTextPostFeed") { callback ->
+                service.printText(postFeedText, callback)
+            }
+
+            val lineWrapPostFeedLines = 6
+            Log.i(TAG, "low_level_call lineWrap post_feed_primitive=lineWrap line_count=$lineWrapPostFeedLines")
             runAndAwait("lineWrapPostPrint") { callback ->
-                service.lineWrap(explicitPostFeedLines, callback)
+                service.lineWrap(lineWrapPostFeedLines, callback)
             }
             Log.i(
                 TAG,
-                "receipt_path mode=no_buffer_live_text completed_calls=setAlignment,printTextSingleBlock,lineWrapPostPrint fontSizeStyling=skipped_v2s_compat",
+                "receipt_path mode=no_buffer_live_text completed_calls=setAlignment,printTextSingleBlock,printTextPostFeed,lineWrapPostPrint fontSizeStyling=skipped_v2s_compat",
             )
 
             if (callbackErrors.isNotEmpty()) {
