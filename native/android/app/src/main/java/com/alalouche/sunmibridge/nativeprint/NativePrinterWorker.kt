@@ -473,7 +473,7 @@ class SunmiNativePrinterWorker(
         } else {
             "printerInit->setAlignment->printText->lineWrap(1)->printText->lineWrap(final)->sendRAWData"
         }
-        Log.i(TAG, "native_print_vendor_parity_summary commandId=${job.commandId} orderId=${job.orderId ?: ""} mode=${config.vendorParityMode} finalSpacingLines=${config.vendorParityFinalSpacingLines} dispatchDelayMs=${config.vendorParityDispatchDelayMs} finalSettleMs=${config.vendorParityFinalSettleMs} finalSpacingLines=$finalSpacingLines primitiveSequence=$sequence")
+        Log.i(TAG, "native_print_vendor_parity_summary commandId=${job.commandId} orderId=${job.orderId ?: ""} mode=${config.vendorParityMode} finalSpacingLines=${config.vendorParityFinalSpacingLines} dispatchDelayMs=${config.vendorParityDispatchDelayMs} finalSettleMs=${config.vendorParityFinalSettleMs} primitiveSequence=$sequence")
         return sequence
     }
 
