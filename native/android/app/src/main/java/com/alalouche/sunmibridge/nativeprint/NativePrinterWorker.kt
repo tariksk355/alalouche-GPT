@@ -138,21 +138,30 @@ class SunmiNativePrinterWorker(
             Log.i(TAG, "native_print_dispatch_adapter_enter commandId=${job.commandId} orderId=${job.orderId ?: ""} sourceJobId=${job.sourceJobId ?: ""}")
             Log.i(TAG, "native_print_dispatch_adapter_selected commandId=${job.commandId} orderId=${job.orderId ?: ""} sourceJobId=${job.sourceJobId ?: ""} selectedFamily=${selectedFamily ?: ""}")
 
-            val rendered = renderPrintableText(job)
-            logRenderedText(job, rendered)
-
             val fidelityConfig = parsePhysicalFidelityConfig(job)
             Log.i(
                 TAG,
                 "native_print_strategy_selected commandId=${job.commandId} orderId=${job.orderId ?: ""} sourceJobId=${job.sourceJobId ?: ""} strategy=${strategyName(fidelityConfig.strategy)} dispatchDelayMs=${fidelityConfig.dispatchDelayMs} finalSettleMs=${fidelityConfig.finalSettleMs} asciiSafeMode=${fidelityConfig.asciiSafeMode} perLineWrap=${fidelityConfig.perLineWrap} perSectionExtraWrap=${fidelityConfig.perSectionExtraWrap} finalTicketSpacingLines=${fidelityConfig.finalTicketSpacingLines} addEndDivider=${fidelityConfig.addEndDivider} bitmapSegmentedMode=${fidelityConfig.bitmapSegmentedMode}",
             )
 
+            val renderedTextForDispatch = if (fidelityConfig.strategy == PhysicalFidelityStrategy.BITMAP_SMOKE_TEST_MINIMAL_BLOCKS) {
+                Log.i(
+                    TAG,
+                    "native_print_smoke_test_render_bypass commandId=${job.commandId} orderId=${job.orderId ?: ""} sourceJobId=${job.sourceJobId ?: ""} strategy=${strategyName(fidelityConfig.strategy)} bypassRealPayloadRender=true",
+                )
+                ""
+            } else {
+                val rendered = renderPrintableText(job)
+                logRenderedText(job, rendered)
+                rendered.text
+            }
+
             val callbackErrors = mutableListOf<String>()
             val dispatchStartMs = System.currentTimeMillis()
             val lowLevelSummary = executeRealLowLevelPrint(
                 service = session.service,
                 job = job,
-                renderedText = rendered.text,
+                renderedText = renderedTextForDispatch,
                 fidelityConfig = fidelityConfig,
                 callbackErrors = callbackErrors,
                 dispatchStartMs = dispatchStartMs,
@@ -263,7 +272,7 @@ class SunmiNativePrinterWorker(
             "line_by_line_text_with_explicit_linewrap_ascii" -> PhysicalFidelityStrategy.LINE_BY_LINE_TEXT_WITH_EXPLICIT_LINEWRAP_ASCII
             "line_by_line_ascii_explicit_linewrap_with_ticket_spacing" -> PhysicalFidelityStrategy.LINE_BY_LINE_ASCII_EXPLICIT_LINEWRAP_WITH_TICKET_SPACING
             "grouped_small_blocks" -> PhysicalFidelityStrategy.GROUPED_SMALL_BLOCKS
-            else -> if (bitmapSegmentedMode) PhysicalFidelityStrategy.BITMAP_RECEIPT_SEGMENTED_BLOCKS else DEFAULT_ACTIVE_STRATEGY
+            else -> DEFAULT_ACTIVE_STRATEGY
         }
 
         return PhysicalFidelityConfig(
@@ -824,7 +833,7 @@ class SunmiNativePrinterWorker(
 
     companion object {
         private const val TAG = "NativePrinterWorker"
-        private val DEFAULT_ACTIVE_STRATEGY = PhysicalFidelityStrategy.BITMAP_RECEIPT_SEGMENTED_BLOCKS
+        private val DEFAULT_ACTIVE_STRATEGY = PhysicalFidelityStrategy.BITMAP_SMOKE_TEST_MINIMAL_BLOCKS
         private const val DEFAULT_BITMAP_WIDTH_PX = 384
         private const val MAX_SINGLE_BITMAP_HEIGHT_PX = 2600
         private const val DEFAULT_LINE_DELAY_MS = 35L
