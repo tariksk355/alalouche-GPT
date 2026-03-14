@@ -1173,8 +1173,7 @@ class SunmiNativePrinterWorker(
                     service.lineWrap(1, callbackFor(job, "textVendorParityUnbuffered_gap_$idx", callbackErrors, dispatchStartMs))
                 }
             }
-            val payload = normalized + "
-"
+            val payload = normalized + "\n"
             Log.i(TAG, "native_print_text_vendor_parity_unbuffered_print_before commandId=${job.commandId} orderId=${job.orderId ?: ""} lineIndex=$idx section=${line.section.name} payloadLength=${payload.length} text=${normalized}")
             callPrinterPrimitive(job, "printText", detail = "textVendorParityUnbuffered lineIndex=$idx payloadLength=${payload.length}") {
                 service.printText(payload, callbackFor(job, "textVendorParityUnbuffered_printText_$idx", callbackErrors, dispatchStartMs))
