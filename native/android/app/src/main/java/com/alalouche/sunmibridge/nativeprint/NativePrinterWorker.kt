@@ -26,6 +26,7 @@ private enum class PhysicalFidelityStrategy {
     BITMAP_RECEIPT_SINGLE_IMAGE,
     BITMAP_RECEIPT_SEGMENTED_BLOCKS,
     BITMAP_SMOKE_TEST_MINIMAL_BLOCKS,
+    VENDOR_PARITY_WOYOU_MINIMAL_TEST,
     GROUPED_SMALL_BLOCKS,
 }
 
@@ -71,6 +72,10 @@ private data class PhysicalFidelityConfig(
     val smokeTestLineHeightPx: Int,
     val smokeTestInterBlockSpacingLines: Int,
     val smokeTestFinalSpacingLines: Int,
+    val vendorParityMode: String,
+    val vendorParityFinalSpacingLines: Int,
+    val vendorParityDispatchDelayMs: Int,
+    val vendorParityFinalSettleMs: Int,
 )
 
 private data class SectionLine(
@@ -114,6 +119,8 @@ class SunmiNativePrinterWorker(
     override fun dispatch(job: NativePrintJobEntity): NativeDispatchReport {
         val session = connector.connect(job.commandId, job.orderId, job.sourceJobId)
         val selectedFamily = session.selectedFamily?.familyName
+        val selectedPackage = session.selectedFamily?.packageName
+        val selectedAction = session.selectedFamily?.action
         if (session.service == null) {
             val code = session.failureCode ?: "NATIVE_PRINT_SERVICE_INTERFACE_UNAVAILABLE"
             val retryable = code != "NATIVE_PRINT_SERVICE_FAMILY_NOT_FOUND"
@@ -141,10 +148,10 @@ class SunmiNativePrinterWorker(
             val fidelityConfig = parsePhysicalFidelityConfig(job)
             Log.i(
                 TAG,
-                "native_print_strategy_selected commandId=${job.commandId} orderId=${job.orderId ?: ""} sourceJobId=${job.sourceJobId ?: ""} strategy=${strategyName(fidelityConfig.strategy)} dispatchDelayMs=${fidelityConfig.dispatchDelayMs} finalSettleMs=${fidelityConfig.finalSettleMs} asciiSafeMode=${fidelityConfig.asciiSafeMode} perLineWrap=${fidelityConfig.perLineWrap} perSectionExtraWrap=${fidelityConfig.perSectionExtraWrap} finalTicketSpacingLines=${fidelityConfig.finalTicketSpacingLines} addEndDivider=${fidelityConfig.addEndDivider} bitmapSegmentedMode=${fidelityConfig.bitmapSegmentedMode}",
+                "native_print_strategy_selected commandId=${job.commandId} orderId=${job.orderId ?: ""} sourceJobId=${job.sourceJobId ?: ""} strategy=${strategyName(fidelityConfig.strategy)} dispatchDelayMs=${fidelityConfig.dispatchDelayMs} finalSettleMs=${fidelityConfig.finalSettleMs} asciiSafeMode=${fidelityConfig.asciiSafeMode} perLineWrap=${fidelityConfig.perLineWrap} perSectionExtraWrap=${fidelityConfig.perSectionExtraWrap} finalTicketSpacingLines=${fidelityConfig.finalTicketSpacingLines} addEndDivider=${fidelityConfig.addEndDivider} bitmapSegmentedMode=${fidelityConfig.bitmapSegmentedMode} selectedFamily=${selectedFamily ?: ""} packageName=${selectedPackage ?: ""} action=${selectedAction ?: ""}",
             )
 
-            val renderedTextForDispatch = if (fidelityConfig.strategy == PhysicalFidelityStrategy.BITMAP_SMOKE_TEST_MINIMAL_BLOCKS) {
+            val renderedTextForDispatch = if (fidelityConfig.strategy == PhysicalFidelityStrategy.BITMAP_SMOKE_TEST_MINIMAL_BLOCKS || fidelityConfig.strategy == PhysicalFidelityStrategy.VENDOR_PARITY_WOYOU_MINIMAL_TEST) {
                 Log.i(
                     TAG,
                     "native_print_smoke_test_render_bypass commandId=${job.commandId} orderId=${job.orderId ?: ""} sourceJobId=${job.sourceJobId ?: ""} strategy=${strategyName(fidelityConfig.strategy)} bypassRealPayloadRender=true",
@@ -267,6 +274,7 @@ class SunmiNativePrinterWorker(
             "bitmap_receipt_single_image" -> PhysicalFidelityStrategy.BITMAP_RECEIPT_SINGLE_IMAGE
             "bitmap_receipt_segmented_blocks" -> PhysicalFidelityStrategy.BITMAP_RECEIPT_SEGMENTED_BLOCKS
             "bitmap_smoke_test_minimal_blocks" -> PhysicalFidelityStrategy.BITMAP_SMOKE_TEST_MINIMAL_BLOCKS
+            "vendor_parity_woyou_minimal_test" -> PhysicalFidelityStrategy.VENDOR_PARITY_WOYOU_MINIMAL_TEST
             "line_by_line_text_with_delay" -> PhysicalFidelityStrategy.LINE_BY_LINE_TEXT_WITH_DELAY
             "line_by_line_text_with_explicit_linewrap" -> PhysicalFidelityStrategy.LINE_BY_LINE_TEXT_WITH_EXPLICIT_LINEWRAP
             "line_by_line_text_with_explicit_linewrap_ascii" -> PhysicalFidelityStrategy.LINE_BY_LINE_TEXT_WITH_EXPLICIT_LINEWRAP_ASCII
@@ -302,6 +310,10 @@ class SunmiNativePrinterWorker(
             smokeTestLineHeightPx = (hints?.optInt("smokeTestLineHeightPx", 36) ?: 36).coerceIn(20, 64),
             smokeTestInterBlockSpacingLines = (hints?.optInt("smokeTestInterBlockSpacingLines", 5) ?: 5).coerceIn(1, 10),
             smokeTestFinalSpacingLines = (hints?.optInt("smokeTestFinalSpacingLines", 6) ?: 6).coerceIn(1, 12),
+            vendorParityMode = hints?.optString("vendorParityMode", "text")?.lowercase()?.let { if (it == "bitmap") "bitmap" else "text" } ?: "text",
+            vendorParityFinalSpacingLines = (hints?.optInt("vendorParityFinalSpacingLines", 4) ?: 4).coerceIn(1, 12),
+            vendorParityDispatchDelayMs = (hints?.optInt("vendorParityDispatchDelayMs", 35) ?: 35).coerceIn(0, 400),
+            vendorParityFinalSettleMs = (hints?.optInt("vendorParityFinalSettleMs", 150) ?: 150).coerceIn(0, 1000),
         )
     }
 
@@ -328,9 +340,76 @@ class SunmiNativePrinterWorker(
             PhysicalFidelityStrategy.BITMAP_RECEIPT_SEGMENTED_BLOCKS,
             PhysicalFidelityStrategy.BITMAP_SMOKE_TEST_MINIMAL_BLOCKS,
             -> executeBitmapStrategies(service, job, sectionLines, fidelityConfig, callbackErrors, dispatchStartMs)
+            PhysicalFidelityStrategy.VENDOR_PARITY_WOYOU_MINIMAL_TEST -> executeVendorParityWoyouMinimalTest(service, job, fidelityConfig, callbackErrors, dispatchStartMs)
 
             else -> executeTextStrategies(service, job, sectionLines, fidelityConfig, callbackErrors, dispatchStartMs)
         }
+    }
+
+    private fun executeVendorParityWoyouMinimalTest(
+        service: IWoyouService,
+        job: NativePrintJobEntity,
+        config: PhysicalFidelityConfig,
+        callbackErrors: MutableList<String>,
+        dispatchStartMs: Long,
+    ): String {
+        Log.i(TAG, "native_print_vendor_parity_selected commandId=${job.commandId} orderId=${job.orderId ?: ""} sourceJobId=${job.sourceJobId ?: ""} strategy=vendor_parity_woyou_minimal_test")
+        Log.i(TAG, "native_print_vendor_parity_mode commandId=${job.commandId} orderId=${job.orderId ?: ""} mode=${config.vendorParityMode}")
+        Log.i(TAG, "native_print_vendor_parity_service_info commandId=${job.commandId} orderId=${job.orderId ?: ""} selectedFamily=woyou_legacy_packaged packageName=woyou.aidlservice.jiuiv5 interfaceAction=woyou.aidlservice.jiuiv5.IWoyouService")
+
+        callPrinterPrimitive(job, "setAlignment", detail = "vendorParity value=0") {
+            service.setAlignment(0, callbackFor(job, "vendorParity_setAlignment", callbackErrors, dispatchStartMs))
+        }
+
+        if (config.vendorParityMode == "bitmap") {
+            val render = renderSmokeBitmapBlock(listOf("WOYOU TEST B", "0987654321"), config)
+            Log.i(TAG, "native_print_vendor_parity_bitmap_dimensions commandId=${job.commandId} orderId=${job.orderId ?: ""} widthPx=${render.widthPx} heightPx=${render.heightPx} lineCount=${render.lineCount}")
+            Log.i(TAG, "native_print_vendor_parity_step commandId=${job.commandId} orderId=${job.orderId ?: ""} step=printBitmap")
+            callPrinterPrimitive(job, "printBitmap", detail = "vendorParity bitmap width=${render.widthPx} height=${render.heightPx}") {
+                service.printBitmap(render.bitmap, callbackFor(job, "vendorParity_printBitmap", callbackErrors, dispatchStartMs))
+            }
+            render.bitmap.recycle()
+        } else {
+            Log.i(TAG, "native_print_vendor_parity_step commandId=${job.commandId} orderId=${job.orderId ?: ""} step=printText_1")
+            Log.i(TAG, "native_print_vendor_parity_text_payload commandId=${job.commandId} orderId=${job.orderId ?: ""} payload=WOYOU TEST A payloadLength=12")
+            callPrinterPrimitive(job, "printText", detail = "vendorParity payloadLength=12") {
+                service.printText("WOYOU TEST A", callbackFor(job, "vendorParity_printText_1", callbackErrors, dispatchStartMs))
+            }
+            Log.i(TAG, "native_print_vendor_parity_step commandId=${job.commandId} orderId=${job.orderId ?: ""} step=lineWrap_1")
+            callPrinterPrimitive(job, "lineWrap", detail = "vendorParity lines=1") {
+                service.lineWrap(1, callbackFor(job, "vendorParity_lineWrap_1", callbackErrors, dispatchStartMs))
+            }
+
+            sleepAfterDispatch(job, 0, config.vendorParityDispatchDelayMs.toLong())
+
+            Log.i(TAG, "native_print_vendor_parity_step commandId=${job.commandId} orderId=${job.orderId ?: ""} step=printText_2")
+            Log.i(TAG, "native_print_vendor_parity_text_payload commandId=${job.commandId} orderId=${job.orderId ?: ""} payload=1234567890 payloadLength=10")
+            callPrinterPrimitive(job, "printText", detail = "vendorParity payloadLength=10") {
+                service.printText("1234567890", callbackFor(job, "vendorParity_printText_2", callbackErrors, dispatchStartMs))
+            }
+        }
+
+        Log.i(TAG, "native_print_vendor_parity_spacing commandId=${job.commandId} orderId=${job.orderId ?: ""} requestedLines=${config.vendorParityFinalSpacingLines}")
+        callPrinterPrimitive(job, "lineWrap", detail = "vendorParity finalSpacing lines=${config.vendorParityFinalSpacingLines}") {
+            service.lineWrap(config.vendorParityFinalSpacingLines, callbackFor(job, "vendorParity_lineWrap_final", callbackErrors, dispatchStartMs))
+        }
+
+        if (config.vendorParityFinalSettleMs > 0) {
+            runCatching { Thread.sleep(config.vendorParityFinalSettleMs.toLong()) }
+        }
+
+        val rawFeed = byteArrayOf(0x1B, 0x64, 0x03)
+        callPrinterPrimitive(job, "sendRAWData", detail = "vendorParity bytes=${rawFeed.size}") {
+            service.sendRAWData(rawFeed, callbackFor(job, "vendorParity_sendRaw", callbackErrors, dispatchStartMs))
+        }
+
+        val sequence = if (config.vendorParityMode == "bitmap") {
+            "printerInit->setAlignment->printBitmap(tiny)->lineWrap(final)->sendRAWData"
+        } else {
+            "printerInit->setAlignment->printText->lineWrap(1)->printText->lineWrap(final)->sendRAWData"
+        }
+        Log.i(TAG, "native_print_vendor_parity_summary commandId=${job.commandId} orderId=${job.orderId ?: ""} mode=${config.vendorParityMode} finalSpacingLines=${config.vendorParityFinalSpacingLines} dispatchDelayMs=${config.vendorParityDispatchDelayMs} finalSettleMs=${config.vendorParityFinalSettleMs} primitiveSequence=$sequence")
+        return sequence
     }
 
     private fun executeBitmapStrategies(
@@ -750,6 +829,7 @@ class SunmiNativePrinterWorker(
             PhysicalFidelityStrategy.BITMAP_RECEIPT_SINGLE_IMAGE -> "bitmap_receipt_single_image"
             PhysicalFidelityStrategy.BITMAP_RECEIPT_SEGMENTED_BLOCKS -> "bitmap_receipt_segmented_blocks"
             PhysicalFidelityStrategy.BITMAP_SMOKE_TEST_MINIMAL_BLOCKS -> "bitmap_smoke_test_minimal_blocks"
+            PhysicalFidelityStrategy.VENDOR_PARITY_WOYOU_MINIMAL_TEST -> "vendor_parity_woyou_minimal_test"
             PhysicalFidelityStrategy.GROUPED_SMALL_BLOCKS -> "grouped_small_blocks"
         }
     }
@@ -833,7 +913,7 @@ class SunmiNativePrinterWorker(
 
     companion object {
         private const val TAG = "NativePrinterWorker"
-        private val DEFAULT_ACTIVE_STRATEGY = PhysicalFidelityStrategy.BITMAP_SMOKE_TEST_MINIMAL_BLOCKS
+        private val DEFAULT_ACTIVE_STRATEGY = PhysicalFidelityStrategy.VENDOR_PARITY_WOYOU_MINIMAL_TEST
         private const val DEFAULT_BITMAP_WIDTH_PX = 384
         private const val MAX_SINGLE_BITMAP_HEIGHT_PX = 2600
         private const val DEFAULT_LINE_DELAY_MS = 35L
