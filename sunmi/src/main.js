@@ -90,14 +90,45 @@ function resolveForcedOutputStrategy() {
   return '';
 }
 
+function resolveOneOrderDiagnosticStrategy() {
+  const key = '__SUNMI_ONE_ORDER_DIAGNOSTIC_STRATEGY__';
+  const candidate = window[key];
+  if (typeof candidate === 'string' && candidate.trim()) {
+    const value = candidate.trim();
+    window[key] = '';
+    return value;
+  }
+  if (candidate === true) {
+    window[key] = false;
+    return 'direct_self_check_then_minimal_text';
+  }
+  return '';
+}
+
 function applyOutputStrategyOverride(printJob) {
-  const forced = resolveForcedOutputStrategy();
+  const forcedOneOrder = resolveOneOrderDiagnosticStrategy();
+  const forcedGlobal = resolveForcedOutputStrategy();
+  const forced = forcedOneOrder || forcedGlobal;
   if (!printJob || typeof printJob !== 'object') return { printJob, outputStrategy: '' };
 
   const currentHints = (printJob.formattingHints && typeof printJob.formattingHints === 'object') ? printJob.formattingHints : {};
+  const currentForce = typeof printJob.forceOutputStrategy === 'string' ? printJob.forceOutputStrategy.trim() : '';
+  const currentTopLevelOutput = typeof printJob.outputStrategy === 'string' ? printJob.outputStrategy.trim() : '';
+  const currentTopLevelNative = typeof printJob.nativePrintStrategy === 'string' ? printJob.nativePrintStrategy.trim() : '';
   const currentNativeHint = typeof currentHints.nativePrintStrategy === 'string' ? currentHints.nativePrintStrategy.trim() : '';
   const fromPayload = typeof currentHints.outputStrategy === 'string' ? currentHints.outputStrategy.trim() : '';
-  const outputStrategy = forced || fromPayload || currentNativeHint;
+  const outputStrategy = forced || currentForce || fromPayload || currentNativeHint || currentTopLevelOutput || currentTopLevelNative;
+
+  debugLog('print_strategy_before_normalization_json', JSON.stringify({
+    forcedOneOrder,
+    forcedGlobal,
+    forcedEffective: forced,
+    currentForce,
+    currentTopLevelOutput,
+    currentTopLevelNative,
+    formattingHintsOutputStrategy: fromPayload,
+    formattingHintsNativePrintStrategy: currentNativeHint,
+  }));
 
   if (!outputStrategy) {
     return { printJob: { ...printJob, formattingHints: { ...currentHints } }, outputStrategy: '' };
@@ -117,7 +148,16 @@ function applyOutputStrategyOverride(printJob) {
 
   if (forced) {
     nextPrintJob.forceOutputStrategy = outputStrategy;
+  } else if (currentForce) {
+    nextPrintJob.forceOutputStrategy = currentForce;
   }
+
+  debugLog('print_strategy_after_normalization_json', JSON.stringify({
+    outputStrategyTopLevel: nextPrintJob.outputStrategy || '',
+    forceOutputStrategy: nextPrintJob.forceOutputStrategy || '',
+    'formattingHints.outputStrategy': nextPrintJob.formattingHints?.outputStrategy || '',
+    'formattingHints.nativePrintStrategy': nextPrintJob.formattingHints?.nativePrintStrategy || '',
+  }));
 
   return {
     printJob: nextPrintJob,
