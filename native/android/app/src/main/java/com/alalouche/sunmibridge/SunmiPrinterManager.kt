@@ -283,6 +283,10 @@ class SunmiPrinterManager(private val context: Context) {
         val bitmapTest3LinesChunkedRequested = requestedOutputStrategy == "bitmap_test_3lines_chunked"
         val bitmapTest10LinesChunkedRequested = requestedOutputStrategy == "bitmap_test_10lines_chunked"
         val bitmapTest3LinesChunkedMonoRequested = requestedOutputStrategy == "bitmap_test_3lines_chunked_mono"
+        val officialParitySyntheticTextRequested = requestedOutputStrategy == "official_parity_synth_text"
+        val officialParitySyntheticBitmapRequested = requestedOutputStrategy == "official_parity_synth_bitmap"
+        val officialParityReceiptRequested = requestedOutputStrategy == "official_parity_receipt"
+        val officialParityRequested = officialParitySyntheticTextRequested || officialParitySyntheticBitmapRequested || officialParityReceiptRequested
         val syntheticTextTestRequested = requestedOutputStrategy.startsWith("text_test_")
         val knownTextStrategies = setOf(
             "",
@@ -305,6 +309,7 @@ class SunmiPrinterManager(private val context: Context) {
             "text_test_10lines_sections_rawfeed",
         )
         val knownBitmapStrategies = setOf("bitmap", "bitmap_experiment", "bitmap_smoke_test", "bitmap_init_first", "bitmap_chunks_ascii_test", "bitmap_test_3lines_chunked", "bitmap_test_10lines_chunked", "bitmap_test_3lines_chunked_mono")
+        val knownParityStrategies = setOf("official_parity_synth_text", "official_parity_synth_bitmap", "official_parity_receipt")
         if (forcedSyntheticTestName.isNotBlank() && forcedSyntheticTestName !in requiredSyntheticStrategies) {
             Log.e(TAG, "synthetic_test_invalid forcedSynthetic=$forcedSyntheticTestName required=${requiredSyntheticStrategies.joinToString(",")}")
             return fail("INVALID_OUTPUT_STRATEGY", "Unsupported forced synthetic strategy: $forcedSyntheticTestName")
@@ -313,13 +318,14 @@ class SunmiPrinterManager(private val context: Context) {
             Log.e(TAG, "synthetic_test_missing_strategy syntheticConfigEnabled=$syntheticConfigEnabled syntheticConfigEnabledFromPayload=$syntheticConfigEnabledFromPayload syntheticEntryModeRequested=$syntheticEntryModeRequested syntheticTestOnlyRequested=true requested=$requestedOutputStrategyRaw forced=$forcedOutputStrategy forcedSynthetic=$forcedSyntheticTestName")
             return fail("INVALID_OUTPUT_STRATEGY", "Synthetic test requested but outputStrategy is empty.")
         }
-        if (syntheticTestOnlyRequested && requestedOutputStrategy !in requiredSyntheticStrategies) {
+        if (syntheticTestOnlyRequested && requestedOutputStrategy !in requiredSyntheticStrategies && requestedOutputStrategy !in knownParityStrategies) {
             Log.e(TAG, "synthetic_test_unresolved syntheticConfigEnabled=$syntheticConfigEnabled syntheticConfigEnabledFromPayload=$syntheticConfigEnabledFromPayload syntheticEntryModeRequested=$syntheticEntryModeRequested syntheticTestOnlyRequested=$syntheticTestOnlyRequested forcedSynthetic=$forcedSyntheticTestName effective=$requestedOutputStrategy")
             return fail("INVALID_OUTPUT_STRATEGY", "Synthetic test requested but strategy is unresolved: $requestedOutputStrategy")
         }
         if (requestedOutputStrategy.isNotBlank() &&
             requestedOutputStrategy !in knownTextStrategies &&
-            requestedOutputStrategy !in knownBitmapStrategies
+            requestedOutputStrategy !in knownBitmapStrategies &&
+            requestedOutputStrategy !in knownParityStrategies
         ) {
             val isSyntheticRequest = requestedOutputStrategy.startsWith("text_test_") || syntheticTestOnlyRequested || forcedSyntheticTestName.isNotBlank()
             if (isSyntheticRequest) {
@@ -383,7 +389,7 @@ class SunmiPrinterManager(private val context: Context) {
         val finalPhone = firstNonBlank(customerPhone, parsedNotes.phone)
         val finalAddress = firstNonBlank(customerAddress, parsedNotes.address)
 
-        if (!syntheticTextTestRequested && !bitmapTest3LinesChunkedRequested && !bitmapTest10LinesChunkedRequested && !bitmapTest3LinesChunkedMonoRequested && (orderNumber.isBlank() || lines.length() == 0)) {
+        if (!syntheticTextTestRequested && !bitmapTest3LinesChunkedRequested && !bitmapTest10LinesChunkedRequested && !bitmapTest3LinesChunkedMonoRequested && !officialParityRequested && (orderNumber.isBlank() || lines.length() == 0)) {
             Log.e(TAG, "native printReceipt invalid payload orderNumber='$orderNumber' lines=${lines.length()} syntheticTest=$syntheticTextTestRequested")
             return fail("INVALID_PRINT_JOB_CONTENT", "printJob must include order number and at least one line item.")
         }
@@ -594,6 +600,92 @@ class SunmiPrinterManager(private val context: Context) {
             Log.i(TAG, "rendered_receipt_text_ascii_start\n$asciiReceiptText\nrendered_receipt_text_ascii_end")
             Log.i(TAG, "receipt_articles_presence finalTextContainsArticles=$finalTextContainsArticles")
             Log.i(TAG, "receipt_text_metrics finalTextLineCount=$finalTextLineCount finalTextCharLength=$finalTextCharLength")
+
+            if (officialParityRequested) {
+                Log.i(TAG, "official_parity_path start strategy=$requestedOutputStrategy")
+                val paritySource = when {
+                    officialParitySyntheticTextRequested || officialParitySyntheticBitmapRequested -> "synthetic"
+                    else -> "receipt"
+                }
+                val parityTextPayload = when {
+                    officialParitySyntheticTextRequested || officialParitySyntheticBitmapRequested -> toStrictAsciiOnly(buildSyntheticAsciiTestText("text_test_3lines_rawfeed"))
+                    else -> coreReceiptText
+                }
+                val readiness = waitForPrinterReadyState(service, OFFICIAL_PARITY_READY_RETRIES, OFFICIAL_PARITY_READY_RETRY_DELAY_MS)
+                if (!readiness.ready) {
+                    Log.e(TAG, "official_parity_readiness failed=true lastState=${readiness.lastState}")
+                    return fail("PRINTER_NOT_READY", "Official parity path aborted: printer not in ready state.")
+                }
+
+                val parityCallbackErrors = mutableListOf<String>()
+                val parityCallbackObserved = AtomicBoolean(false)
+                val parityCallback = object : ICallback.Stub() {
+                    override fun onRunResult(isSuccess: Boolean) {
+                        if (!isSuccess) {
+                            parityCallbackErrors += "onRunResult:false"
+                        }
+                    }
+
+                    override fun onReturnString(result: String?) { }
+
+                    override fun onRaiseException(code: Int, msg: String?) {
+                        parityCallbackErrors += "onRaiseException:$code:${msg ?: "unknown"}"
+                    }
+
+                    override fun onPrintResult(code: Int, msg: String?) {
+                        parityCallbackObserved.set(true)
+                    }
+                }
+
+                runCatching {
+                    Log.i(TAG, "official_parity_sequence sequence=printerInit->enterBuffer->setAlignmentLeft->dispatch->rawEscDFeed->commitBuffer->exitBuffer")
+                    service.printerInit(parityCallback)
+                    Thread.sleep(OFFICIAL_PARITY_INIT_DELAY_MS)
+                    service.enterPrinterBuffer(true)
+                    service.setAlignment(0, parityCallback)
+                    if (officialParitySyntheticBitmapRequested) {
+                        val parityBitmap = buildReceiptBitmapMonochrome(parityTextPayload)
+                        val stats = computeBitmapPixelStats(parityBitmap)
+                        try {
+                            Log.i(TAG, "official_parity_bitmap_payload_start\n$parityTextPayload\nofficial_parity_bitmap_payload_end")
+                            Log.i(TAG, "official_parity_bitmap_diagnostics config=${parityBitmap.config?.name ?: "UNKNOWN"} monochrome=${isBitmapMonochrome(parityBitmap)} hasAlpha=${parityBitmap.hasAlpha()} blackPixelCount=${stats.blackPixelCount} whitePixelCount=${stats.whitePixelCount} otherPixelCount=${stats.otherPixelCount} width=${parityBitmap.width} height=${parityBitmap.height}")
+                            service.printBitmap(parityBitmap, parityCallback)
+                        } finally {
+                            parityBitmap.recycle()
+                        }
+                    } else {
+                        Log.i(TAG, "official_parity_text_payload_start\n$parityTextPayload\nofficial_parity_text_payload_end")
+                        service.printText(finalReceiptBlockForStrategy(parityTextPayload), parityCallback)
+                    }
+                    val rawFeedCmd = byteArrayOf(0x1B, 0x64, OFFICIAL_PARITY_FINAL_FEED_LINES.coerceIn(0, 255).toByte())
+                    service.sendRAWData(rawFeedCmd, parityCallback)
+                    service.commitPrinterBufferWithCallback(parityCallback)
+                    service.exitPrinterBufferWithCallback(true, parityCallback)
+                    Thread.sleep(OFFICIAL_PARITY_SETTLE_WAIT_MS)
+                }.onFailure { err ->
+                    Log.e(TAG, "official_parity_sequence failed=true reason=${err.message ?: "unknown"}")
+                    return fail("OFFICIAL_PARITY_FAILED", "Official parity sequence failed: ${err.message ?: "unknown"}")
+                }
+
+                val postReady = waitForPrinterReadyState(service, OFFICIAL_PARITY_READY_RETRIES, OFFICIAL_PARITY_READY_RETRY_DELAY_MS)
+                val acceptanceOnly = true
+                return JSONObject().apply {
+                    put("ok", true)
+                    put("code", "PRINT_SENT")
+                    put("message", "Official parity sequence dispatched to Sunmi service.")
+                    put("strategyName", requestedOutputStrategy)
+                    put("paritySource", paritySource)
+                    put("acceptanceOnly", acceptanceOnly)
+                    put("callbackObservedThisAttempt", parityCallbackObserved.get())
+                    put("callbackErrors", JSONArray(parityCallbackErrors))
+                    put("printerReadyBefore", readiness.ready)
+                    put("printerReadyAfter", postReady.ready)
+                    put("printerStateAfter", postReady.lastState)
+                    put("mainContentPrimitive", if (officialParitySyntheticBitmapRequested) "printBitmap" else "printText")
+                    put("sequencingMode", "official_equivalent_transactional")
+                    put("feedPrimitive", "raw_esc_d")
+                }
+            }
 
             if (bitmapExperimentRequested || bitmapSmokeTestRequested || bitmapChunksAsciiTestRequested || bitmapTest3LinesChunkedRequested || bitmapTest10LinesChunkedRequested || bitmapTest3LinesChunkedMonoRequested) {
                 Log.i(TAG, "receipt_bitmap_experiment requested=true smokeTest=$bitmapSmokeTestRequested chunksTest=$bitmapChunksAsciiTestRequested synthetic3LinesChunked=$bitmapTest3LinesChunkedRequested synthetic10LinesChunked=$bitmapTest10LinesChunkedRequested synthetic3LinesChunkedMono=$bitmapTest3LinesChunkedMonoRequested initFirst=$bitmapInitFirstRequested strategy=$requestedOutputStrategy")
@@ -1285,6 +1377,8 @@ class SunmiPrinterManager(private val context: Context) {
 
     private data class BitmapPixelStats(val blackPixelCount: Int, val whitePixelCount: Int, val otherPixelCount: Int)
 
+    private data class PrinterReadiness(val ready: Boolean, val lastState: Int)
+
     private data class ParsedStructuredNotes(
         val type: String,
         val phone: String,
@@ -1384,6 +1478,22 @@ class SunmiPrinterManager(private val context: Context) {
             .joinToString("")
     }
 
+    private fun waitForPrinterReadyState(service: IWoyouService, retries: Int, delayMs: Long): PrinterReadiness {
+        var lastState = -999
+        repeat(retries.coerceAtLeast(1)) { attempt ->
+            lastState = runCatching { service.updatePrinterState() }.getOrDefault(-999)
+            val ready = lastState in OFFICIAL_PARITY_READY_STATE_CODES
+            Log.i(TAG, "official_parity_readiness_check attempt=${attempt + 1}/$retries state=$lastState ready=$ready")
+            if (ready) {
+                return PrinterReadiness(true, lastState)
+            }
+            if (attempt < retries - 1) {
+                Thread.sleep(delayMs)
+            }
+        }
+        return PrinterReadiness(false, lastState)
+    }
+
     private fun formatTicketDateTime(raw: String): String {
         if (raw.isBlank()) return ""
 
@@ -1426,14 +1536,20 @@ class SunmiPrinterManager(private val context: Context) {
         private const val BITMAP_INTER_CHUNK_ADVANCE_LINES = 0
         private const val SECTION_INTER_DISPATCH_DELAY_MS = 120L
         // TEMP device-test override: force one strategy regardless of web payload.
-        private const val FORCE_OUTPUT_STRATEGY = "bitmap_test_3lines_chunked_mono"
+        private const val FORCE_OUTPUT_STRATEGY = ""
         private const val V2S_BITMAP_PRIMARY_ENABLED = true
-        private const val V2S_BITMAP_PRIMARY_STRATEGY = "bitmap_test_3lines_chunked_mono"
+        private const val V2S_BITMAP_PRIMARY_STRATEGY = "official_parity_synth_text"
         private const val SYNTHETIC_TEST_ENABLED = false
         private const val SYNTHETIC_TEST_NAME = "text_test_3lines_rawfeed"
         private const val FORCE_SYNTHETIC_TEST_NAME = ""
         private const val BITMAP_CHUNK_LINES = 3
         private const val BITMAP_SYNTHETIC_TEST_CHUNK_LINES = 2
         private const val MONOCHROME_THRESHOLD = 160
+        private const val OFFICIAL_PARITY_INIT_DELAY_MS = 180L
+        private const val OFFICIAL_PARITY_SETTLE_WAIT_MS = 1500L
+        private const val OFFICIAL_PARITY_READY_RETRY_DELAY_MS = 250L
+        private const val OFFICIAL_PARITY_READY_RETRIES = 8
+        private val OFFICIAL_PARITY_READY_STATE_CODES = setOf(1, 2)
+        private const val OFFICIAL_PARITY_FINAL_FEED_LINES = 6
     }
 }
