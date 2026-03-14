@@ -94,6 +94,7 @@ private data class PhysicalFidelityConfig(
     val transactionDiagnosticDispatchDelayMs: Int,
     val transactionDiagnosticFinalSettleMs: Int,
     val requestedNativePrintStrategyRaw: String,
+    val requestedNativePrintStrategySource: String,
 )
 
 private data class SectionLine(
@@ -294,7 +295,19 @@ class SunmiNativePrinterWorker(
     private fun parsePhysicalFidelityConfig(job: NativePrintJobEntity): PhysicalFidelityConfig {
         val payload = runCatching { JSONObject(job.payloadJson) }.getOrNull()
         val hints = payload?.optJSONObject("formattingHints")
-        val strategyRaw = hints?.optString("nativePrintStrategy", "")?.trim().orEmpty().lowercase()
+        val strategyFromNativeHint = hints?.optString("nativePrintStrategy", "")?.trim().orEmpty()
+        val strategyFromOutputHint = hints?.optString("outputStrategy", "")?.trim().orEmpty()
+        val strategyRawCandidate = when {
+            strategyFromNativeHint.isNotBlank() -> strategyFromNativeHint
+            strategyFromOutputHint.isNotBlank() -> strategyFromOutputHint
+            else -> ""
+        }
+        val strategyRaw = strategyRawCandidate.lowercase()
+        val strategySource = when {
+            strategyFromNativeHint.isNotBlank() -> "formattingHints.nativePrintStrategy"
+            strategyFromOutputHint.isNotBlank() -> "formattingHints.outputStrategy"
+            else -> "default"
+        }
         val bitmapSegmentedMode = hints?.optBoolean("bitmapSegmentedMode", true) ?: true
         val strategy = when (strategyRaw) {
             "bitmap_receipt_single_image" -> PhysicalFidelityStrategy.BITMAP_RECEIPT_SINGLE_IMAGE
@@ -358,6 +371,7 @@ class SunmiNativePrinterWorker(
             transactionDiagnosticDispatchDelayMs = (hints?.optInt("transactionDiagnosticDispatchDelayMs", 35) ?: 35).coerceIn(0, 400),
             transactionDiagnosticFinalSettleMs = (hints?.optInt("transactionDiagnosticFinalSettleMs", 200) ?: 200).coerceIn(0, 1200),
             requestedNativePrintStrategyRaw = strategyRaw,
+            requestedNativePrintStrategySource = strategySource,
         )
     }
 
@@ -380,7 +394,8 @@ class SunmiNativePrinterWorker(
         val sectionLines = lines.mapIndexed { idx, line -> SectionLine(inferSection(idx, line), "%02d %s".format(idx + 1, line)) }
 
         if (fidelityConfig.requestedNativePrintStrategyRaw == "transaction_mode_tiny_diagnostic_test" && fidelityConfig.strategy != PhysicalFidelityStrategy.TRANSACTION_MODE_TINY_DIAGNOSTIC_TEST) {
-            Log.e(TAG, "native_print_transaction_strategy_misroute commandId=${job.commandId} orderId=${job.orderId ?: ""} requestedStrategy=${fidelityConfig.requestedNativePrintStrategyRaw} resolvedStrategy=${strategyName(fidelityConfig.strategy)}")
+            Log.e(TAG, "native_print_transaction_strategy_misroute commandId=${job.commandId} orderId=${job.orderId ?: ""} sourceJobId=${job.sourceJobId ?: ""} requestedStrategy=${fidelityConfig.requestedNativePrintStrategyRaw} selectedStrategy=${strategyName(fidelityConfig.strategy)} strategySource=${fidelityConfig.requestedNativePrintStrategySource}")
+            throw LowLevelStepException("strategy_resolution", IllegalStateException("transaction_mode_tiny_diagnostic_test requested but resolved to ${strategyName(fidelityConfig.strategy)}"))
         }
 
         return when (fidelityConfig.strategy) {
@@ -458,7 +473,7 @@ class SunmiNativePrinterWorker(
         } else {
             "printerInit->setAlignment->printText->lineWrap(1)->printText->lineWrap(final)->sendRAWData"
         }
-        Log.i(TAG, "native_print_vendor_parity_summary commandId=${job.commandId} orderId=${job.orderId ?: ""} mode=${config.vendorParityMode} finalSpacingLines=${config.vendorParityFinalSpacingLines} dispatchDelayMs=${config.vendorParityDispatchDelayMs} finalSettleMs=${config.vendorParityFinalSettleMs} primitiveSequence=$sequence")
+        Log.i(TAG, "native_print_vendor_parity_summary commandId=${job.commandId} orderId=${job.orderId ?: ""} mode=${config.vendorParityMode} finalSpacingLines=${config.vendorParityFinalSpacingLines} dispatchDelayMs=${config.vendorParityDispatchDelayMs} finalSettleMs=${config.vendorParityFinalSettleMs} finalSpacingLines=$finalSpacingLines primitiveSequence=$sequence")
         return sequence
     }
 
@@ -535,7 +550,7 @@ class SunmiNativePrinterWorker(
         val submode = config.transactionDiagnosticMode
         val callbackStats = TransactionCallbackStats()
         Log.i(TAG, "native_print_transaction_diagnostic_selected commandId=${job.commandId} orderId=${job.orderId ?: ""} strategy=$strategy selectedFamily=woyou_legacy_packaged packageName=woyou.aidlservice.jiuiv5 action=woyou.aidlservice.jiuiv5.IWoyouService")
-        Log.i(TAG, "native_print_transaction_mode commandId=${job.commandId} orderId=${job.orderId ?: ""} submode=$submode finalSpacingLines=${config.transactionDiagnosticFinalSpacingLines} dispatchDelayMs=${config.transactionDiagnosticDispatchDelayMs} finalSettleMs=${config.transactionDiagnosticFinalSettleMs}")
+        Log.i(TAG, "native_print_transaction_mode commandId=${job.commandId} orderId=${job.orderId ?: ""} submode=$submode requestedStrategy=${config.requestedNativePrintStrategyRaw} strategySource=${config.requestedNativePrintStrategySource} finalSpacingLines=${config.transactionDiagnosticFinalSpacingLines} dispatchDelayMs=${config.transactionDiagnosticDispatchDelayMs} finalSettleMs=${config.transactionDiagnosticFinalSettleMs}")
 
         Log.i(TAG, "native_print_transaction_buffer_enter commandId=${job.commandId} orderId=${job.orderId ?: ""} clean=true event=start")
         callPrinterPrimitive(job, "enterPrinterBuffer", detail = "transactionDiagnostic clean=true") {
@@ -572,8 +587,9 @@ class SunmiNativePrinterWorker(
             }
         }
 
-        callPrinterPrimitive(job, "lineWrap", detail = "transactionDiagnostic submode=$submode lines=${config.transactionDiagnosticFinalSpacingLines}") {
-            service.lineWrap(config.transactionDiagnosticFinalSpacingLines, callbackForTransaction(job, strategy, submode, "lineWrap_final", callbackErrors, dispatchStartMs, callbackStats))
+        val finalSpacingLines = if (submode == "text") 4 else config.transactionDiagnosticFinalSpacingLines
+        callPrinterPrimitive(job, "lineWrap", detail = "transactionDiagnostic submode=$submode lines=$finalSpacingLines") {
+            service.lineWrap(finalSpacingLines, callbackForTransaction(job, strategy, submode, "lineWrap_final", callbackErrors, dispatchStartMs, callbackStats))
         }
 
         if (config.transactionDiagnosticFinalSettleMs > 0) {
