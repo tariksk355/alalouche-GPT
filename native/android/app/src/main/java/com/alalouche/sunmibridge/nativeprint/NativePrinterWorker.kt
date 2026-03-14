@@ -25,6 +25,7 @@ private enum class PhysicalFidelityStrategy {
     LINE_BY_LINE_ASCII_EXPLICIT_LINEWRAP_WITH_TICKET_SPACING,
     BITMAP_RECEIPT_SINGLE_IMAGE,
     BITMAP_RECEIPT_SEGMENTED_BLOCKS,
+    BITMAP_SMOKE_TEST_MINIMAL_BLOCKS,
     GROUPED_SMALL_BLOCKS,
 }
 
@@ -63,6 +64,13 @@ private data class PhysicalFidelityConfig(
     val finalFooterGapPx: Int,
     val bitmapInterBlockGapPx: Int,
     val bitmapSegmentedMode: Boolean,
+    val smokeTestBitmapWidthPx: Int,
+    val smokeTestHorizontalPaddingPx: Int,
+    val smokeTestTopPaddingPx: Int,
+    val smokeTestBottomPaddingPx: Int,
+    val smokeTestLineHeightPx: Int,
+    val smokeTestInterBlockSpacingLines: Int,
+    val smokeTestFinalSpacingLines: Int,
 )
 
 private data class SectionLine(
@@ -249,6 +257,7 @@ class SunmiNativePrinterWorker(
         val strategy = when (strategyRaw) {
             "bitmap_receipt_single_image" -> PhysicalFidelityStrategy.BITMAP_RECEIPT_SINGLE_IMAGE
             "bitmap_receipt_segmented_blocks" -> PhysicalFidelityStrategy.BITMAP_RECEIPT_SEGMENTED_BLOCKS
+            "bitmap_smoke_test_minimal_blocks" -> PhysicalFidelityStrategy.BITMAP_SMOKE_TEST_MINIMAL_BLOCKS
             "line_by_line_text_with_delay" -> PhysicalFidelityStrategy.LINE_BY_LINE_TEXT_WITH_DELAY
             "line_by_line_text_with_explicit_linewrap" -> PhysicalFidelityStrategy.LINE_BY_LINE_TEXT_WITH_EXPLICIT_LINEWRAP
             "line_by_line_text_with_explicit_linewrap_ascii" -> PhysicalFidelityStrategy.LINE_BY_LINE_TEXT_WITH_EXPLICIT_LINEWRAP_ASCII
@@ -277,6 +286,13 @@ class SunmiNativePrinterWorker(
             finalFooterGapPx = (hints?.optInt("finalFooterGapPx", 80) ?: 80).coerceIn(0, 220),
             bitmapInterBlockGapPx = (hints?.optInt("bitmapInterBlockGapPx", 12) ?: 12).coerceIn(0, 80),
             bitmapSegmentedMode = bitmapSegmentedMode,
+            smokeTestBitmapWidthPx = (hints?.optInt("smokeTestBitmapWidthPx", 384) ?: 384).coerceIn(280, 640),
+            smokeTestHorizontalPaddingPx = (hints?.optInt("smokeTestHorizontalPaddingPx", 16) ?: 16).coerceIn(4, 40),
+            smokeTestTopPaddingPx = (hints?.optInt("smokeTestTopPaddingPx", 20) ?: 20).coerceIn(0, 80),
+            smokeTestBottomPaddingPx = (hints?.optInt("smokeTestBottomPaddingPx", 20) ?: 20).coerceIn(0, 120),
+            smokeTestLineHeightPx = (hints?.optInt("smokeTestLineHeightPx", 36) ?: 36).coerceIn(20, 64),
+            smokeTestInterBlockSpacingLines = (hints?.optInt("smokeTestInterBlockSpacingLines", 5) ?: 5).coerceIn(1, 10),
+            smokeTestFinalSpacingLines = (hints?.optInt("smokeTestFinalSpacingLines", 6) ?: 6).coerceIn(1, 12),
         )
     }
 
@@ -301,6 +317,7 @@ class SunmiNativePrinterWorker(
         return when (fidelityConfig.strategy) {
             PhysicalFidelityStrategy.BITMAP_RECEIPT_SINGLE_IMAGE,
             PhysicalFidelityStrategy.BITMAP_RECEIPT_SEGMENTED_BLOCKS,
+            PhysicalFidelityStrategy.BITMAP_SMOKE_TEST_MINIMAL_BLOCKS,
             -> executeBitmapStrategies(service, job, sectionLines, fidelityConfig, callbackErrors, dispatchStartMs)
 
             else -> executeTextStrategies(service, job, sectionLines, fidelityConfig, callbackErrors, dispatchStartMs)
@@ -315,6 +332,10 @@ class SunmiNativePrinterWorker(
         callbackErrors: MutableList<String>,
         dispatchStartMs: Long,
     ): String {
+        if (config.strategy == PhysicalFidelityStrategy.BITMAP_SMOKE_TEST_MINIMAL_BLOCKS) {
+            return executeBitmapSmokeTestMinimalBlocks(service, job, config, callbackErrors, dispatchStartMs)
+        }
+
         val processed = sectionLines.mapIndexed { idx, s ->
             val ascii = if (config.asciiSafeMode) toSafeAscii(s.text) else AsciiNormalizationResult(s.text, 0, 0)
             Log.i(
@@ -412,6 +433,104 @@ class SunmiNativePrinterWorker(
             "native_print_bitmap_summary commandId=${job.commandId} orderId=${job.orderId ?: ""} strategy=${strategyName(effectiveStrategy)} asciiSafeMode=${config.asciiSafeMode} renderedLineCount=${sectionLines.size} ticketSeparationMode=bitmap_spacing finalSpacingAppliedLines=${config.finalTicketSpacingLines} primitiveSequence=$sequence",
         )
         return sequence
+    }
+
+
+    private fun executeBitmapSmokeTestMinimalBlocks(
+        service: IWoyouService,
+        job: NativePrintJobEntity,
+        config: PhysicalFidelityConfig,
+        callbackErrors: MutableList<String>,
+        dispatchStartMs: Long,
+    ): String {
+        Log.i(
+            TAG,
+            "native_print_bitmap_smoke_test_selected commandId=${job.commandId} orderId=${job.orderId ?: ""} strategy=bitmap_smoke_test_minimal_blocks smokeTestBitmapWidthPx=${config.smokeTestBitmapWidthPx} smokeTestHorizontalPaddingPx=${config.smokeTestHorizontalPaddingPx} smokeTestTopPaddingPx=${config.smokeTestTopPaddingPx} smokeTestBottomPaddingPx=${config.smokeTestBottomPaddingPx} smokeTestLineHeightPx=${config.smokeTestLineHeightPx} smokeTestInterBlockSpacingLines=${config.smokeTestInterBlockSpacingLines} smokeTestFinalSpacingLines=${config.smokeTestFinalSpacingLines} dispatchDelayMs=${config.dispatchDelayMs} finalSettleMs=${config.finalSettleMs}",
+        )
+
+        val blocks = listOf(
+            "block_a" to listOf("TEST BLOCK A", "1111111111"),
+            "block_b" to listOf("TEST BLOCK B", "2222222222"),
+        )
+
+        blocks.forEachIndexed { idx, (name, lines) ->
+            val render = renderSmokeBitmapBlock(lines, config)
+            Log.i(
+                TAG,
+                "native_print_bitmap_smoke_test_block_rendered commandId=${job.commandId} orderId=${job.orderId ?: ""} blockIndex=$idx blockName=$name lineCount=${lines.size} textPreview=${lines.joinToString(" | ")}",
+            )
+            Log.i(
+                TAG,
+                "native_print_bitmap_smoke_test_block_dimensions commandId=${job.commandId} orderId=${job.orderId ?: ""} blockIndex=$idx blockName=$name widthPx=${render.widthPx} heightPx=${render.heightPx} lineCount=${render.lineCount}",
+            )
+            try {
+                Log.i(TAG, "native_print_bitmap_smoke_test_print_call commandId=${job.commandId} orderId=${job.orderId ?: ""} blockIndex=$idx blockName=$name event=start")
+                callPrinterPrimitive(job, "printBitmap", detail = "smokeTest blockIndex=$idx blockName=$name width=${render.widthPx} height=${render.heightPx}") {
+                    service.printBitmap(render.bitmap, callbackFor(job, "printBitmap_smoke_$idx", callbackErrors, dispatchStartMs))
+                }
+                Log.i(TAG, "native_print_bitmap_smoke_test_print_call commandId=${job.commandId} orderId=${job.orderId ?: ""} blockIndex=$idx blockName=$name event=end")
+            } finally {
+                render.bitmap.recycle()
+            }
+
+            val spacing = if (idx == 0) config.smokeTestInterBlockSpacingLines else config.smokeTestFinalSpacingLines
+            val spacingType = if (idx == 0) "inter_block" else "final"
+            Log.i(TAG, "native_print_bitmap_smoke_test_spacing_applied commandId=${job.commandId} orderId=${job.orderId ?: ""} spacingType=$spacingType requestedLines=$spacing")
+            callPrinterPrimitive(job, "lineWrap", detail = "smokeTest spacingType=$spacingType lines=$spacing") {
+                service.lineWrap(spacing, callbackFor(job, "lineWrap_smoke_$idx", callbackErrors, dispatchStartMs))
+            }
+
+            sleepAfterDispatch(job, idx, config.dispatchDelayMs)
+        }
+
+        if (config.finalSettleMs > 0) {
+            Log.i(TAG, "native_print_final_settle_sleep commandId=${job.commandId} orderId=${job.orderId ?: ""} settleMs=${config.finalSettleMs}")
+            runCatching { Thread.sleep(config.finalSettleMs) }
+        }
+
+        val rawFeed = byteArrayOf(0x1B, 0x64, 0x03)
+        callPrinterPrimitive(job, "sendRAWData", detail = "smokeTest bytes=${rawFeed.size}") {
+            service.sendRAWData(rawFeed, callbackFor(job, "sendRAWData_smoke", callbackErrors, dispatchStartMs))
+        }
+
+        val sequence = "printerInit->setAlignment->printBitmap(blockA)->lineWrap(inter)->printBitmap(blockB)->lineWrap(final)->sendRAWData"
+        Log.i(
+            TAG,
+            "native_print_bitmap_smoke_test_summary commandId=${job.commandId} orderId=${job.orderId ?: ""} strategy=bitmap_smoke_test_minimal_blocks blockCount=2 interBlockSpacingLines=${config.smokeTestInterBlockSpacingLines} finalSpacingLines=${config.smokeTestFinalSpacingLines} primitiveSequence=$sequence",
+        )
+        return sequence
+    }
+
+    private fun renderSmokeBitmapBlock(
+        lines: List<String>,
+        config: PhysicalFidelityConfig,
+    ): BitmapRenderResult {
+        val width = config.smokeTestBitmapWidthPx
+        val height = max(
+            120,
+            config.smokeTestTopPaddingPx + config.smokeTestBottomPaddingPx + (lines.size * config.smokeTestLineHeightPx),
+        )
+        val bmp = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bmp)
+        canvas.drawColor(Color.WHITE)
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.BLACK
+            textSize = 28f
+            typeface = Typeface.MONOSPACE
+        }
+        var y = config.smokeTestTopPaddingPx + config.smokeTestLineHeightPx
+        lines.forEach { line ->
+            canvas.drawText(line, config.smokeTestHorizontalPaddingPx.toFloat(), y.toFloat(), paint)
+            y += config.smokeTestLineHeightPx
+        }
+        return BitmapRenderResult(
+            bitmap = bmp,
+            widthPx = width,
+            heightPx = height,
+            lineCount = lines.size,
+            firstLinePreview = lines.firstOrNull().orEmpty(),
+            lastLinePreview = lines.lastOrNull().orEmpty(),
+        )
     }
 
     private fun groupedBitmapBlocks(sectionLines: List<SectionLine>): List<Pair<String, List<SectionLine>>> {
@@ -621,6 +740,7 @@ class SunmiNativePrinterWorker(
             PhysicalFidelityStrategy.LINE_BY_LINE_ASCII_EXPLICIT_LINEWRAP_WITH_TICKET_SPACING -> "line_by_line_ascii_explicit_linewrap_with_ticket_spacing"
             PhysicalFidelityStrategy.BITMAP_RECEIPT_SINGLE_IMAGE -> "bitmap_receipt_single_image"
             PhysicalFidelityStrategy.BITMAP_RECEIPT_SEGMENTED_BLOCKS -> "bitmap_receipt_segmented_blocks"
+            PhysicalFidelityStrategy.BITMAP_SMOKE_TEST_MINIMAL_BLOCKS -> "bitmap_smoke_test_minimal_blocks"
             PhysicalFidelityStrategy.GROUPED_SMALL_BLOCKS -> "grouped_small_blocks"
         }
     }
