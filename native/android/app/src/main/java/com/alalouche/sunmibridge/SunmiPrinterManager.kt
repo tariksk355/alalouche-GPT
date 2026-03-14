@@ -403,25 +403,16 @@ class SunmiPrinterManager(private val context: Context) {
             Log.i(TAG, "runtime_path ui_click->printAcceptedOrder->toPrintJob->printerAdapter->SunmiBridge->SunmiPrinterManager.printReceipt")
 
             fun callbackFor(op: String): ICallback {
-                return object : ICallback.Stub() {
-                    override fun onRunResult(isSuccess: Boolean) {
+                return buildAidlCallback(
+                    op = op,
+                    onObserved = {
                         callbackObservedThisAttempt = true
                         CALLBACK_OBSERVED_EVER.set(true)
-                        Log.i(TAG, "low_level_callback op=$op onRunResult success=$isSuccess")
-                    }
-
-                    override fun onReturnString(result: String?) {
-                        callbackObservedThisAttempt = true
-                        CALLBACK_OBSERVED_EVER.set(true)
-                        Log.i(TAG, "low_level_callback op=$op onReturnString result=${result ?: ""}")
-                    }
-
-                    override fun onRaiseException(code: Int, msg: String?) {
-                        val err = "op=$op code=$code msg=${msg ?: ""}"
-                        callbackErrors += err
-                        Log.e(TAG, "low_level_callback onRaiseException $err")
-                    }
-                }
+                    },
+                    onError = { error ->
+                        callbackErrors += error
+                    },
+                )
             }
 
             fun runPrinterInit(stage: String) {
@@ -619,23 +610,11 @@ class SunmiPrinterManager(private val context: Context) {
 
                 val parityCallbackErrors = mutableListOf<String>()
                 val parityCallbackObserved = AtomicBoolean(false)
-                val parityCallback = object : ICallback.Stub() {
-                    override fun onRunResult(isSuccess: Boolean) {
-                        parityCallbackObserved.set(true)
-                        if (!isSuccess) {
-                            parityCallbackErrors += "onRunResult:false"
-                        }
-                    }
-
-                    override fun onReturnString(result: String?) {
-                        parityCallbackObserved.set(true)
-                    }
-
-                    override fun onRaiseException(code: Int, msg: String?) {
-                        parityCallbackObserved.set(true)
-                        parityCallbackErrors += "onRaiseException:$code:${msg ?: "unknown"}"
-                    }
-                }
+                val parityCallback = buildAidlCallback(
+                    op = "official_parity",
+                    onObserved = { parityCallbackObserved.set(true) },
+                    onError = { error -> parityCallbackErrors += error },
+                )
 
                 runCatching {
                     Log.i(TAG, "official_parity_sequence sequence=printerInit->enterBuffer->setAlignmentLeft->dispatch->rawEscDFeed->commitBuffer->exitBuffer")
@@ -1476,6 +1455,34 @@ class SunmiPrinterManager(private val context: Context) {
             .replace("�", "")
             .map { ch -> if (ch.code in 32..126 || ch == '\n' || ch == '\r' || ch == '\t') ch else '?' }
             .joinToString("")
+    }
+
+    private fun buildAidlCallback(
+        op: String,
+        onObserved: () -> Unit = {},
+        onError: (String) -> Unit = {},
+    ): ICallback {
+        return object : ICallback.Stub() {
+            override fun onRunResult(isSuccess: Boolean) {
+                onObserved()
+                Log.i(TAG, "low_level_callback op=$op onRunResult success=$isSuccess")
+                if (!isSuccess) {
+                    onError("op=$op event=onRunResult success=false")
+                }
+            }
+
+            override fun onReturnString(result: String?) {
+                onObserved()
+                Log.i(TAG, "low_level_callback op=$op onReturnString result=${result ?: ""}")
+            }
+
+            override fun onRaiseException(code: Int, msg: String?) {
+                onObserved()
+                val err = "op=$op event=onRaiseException code=$code msg=${msg ?: ""}"
+                onError(err)
+                Log.e(TAG, "low_level_callback $err")
+            }
+        }
     }
 
     private fun waitForPrinterReadyState(service: IWoyouService, retries: Int, delayMs: Long): PrinterReadiness {
