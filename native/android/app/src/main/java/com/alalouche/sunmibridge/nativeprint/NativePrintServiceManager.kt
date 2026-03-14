@@ -35,12 +35,19 @@ class NativePrintServiceManager(context: Context) {
                 needsAttention = true,
             )
         }
+        Log.i(TAG, "native_print_service_payload_raw payload=${payload.toString()}")
+        val normalizedPayload = normalizePayloadForWorker(payload)
+        val formattingHints = normalizedPayload.optJSONObject("formattingHints")
+        val outputStrategyRaw = formattingHints?.optString("outputStrategy", "")?.trim().orEmpty()
+        val nativePrintStrategyRaw = formattingHints?.optString("nativePrintStrategy", "")?.trim().orEmpty()
+        val fallbackApplied = outputStrategyRaw.isBlank() && nativePrintStrategyRaw.isBlank()
+        Log.i(TAG, "native_print_service_payload_parsed outputStrategyRaw=$outputStrategyRaw nativePrintStrategyRaw=$nativePrintStrategyRaw fallbackApplied=$fallbackApplied hasFormattingHints=${formattingHints != null}")
 
-        val orderId = payload.optString("orderId").ifBlank {
+        val orderId = normalizedPayload.optString("orderId").ifBlank {
             payload.optString("order_id").ifBlank { null }
         }
-        val sourceJobId = payload.optString("printJobId").ifBlank {
-            payload.optString("jobId").ifBlank { null }
+        val sourceJobId = normalizedPayload.optString("printJobId").ifBlank {
+            normalizedPayload.optString("jobId").ifBlank { null }
         }
 
         val now = System.currentTimeMillis()
@@ -49,7 +56,7 @@ class NativePrintServiceManager(context: Context) {
             commandId = commandId,
             orderId = orderId,
             sourceJobId = sourceJobId,
-            payloadJson = printJobJson,
+            payloadJson = normalizedPayload.toString(),
             state = NativePrintJobState.QUEUED,
             attemptCount = 0,
             maxAttempts = DEFAULT_MAX_ATTEMPTS,
@@ -68,7 +75,7 @@ class NativePrintServiceManager(context: Context) {
         )
 
         queue.enqueue(job)
-        Log.i(TAG, "native_print_command_queued commandId=$commandId orderId=${orderId ?: ""} sourceJobId=${sourceJobId ?: ""}")
+        Log.i(TAG, "native_print_command_queued commandId=$commandId orderId=${orderId ?: ""} sourceJobId=${sourceJobId ?: ""} outputStrategyRaw=$outputStrategyRaw nativePrintStrategyRaw=$nativePrintStrategyRaw fallbackApplied=$fallbackApplied")
         return JSONObject().apply {
             put("ok", true)
             put("code", "COMMAND_ACCEPTED")
@@ -185,6 +192,33 @@ class NativePrintServiceManager(context: Context) {
             put("message", "Print command re-queued.")
             put("mode", "native_print_service")
         }
+    }
+
+
+    private fun normalizePayloadForWorker(raw: JSONObject): JSONObject {
+        val root = JSONObject(raw.toString())
+        val candidate = root.optJSONObject("printJob") ?: root
+        val normalized = JSONObject(candidate.toString())
+        val hints = normalized.optJSONObject("formattingHints") ?: JSONObject().also { normalized.put("formattingHints", it) }
+
+        val forceOutput = normalized.optString("forceOutputStrategy", "").trim()
+        val topLevelOutput = normalized.optString("outputStrategy", "").trim()
+        val hintsOutput = hints.optString("outputStrategy", "").trim()
+        val effectiveOutput = when {
+            forceOutput.isNotBlank() -> forceOutput
+            hintsOutput.isNotBlank() -> hintsOutput
+            topLevelOutput.isNotBlank() -> topLevelOutput
+            else -> ""
+        }
+        if (effectiveOutput.isNotBlank()) {
+            hints.put("outputStrategy", effectiveOutput)
+            if (hints.optString("nativePrintStrategy", "").isBlank()) {
+                hints.put("nativePrintStrategy", effectiveOutput)
+            }
+        }
+
+        Log.i(TAG, "native_print_service_payload_normalized outputStrategyRaw=${hints.optString("outputStrategy", "")} nativePrintStrategyRaw=${hints.optString("nativePrintStrategy", "")} usedTopLevelOutput=${topLevelOutput.isNotBlank()} usedForceOutput=${forceOutput.isNotBlank()}")
+        return normalized
     }
 
     fun release() {

@@ -33,6 +33,7 @@ class SunmiJsBridge(context: Context) {
     @JavascriptInterface
     fun printReceipt(printJobJson: String?): String {
         Log.i(TAG, "JS bridge printReceipt invoked payloadLength=${printJobJson?.length ?: 0}")
+        logPrintPayloadStrategyHints("printReceipt", printJobJson)
         return safeResponse("printReceipt") {
             if (NativePrintFeatureFlags.USE_NATIVE_PRINT_SERVICE) {
                 nativePrintServiceManager.submitPrintCommand(printJobJson)
@@ -97,6 +98,7 @@ class SunmiJsBridge(context: Context) {
     @JavascriptInterface
     fun submitPrintCommand(printJobJson: String?): String {
         Log.i(TAG, "JS bridge submitPrintCommand invoked payloadLength=${printJobJson?.length ?: 0}")
+        logPrintPayloadStrategyHints("submitPrintCommand", printJobJson)
         return safeResponse("submitPrintCommand") {
             nativePrintServiceManager.submitPrintCommand(printJobJson)
         }
@@ -138,6 +140,17 @@ class SunmiJsBridge(context: Context) {
     fun release() {
         printerManager.release()
         nativePrintServiceManager.release()
+    }
+
+
+    private fun logPrintPayloadStrategyHints(source: String, printJobJson: String?) {
+        val parsed = runCatching { JSONObject(printJobJson ?: "") }.getOrNull()
+        val hints = parsed?.optJSONObject("formattingHints")
+        val outputFromHints = hints?.optString("outputStrategy", "")?.trim().orEmpty()
+        val outputTopLevel = parsed?.optString("outputStrategy", "")?.trim().orEmpty()
+        val nativeFromHints = hints?.optString("nativePrintStrategy", "")?.trim().orEmpty()
+        val forceOutput = parsed?.optString("forceOutputStrategy", "")?.trim().orEmpty()
+        Log.i(TAG, "native_print_bridge_payload_trace source=$source payloadLength=${printJobJson?.length ?: 0} outputStrategyHints=$outputFromHints outputStrategyTopLevel=$outputTopLevel nativePrintStrategyHints=$nativeFromHints forceOutputStrategy=$forceOutput hasFormattingHints=${hints != null}")
     }
 
     private fun safeResponse(operation: String, block: () -> JSONObject): String {

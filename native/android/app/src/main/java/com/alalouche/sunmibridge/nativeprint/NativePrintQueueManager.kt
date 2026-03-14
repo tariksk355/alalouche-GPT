@@ -101,6 +101,9 @@ class NativePrintQueueManager(
             Log.i(TAG, "native_print_worker_started commandId=${dispatching.commandId} orderId=${dispatching.orderId ?: ""} sourceJobId=${dispatching.sourceJobId ?: ""} attempt=${dispatching.attemptCount}/${dispatching.maxAttempts}")
 
             val report = try {
+                val payloadObj = runCatching { org.json.JSONObject(dispatching.payloadJson) }.getOrNull()
+                val hints = payloadObj?.optJSONObject("formattingHints")
+                Log.i(TAG, "native_print_queue_dispatch_payload_trace commandId=${dispatching.commandId} orderId=${dispatching.orderId ?: ""} sourceJobId=${dispatching.sourceJobId ?: ""} outputStrategyRaw=${hints?.optString("outputStrategy", "") ?: ""} nativePrintStrategyRaw=${hints?.optString("nativePrintStrategy", "") ?: ""} hasFormattingHints=${hints != null}")
                 Log.i(TAG, "native_print_dispatch_start commandId=${dispatching.commandId} orderId=${dispatching.orderId ?: ""} sourceJobId=${dispatching.sourceJobId ?: ""}")
                 worker.dispatch(dispatching)
             } catch (t: Throwable) {
