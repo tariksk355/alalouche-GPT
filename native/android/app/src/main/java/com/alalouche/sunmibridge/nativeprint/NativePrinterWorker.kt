@@ -4,6 +4,7 @@ import android.content.Context
 import android.os.RemoteException
 import android.util.Log
 import org.json.JSONObject
+import java.text.Normalizer
 import woyou.aidlservice.jiuiv5.ICallback
 import woyou.aidlservice.jiuiv5.IWoyouService
 
@@ -13,13 +14,15 @@ interface NativePrinterWorker {
 
 private enum class PhysicalFidelityStrategy {
     LINE_BY_LINE_TEXT_WITH_DELAY,
-    LINE_BY_LINE_TEXT_WITH_LINEWRAP,
+    LINE_BY_LINE_TEXT_WITH_EXPLICIT_LINEWRAP,
+    LINE_BY_LINE_TEXT_WITH_EXPLICIT_LINEWRAP_ASCII,
     GROUPED_SMALL_BLOCKS,
 }
 
 private data class PhysicalFidelityConfig(
     val strategy: PhysicalFidelityStrategy,
     val delayMs: Long,
+    val finalSettleMs: Long,
     val blockSize: Int,
     val appendNewline: Boolean,
 )
@@ -75,7 +78,7 @@ class SunmiNativePrinterWorker(
             val fidelityConfig = parsePhysicalFidelityConfig(job)
             Log.i(
                 TAG,
-                "native_print_strategy_selected commandId=${job.commandId} orderId=${job.orderId ?: ""} sourceJobId=${job.sourceJobId ?: ""} strategy=${fidelityConfig.strategy.name.lowercase()} delayMs=${fidelityConfig.delayMs} appendNewline=${fidelityConfig.appendNewline} blockSize=${fidelityConfig.blockSize}",
+                "native_print_strategy_selected commandId=${job.commandId} orderId=${job.orderId ?: ""} sourceJobId=${job.sourceJobId ?: ""} strategy=${strategyName(fidelityConfig.strategy)} delayMs=${fidelityConfig.delayMs} finalSettleMs=${fidelityConfig.finalSettleMs} appendNewline=${fidelityConfig.appendNewline} blockSize=${fidelityConfig.blockSize}",
             )
 
             val callbackErrors = mutableListOf<String>()
@@ -189,17 +192,21 @@ class SunmiNativePrinterWorker(
         val hints = payload?.optJSONObject("formattingHints")
         val rawStrategy = hints?.optString("nativePrintStrategy", "")?.trim().orEmpty()
         val strategy = when (rawStrategy.lowercase()) {
-            "line_by_line_text_with_linewrap" -> PhysicalFidelityStrategy.LINE_BY_LINE_TEXT_WITH_LINEWRAP
+            "line_by_line_text_with_delay" -> PhysicalFidelityStrategy.LINE_BY_LINE_TEXT_WITH_DELAY
+            "line_by_line_text_with_explicit_linewrap" -> PhysicalFidelityStrategy.LINE_BY_LINE_TEXT_WITH_EXPLICIT_LINEWRAP
+            "line_by_line_text_with_explicit_linewrap_ascii" -> PhysicalFidelityStrategy.LINE_BY_LINE_TEXT_WITH_EXPLICIT_LINEWRAP_ASCII
             "grouped_small_blocks" -> PhysicalFidelityStrategy.GROUPED_SMALL_BLOCKS
-            else -> PhysicalFidelityStrategy.LINE_BY_LINE_TEXT_WITH_DELAY
+            else -> DEFAULT_ACTIVE_STRATEGY
         }
         val delayMs = hints?.optLong("nativePrintLineDelayMs", DEFAULT_LINE_DELAY_MS) ?: DEFAULT_LINE_DELAY_MS
+        val finalSettleMs = hints?.optLong("nativePrintFinalSettleMs", DEFAULT_FINAL_SETTLE_MS) ?: DEFAULT_FINAL_SETTLE_MS
         val appendNewline = hints?.optBoolean("nativePrintAppendNewline", true) ?: true
         val blockSize = (hints?.optInt("nativePrintBlockSize", DEFAULT_BLOCK_SIZE) ?: DEFAULT_BLOCK_SIZE)
             .coerceIn(2, 3)
         return PhysicalFidelityConfig(
             strategy = strategy,
             delayMs = delayMs.coerceIn(0L, 250L),
+            finalSettleMs = finalSettleMs.coerceIn(0L, 500L),
             blockSize = blockSize,
             appendNewline = appendNewline,
         )
@@ -228,9 +235,14 @@ class SunmiNativePrinterWorker(
             .filter { it.isNotBlank() }
             .mapIndexed { idx, line -> "%02d %s".format(idx + 1, line) }
 
+        val useExplicitLineWrapPerLine = fidelityConfig.strategy == PhysicalFidelityStrategy.LINE_BY_LINE_TEXT_WITH_EXPLICIT_LINEWRAP ||
+            fidelityConfig.strategy == PhysicalFidelityStrategy.LINE_BY_LINE_TEXT_WITH_EXPLICIT_LINEWRAP_ASCII
+        val newlineEmbeddedInPayload = fidelityConfig.strategy == PhysicalFidelityStrategy.LINE_BY_LINE_TEXT_WITH_DELAY && fidelityConfig.appendNewline
+        val asciiNormalized = fidelityConfig.strategy == PhysicalFidelityStrategy.LINE_BY_LINE_TEXT_WITH_EXPLICIT_LINEWRAP_ASCII
+
         Log.i(
             TAG,
-            "native_print_physical_fidelity_test commandId=${job.commandId} orderId=${job.orderId ?: ""} sourceJobId=${job.sourceJobId ?: ""} strategy=${fidelityConfig.strategy.name.lowercase()} renderedLineCount=${numberedLines.size} renderedCharLength=${renderedText.length}",
+            "native_print_physical_fidelity_test commandId=${job.commandId} orderId=${job.orderId ?: ""} sourceJobId=${job.sourceJobId ?: ""} strategy=${strategyName(fidelityConfig.strategy)} renderedLineCount=${numberedLines.size} renderedCharLength=${renderedText.length} explicitLineWrapPerLine=$useExplicitLineWrapPerLine newlineEmbeddedInPayload=$newlineEmbeddedInPayload asciiNormalized=$asciiNormalized",
         )
 
         when (fidelityConfig.strategy) {
@@ -239,7 +251,7 @@ class SunmiNativePrinterWorker(
                     val payload = if (fidelityConfig.appendNewline) "$line\n" else line
                     Log.i(
                         TAG,
-                        "native_print_line_dispatch commandId=${job.commandId} orderId=${job.orderId ?: ""} sourceJobId=${job.sourceJobId ?: ""} strategy=line_by_line_text_with_delay lineIndex=$idx payloadLength=${payload.length} newlineAppended=${fidelityConfig.appendNewline} text=$line",
+                        "native_print_line_dispatch commandId=${job.commandId} orderId=${job.orderId ?: ""} sourceJobId=${job.sourceJobId ?: ""} strategy=${strategyName(fidelityConfig.strategy)} lineIndex=$idx payloadLength=${payload.length} newlineAppended=${fidelityConfig.appendNewline} explicitLineWrapAfterLine=false asciiNormalized=false text=$line",
                     )
                     callPrinterPrimitive(job, "printText", detail = "strategy=A lineIndex=$idx payloadLength=${payload.length}") {
                         service.printText(payload, callbackFor(job, "printText_line_$idx", callbackErrors))
@@ -248,18 +260,29 @@ class SunmiNativePrinterWorker(
                 }
             }
 
-            PhysicalFidelityStrategy.LINE_BY_LINE_TEXT_WITH_LINEWRAP -> {
-                numberedLines.forEachIndexed { idx, line ->
+            PhysicalFidelityStrategy.LINE_BY_LINE_TEXT_WITH_EXPLICIT_LINEWRAP,
+            PhysicalFidelityStrategy.LINE_BY_LINE_TEXT_WITH_EXPLICIT_LINEWRAP_ASCII,
+            -> {
+                numberedLines.forEachIndexed { idx, rawLine ->
+                    val line = if (asciiNormalized) toSafeAscii(rawLine) else rawLine
                     Log.i(
                         TAG,
-                        "native_print_line_dispatch commandId=${job.commandId} orderId=${job.orderId ?: ""} sourceJobId=${job.sourceJobId ?: ""} strategy=line_by_line_text_with_linewrap lineIndex=$idx payloadLength=${line.length} newlineAppended=false text=$line",
+                        "native_print_line_dispatch commandId=${job.commandId} orderId=${job.orderId ?: ""} sourceJobId=${job.sourceJobId ?: ""} strategy=${strategyName(fidelityConfig.strategy)} lineIndex=$idx payloadLength=${line.length} newlineAppended=false explicitLineWrapAfterLine=true asciiNormalized=$asciiNormalized text=$line",
                     )
-                    callPrinterPrimitive(job, "printText", detail = "strategy=B lineIndex=$idx payloadLength=${line.length}") {
+                    callPrinterPrimitive(job, "printText", detail = "strategy=EXPLICIT_WRAP lineIndex=$idx payloadLength=${line.length}") {
                         service.printText(line, callbackFor(job, "printText_line_$idx", callbackErrors))
                     }
-                    callPrinterPrimitive(job, "lineWrap", detail = "strategy=B lineIndex=$idx lines=1") {
+                    Log.i(
+                        TAG,
+                        "native_print_linewrap_dispatch commandId=${job.commandId} orderId=${job.orderId ?: ""} sourceJobId=${job.sourceJobId ?: ""} strategy=${strategyName(fidelityConfig.strategy)} lineIndex=$idx lines=1 event=start",
+                    )
+                    callPrinterPrimitive(job, "lineWrap", detail = "strategy=EXPLICIT_WRAP lineIndex=$idx lines=1") {
                         service.lineWrap(1, callbackFor(job, "lineWrap_line_$idx", callbackErrors))
                     }
+                    Log.i(
+                        TAG,
+                        "native_print_linewrap_dispatch commandId=${job.commandId} orderId=${job.orderId ?: ""} sourceJobId=${job.sourceJobId ?: ""} strategy=${strategyName(fidelityConfig.strategy)} lineIndex=$idx lines=1 event=end",
+                    )
                     sleepAfterDispatch(job, idx, fidelityConfig.delayMs)
                 }
             }
@@ -274,7 +297,7 @@ class SunmiNativePrinterWorker(
                     }
                     Log.i(
                         TAG,
-                        "native_print_block_dispatch commandId=${job.commandId} orderId=${job.orderId ?: ""} sourceJobId=${job.sourceJobId ?: ""} strategy=grouped_small_blocks blockIndex=$blockIndex lineCount=${chunk.size} payloadLength=${block.length} newlineAppended=${fidelityConfig.appendNewline}",
+                        "native_print_block_dispatch commandId=${job.commandId} orderId=${job.orderId ?: ""} sourceJobId=${job.sourceJobId ?: ""} strategy=${strategyName(fidelityConfig.strategy)} blockIndex=$blockIndex lineCount=${chunk.size} payloadLength=${block.length} newlineAppended=${fidelityConfig.appendNewline}",
                     )
                     callPrinterPrimitive(job, "printText", detail = "strategy=C blockIndex=$blockIndex payloadLength=${block.length}") {
                         service.printText(block, callbackFor(job, "printText_block_$blockIndex", callbackErrors))
@@ -285,8 +308,12 @@ class SunmiNativePrinterWorker(
             }
         }
 
-        callPrinterPrimitive(job, "lineWrap", detail = "lines=3") {
-            service.lineWrap(3, callbackFor(job, "lineWrap", callbackErrors))
+        if (fidelityConfig.finalSettleMs > 0) {
+            Log.i(
+                TAG,
+                "native_print_final_settle_sleep commandId=${job.commandId} orderId=${job.orderId ?: ""} sourceJobId=${job.sourceJobId ?: ""} settleMs=${fidelityConfig.finalSettleMs}",
+            )
+            runCatching { Thread.sleep(fidelityConfig.finalSettleMs) }
         }
 
         val rawFeed = byteArrayOf(0x1B, 0x64, 0x03)
@@ -294,11 +321,19 @@ class SunmiNativePrinterWorker(
             service.sendRAWData(rawFeed, callbackFor(job, "sendRAWData", callbackErrors))
         }
 
-        return when (fidelityConfig.strategy) {
-            PhysicalFidelityStrategy.LINE_BY_LINE_TEXT_WITH_DELAY -> "printerInit->setAlignment->printText(line_by_line_with_delay)->lineWrap->sendRAWData"
-            PhysicalFidelityStrategy.LINE_BY_LINE_TEXT_WITH_LINEWRAP -> "printerInit->setAlignment->printText(line_by_line)+lineWrap(1 each)->lineWrap->sendRAWData"
-            PhysicalFidelityStrategy.GROUPED_SMALL_BLOCKS -> "printerInit->setAlignment->printText(grouped_small_blocks)->lineWrap->sendRAWData"
+        val primitiveSequence = when (fidelityConfig.strategy) {
+            PhysicalFidelityStrategy.LINE_BY_LINE_TEXT_WITH_DELAY -> "printerInit->setAlignment->printText(line_by_line_with_delay)->sendRAWData"
+            PhysicalFidelityStrategy.LINE_BY_LINE_TEXT_WITH_EXPLICIT_LINEWRAP -> "printerInit->setAlignment->printText(line)->lineWrap(1 each)->sendRAWData"
+            PhysicalFidelityStrategy.LINE_BY_LINE_TEXT_WITH_EXPLICIT_LINEWRAP_ASCII -> "printerInit->setAlignment->printText(line_ascii)->lineWrap(1 each)->sendRAWData"
+            PhysicalFidelityStrategy.GROUPED_SMALL_BLOCKS -> "printerInit->setAlignment->printText(grouped_small_blocks)->sendRAWData"
         }
+
+        Log.i(
+            TAG,
+            "native_print_physical_fidelity_summary commandId=${job.commandId} orderId=${job.orderId ?: ""} sourceJobId=${job.sourceJobId ?: ""} strategy=${strategyName(fidelityConfig.strategy)} renderedLineCount=${numberedLines.size} explicitLineWrapPerLine=$useExplicitLineWrapPerLine newlineEmbeddedInPayload=$newlineEmbeddedInPayload asciiNormalized=$asciiNormalized delayMs=${fidelityConfig.delayMs} finalSettleMs=${fidelityConfig.finalSettleMs} primitiveSequence=$primitiveSequence",
+        )
+
+        return primitiveSequence
     }
 
     private fun sleepAfterDispatch(job: NativePrintJobEntity, stepIndex: Int, delayMs: Long) {
@@ -314,6 +349,28 @@ class SunmiNativePrinterWorker(
                     "native_print_dispatch_delay_interrupted commandId=${job.commandId} orderId=${job.orderId ?: ""} sourceJobId=${job.sourceJobId ?: ""} stepIndex=$stepIndex reason=${err.message ?: "interrupted"}",
                 )
             }
+    }
+
+    private fun toSafeAscii(input: String): String {
+        val normalized = Normalizer.normalize(input, Normalizer.Form.NFD)
+            .replace("\\p{M}+".toRegex(), "")
+        return normalized
+            .replace('•', '-')
+            .replace('–', '-')
+            .replace('—', '-')
+            .replace('’', '\'')
+            .replace('“', '"')
+            .replace('”', '"')
+            .replace("[^\\x20-\\x7E]".toRegex(), "?")
+    }
+
+    private fun strategyName(strategy: PhysicalFidelityStrategy): String {
+        return when (strategy) {
+            PhysicalFidelityStrategy.LINE_BY_LINE_TEXT_WITH_DELAY -> "line_by_line_text_with_delay"
+            PhysicalFidelityStrategy.LINE_BY_LINE_TEXT_WITH_EXPLICIT_LINEWRAP -> "line_by_line_text_with_explicit_linewrap"
+            PhysicalFidelityStrategy.LINE_BY_LINE_TEXT_WITH_EXPLICIT_LINEWRAP_ASCII -> "line_by_line_text_with_explicit_linewrap_ascii"
+            PhysicalFidelityStrategy.GROUPED_SMALL_BLOCKS -> "grouped_small_blocks"
+        }
     }
 
     private fun renderPrintableText(job: NativePrintJobEntity): RenderedPrintText {
@@ -474,7 +531,9 @@ class SunmiNativePrinterWorker(
 
     companion object {
         private const val TAG = "NativePrinterWorker"
+        private val DEFAULT_ACTIVE_STRATEGY = PhysicalFidelityStrategy.LINE_BY_LINE_TEXT_WITH_EXPLICIT_LINEWRAP
         private const val DEFAULT_LINE_DELAY_MS = 35L
+        private const val DEFAULT_FINAL_SETTLE_MS = 80L
         private const val DEFAULT_BLOCK_SIZE = 2
     }
 }
