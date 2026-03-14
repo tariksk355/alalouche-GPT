@@ -6,11 +6,11 @@ import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
 
 interface NativePrintJobDao {
-    fun insert(job: NativePrintJobEntity)
+    fun insert(job: NativePrintJobEntity): Boolean
     fun getById(commandId: String): NativePrintJobEntity?
     fun getNextRunnableJob(nowEpochMs: Long): NativePrintJobEntity?
     fun getByStates(states: Set<NativePrintJobState>): List<NativePrintJobEntity>
-    fun update(job: NativePrintJobEntity)
+    fun update(job: NativePrintJobEntity): Boolean
 }
 
 class NativePrintDatabase(context: Context) : SQLiteOpenHelper(context, DB_NAME, null, DB_VERSION) {
@@ -29,6 +29,11 @@ class NativePrintDatabase(context: Context) : SQLiteOpenHelper(context, DB_NAME,
                 retryable INTEGER NOT NULL,
                 error_code TEXT,
                 error_message TEXT,
+                selected_service_family TEXT,
+                dispatch_adapter_entered INTEGER NOT NULL,
+                native_dispatch_attempted INTEGER NOT NULL,
+                low_level_sequence_started INTEGER NOT NULL,
+                low_level_sequence_completed INTEGER NOT NULL,
                 physical_outcome TEXT NOT NULL,
                 created_at_ms INTEGER NOT NULL,
                 updated_at_ms INTEGER NOT NULL,
@@ -47,13 +52,13 @@ class NativePrintDatabase(context: Context) : SQLiteOpenHelper(context, DB_NAME,
     fun nativePrintJobDao(): NativePrintJobDao = SqliteNativePrintJobDao(this)
 
     private class SqliteNativePrintJobDao(private val helper: NativePrintDatabase) : NativePrintJobDao {
-        override fun insert(job: NativePrintJobEntity) {
-            helper.writableDatabase.insertWithOnConflict(
+        override fun insert(job: NativePrintJobEntity): Boolean {
+            return helper.writableDatabase.insertWithOnConflict(
                 TABLE_NATIVE_PRINT_JOBS,
                 null,
                 job.toContentValues(),
                 SQLiteDatabase.CONFLICT_REPLACE,
-            )
+            ) != -1L
         }
 
         override fun getById(commandId: String): NativePrintJobEntity? {
@@ -103,13 +108,13 @@ class NativePrintDatabase(context: Context) : SQLiteOpenHelper(context, DB_NAME,
             return out
         }
 
-        override fun update(job: NativePrintJobEntity) {
-            helper.writableDatabase.update(
+        override fun update(job: NativePrintJobEntity): Boolean {
+            return helper.writableDatabase.update(
                 TABLE_NATIVE_PRINT_JOBS,
                 job.toContentValues(),
                 "command_id = ?",
                 arrayOf(job.commandId),
-            )
+            ) > 0
         }
 
         private fun NativePrintJobEntity.toContentValues(): ContentValues {
@@ -124,6 +129,11 @@ class NativePrintDatabase(context: Context) : SQLiteOpenHelper(context, DB_NAME,
                 put("retryable", if (retryable) 1 else 0)
                 put("error_code", errorCode)
                 put("error_message", errorMessage)
+                put("selected_service_family", selectedServiceFamily)
+                put("dispatch_adapter_entered", if (dispatchAdapterEntered) 1 else 0)
+                put("native_dispatch_attempted", if (nativeDispatchAttempted) 1 else 0)
+                put("low_level_sequence_started", if (lowLevelSequenceStarted) 1 else 0)
+                put("low_level_sequence_completed", if (lowLevelSequenceCompleted) 1 else 0)
                 put("physical_outcome", physicalOutcome.name)
                 put("created_at_ms", createdAtEpochMs)
                 put("updated_at_ms", updatedAtEpochMs)
@@ -143,6 +153,11 @@ class NativePrintDatabase(context: Context) : SQLiteOpenHelper(context, DB_NAME,
                 retryable = getInt(getColumnIndexOrThrow("retryable")) == 1,
                 errorCode = getString(getColumnIndexOrThrow("error_code")),
                 errorMessage = getString(getColumnIndexOrThrow("error_message")),
+                selectedServiceFamily = getString(getColumnIndexOrThrow("selected_service_family")),
+                dispatchAdapterEntered = getInt(getColumnIndexOrThrow("dispatch_adapter_entered")) == 1,
+                nativeDispatchAttempted = getInt(getColumnIndexOrThrow("native_dispatch_attempted")) == 1,
+                lowLevelSequenceStarted = getInt(getColumnIndexOrThrow("low_level_sequence_started")) == 1,
+                lowLevelSequenceCompleted = getInt(getColumnIndexOrThrow("low_level_sequence_completed")) == 1,
                 physicalOutcome = PhysicalPrintOutcome.valueOf(getString(getColumnIndexOrThrow("physical_outcome"))),
                 createdAtEpochMs = getLong(getColumnIndexOrThrow("created_at_ms")),
                 updatedAtEpochMs = getLong(getColumnIndexOrThrow("updated_at_ms")),
@@ -153,7 +168,7 @@ class NativePrintDatabase(context: Context) : SQLiteOpenHelper(context, DB_NAME,
 
     companion object {
         private const val DB_NAME = "native_print_jobs.db"
-        private const val DB_VERSION = 2
+        private const val DB_VERSION = 3
         private const val TABLE_NATIVE_PRINT_JOBS = "native_print_jobs"
     }
 }

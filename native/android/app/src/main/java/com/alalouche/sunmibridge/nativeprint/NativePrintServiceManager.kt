@@ -56,6 +56,11 @@ class NativePrintServiceManager(context: Context) {
             retryable = true,
             errorCode = null,
             errorMessage = null,
+            selectedServiceFamily = null,
+            dispatchAdapterEntered = false,
+            nativeDispatchAttempted = false,
+            lowLevelSequenceStarted = false,
+            lowLevelSequenceCompleted = false,
             physicalOutcome = PhysicalPrintOutcome.UNKNOWN,
             createdAtEpochMs = now,
             updatedAtEpochMs = now,
@@ -75,6 +80,9 @@ class NativePrintServiceManager(context: Context) {
             put("state", NativePrintJobState.QUEUED.name)
             put("nativeDispatchStarted", false)
             put("nativeDispatchCompleted", false)
+            put("dispatchAdapterEntered", false)
+            put("lowLevelSequenceStarted", false)
+            put("lowLevelSequenceCompleted", false)
             put("acceptedByNative", false)
             put("printCompleted", false)
             put("acceptanceOnly", true)
@@ -100,6 +108,7 @@ class NativePrintServiceManager(context: Context) {
         val dispatchStarted = job.state != NativePrintJobState.QUEUED
         val dispatchCompleted = job.state != NativePrintJobState.QUEUED && job.state != NativePrintJobState.DISPATCHING
         val physicalPrintUnverified = !physicalConfirmable
+
         return JSONObject().apply {
             put("ok", true)
             put("commandId", job.commandId)
@@ -113,6 +122,11 @@ class NativePrintServiceManager(context: Context) {
             put("needsAttention", job.state == NativePrintJobState.NEEDS_ATTENTION || job.state == NativePrintJobState.FAILED)
             put("nativeDispatchStarted", dispatchStarted)
             put("nativeDispatchCompleted", dispatchCompleted)
+            put("dispatchAdapterEntered", job.dispatchAdapterEntered)
+            put("nativeDispatchAttempted", job.nativeDispatchAttempted)
+            put("lowLevelSequenceStarted", job.lowLevelSequenceStarted)
+            put("lowLevelSequenceCompleted", job.lowLevelSequenceCompleted)
+            put("selectedServiceFamily", job.selectedServiceFamily ?: JSONObject.NULL)
             put("acceptedByNative", acceptedByNative)
             put("printCompleted", successful)
             put("acceptanceOnly", acceptedByNative)
@@ -159,6 +173,10 @@ class NativePrintServiceManager(context: Context) {
             put("retryable", retried.retryable)
             put("nativeDispatchStarted", false)
             put("nativeDispatchCompleted", false)
+            put("dispatchAdapterEntered", false)
+            put("nativeDispatchAttempted", false)
+            put("lowLevelSequenceStarted", false)
+            put("lowLevelSequenceCompleted", false)
             put("acceptedByNative", false)
             put("printCompleted", false)
             put("acceptanceOnly", true)
@@ -190,6 +208,10 @@ class NativePrintServiceManager(context: Context) {
             put("needsAttention", needsAttention)
             put("nativeDispatchStarted", false)
             put("nativeDispatchCompleted", false)
+            put("dispatchAdapterEntered", false)
+            put("nativeDispatchAttempted", false)
+            put("lowLevelSequenceStarted", false)
+            put("lowLevelSequenceCompleted", false)
             put("acceptedByNative", false)
             put("printCompleted", false)
             put("acceptanceOnly", true)

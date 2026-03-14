@@ -12,7 +12,11 @@ class NativePrintQueueManager(
     private val draining = AtomicBoolean(false)
 
     fun enqueue(job: NativePrintJobEntity) {
-        dao.insert(job)
+        val inserted = dao.insert(job)
+        if (!inserted) {
+            Log.e(TAG, "native_print_status_persist_failed commandId=${job.commandId} orderId=${job.orderId ?: ""} sourceJobId=${job.sourceJobId ?: ""} operation=insert")
+            return
+        }
         Log.i(TAG, "native_print_command_persisted commandId=${job.commandId} orderId=${job.orderId ?: ""} sourceJobId=${job.sourceJobId ?: ""} state=${job.state}")
         scheduleDrain()
     }
@@ -51,6 +55,11 @@ class NativePrintQueueManager(
             attemptCount = 0,
             errorCode = null,
             errorMessage = null,
+            selectedServiceFamily = null,
+            dispatchAdapterEntered = false,
+            nativeDispatchAttempted = false,
+            lowLevelSequenceStarted = false,
+            lowLevelSequenceCompleted = false,
             updatedAtEpochMs = System.currentTimeMillis(),
             nextAttemptAtEpochMs = null,
         )
@@ -100,6 +109,11 @@ class NativePrintQueueManager(
                     acceptedByNative = false,
                     dispatchStarted = true,
                     dispatchCompleted = false,
+                    dispatchAdapterEntered = false,
+                    nativeDispatchAttempted = false,
+                    lowLevelSequenceStarted = false,
+                    lowLevelSequenceCompleted = false,
+                    selectedServiceFamily = null,
                     physicalOutcome = PhysicalPrintOutcome.UNKNOWN,
                     retryable = false,
                     errorCode = "NATIVE_WORKER_EXCEPTION",
@@ -109,7 +123,7 @@ class NativePrintQueueManager(
 
             Log.i(
                 TAG,
-                "native_print_dispatch_result commandId=${dispatching.commandId} orderId=${dispatching.orderId ?: ""} sourceJobId=${dispatching.sourceJobId ?: ""} acceptedByNative=${report.acceptedByNative} dispatchStarted=${report.dispatchStarted} dispatchCompleted=${report.dispatchCompleted} physicalOutcome=${report.physicalOutcome} retryable=${report.retryable} errorCode=${report.errorCode ?: ""}",
+                "native_print_dispatch_result commandId=${dispatching.commandId} orderId=${dispatching.orderId ?: ""} sourceJobId=${dispatching.sourceJobId ?: ""} acceptedByNative=${report.acceptedByNative} dispatchStarted=${report.dispatchStarted} dispatchCompleted=${report.dispatchCompleted} dispatchAdapterEntered=${report.dispatchAdapterEntered} nativeDispatchAttempted=${report.nativeDispatchAttempted} lowLevelSequenceStarted=${report.lowLevelSequenceStarted} lowLevelSequenceCompleted=${report.lowLevelSequenceCompleted} selectedFamily=${report.selectedServiceFamily ?: ""} physicalOutcome=${report.physicalOutcome} retryable=${report.retryable} errorCode=${report.errorCode ?: ""}",
             )
 
             val updatedAt = System.currentTimeMillis()
@@ -118,6 +132,11 @@ class NativePrintQueueManager(
                     dispatching.copy(
                         state = NativePrintJobState.PRINTED_IF_CONFIRMABLE,
                         retryable = false,
+                        selectedServiceFamily = report.selectedServiceFamily,
+                        dispatchAdapterEntered = report.dispatchAdapterEntered,
+                        nativeDispatchAttempted = report.nativeDispatchAttempted,
+                        lowLevelSequenceStarted = report.lowLevelSequenceStarted,
+                        lowLevelSequenceCompleted = report.lowLevelSequenceCompleted,
                         physicalOutcome = report.physicalOutcome,
                         errorCode = null,
                         errorMessage = null,
@@ -126,10 +145,15 @@ class NativePrintQueueManager(
                     )
                 }
 
-                report.acceptedByNative -> {
+                report.acceptedByNative && report.nativeDispatchAttempted -> {
                     dispatching.copy(
                         state = NativePrintJobState.ACCEPTED_BY_NATIVE,
                         retryable = false,
+                        selectedServiceFamily = report.selectedServiceFamily,
+                        dispatchAdapterEntered = report.dispatchAdapterEntered,
+                        nativeDispatchAttempted = report.nativeDispatchAttempted,
+                        lowLevelSequenceStarted = report.lowLevelSequenceStarted,
+                        lowLevelSequenceCompleted = report.lowLevelSequenceCompleted,
                         physicalOutcome = report.physicalOutcome,
                         errorCode = report.errorCode,
                         errorMessage = report.errorMessage,
@@ -142,6 +166,11 @@ class NativePrintQueueManager(
                     dispatching.copy(
                         state = NativePrintJobState.QUEUED,
                         retryable = true,
+                        selectedServiceFamily = report.selectedServiceFamily,
+                        dispatchAdapterEntered = report.dispatchAdapterEntered,
+                        nativeDispatchAttempted = report.nativeDispatchAttempted,
+                        lowLevelSequenceStarted = report.lowLevelSequenceStarted,
+                        lowLevelSequenceCompleted = report.lowLevelSequenceCompleted,
                         physicalOutcome = report.physicalOutcome,
                         errorCode = report.errorCode,
                         errorMessage = report.errorMessage,
@@ -150,10 +179,15 @@ class NativePrintQueueManager(
                     )
                 }
 
-                report.retryable -> {
+                report.retryable || report.nativeDispatchAttempted || report.dispatchAdapterEntered -> {
                     dispatching.copy(
                         state = NativePrintJobState.NEEDS_ATTENTION,
                         retryable = true,
+                        selectedServiceFamily = report.selectedServiceFamily,
+                        dispatchAdapterEntered = report.dispatchAdapterEntered,
+                        nativeDispatchAttempted = report.nativeDispatchAttempted,
+                        lowLevelSequenceStarted = report.lowLevelSequenceStarted,
+                        lowLevelSequenceCompleted = report.lowLevelSequenceCompleted,
                         physicalOutcome = report.physicalOutcome,
                         errorCode = report.errorCode,
                         errorMessage = report.errorMessage,
@@ -166,8 +200,13 @@ class NativePrintQueueManager(
                     dispatching.copy(
                         state = NativePrintJobState.FAILED,
                         retryable = false,
+                        selectedServiceFamily = report.selectedServiceFamily,
+                        dispatchAdapterEntered = report.dispatchAdapterEntered,
+                        nativeDispatchAttempted = report.nativeDispatchAttempted,
+                        lowLevelSequenceStarted = report.lowLevelSequenceStarted,
+                        lowLevelSequenceCompleted = report.lowLevelSequenceCompleted,
                         physicalOutcome = report.physicalOutcome,
-                        errorCode = report.errorCode,
+                        errorCode = report.errorCode ?: "NATIVE_PRINT_SERVICE_DISPATCH_NOT_ATTEMPTED",
                         errorMessage = report.errorMessage,
                         updatedAtEpochMs = updatedAt,
                         nextAttemptAtEpochMs = null,
@@ -184,12 +223,25 @@ class NativePrintQueueManager(
             )
             if (isTerminal) {
                 Log.i(TAG, "native_print_terminal_state commandId=${terminal.commandId} orderId=${terminal.orderId ?: ""} sourceJobId=${terminal.sourceJobId ?: ""} state=${terminal.state} retryable=${terminal.retryable} physicalOutcome=${terminal.physicalOutcome} errorCode=${terminal.errorCode ?: ""}")
+                val printCompleted = terminal.state == NativePrintJobState.PRINTED_IF_CONFIRMABLE && terminal.physicalOutcome == PhysicalPrintOutcome.CONFIRMED
+                val acceptedByNative = terminal.state == NativePrintJobState.ACCEPTED_BY_NATIVE || printCompleted
+                Log.i(
+                    TAG,
+                    "native_print_execution_summary commandId=${terminal.commandId} orderId=${terminal.orderId ?: ""} sourceJobId=${terminal.sourceJobId ?: ""} selectedFamily=${terminal.selectedServiceFamily ?: ""} dispatchAdapterEntered=${terminal.dispatchAdapterEntered} nativeDispatchAttempted=${terminal.nativeDispatchAttempted} acceptedByNative=$acceptedByNative printCompleted=$printCompleted physicalPrintOutcome=${terminal.physicalOutcome} finalState=${terminal.state} errorCode=${terminal.errorCode ?: ""} errorMessage=${terminal.errorMessage ?: ""}",
+                )
             }
         }
     }
 
     private fun persistTransition(from: NativePrintJobEntity, to: NativePrintJobEntity, reason: String) {
-        dao.update(to)
+        val persisted = dao.update(to)
+        if (!persisted) {
+            Log.e(
+                TAG,
+                "native_print_status_persist_failed commandId=${to.commandId} orderId=${to.orderId ?: ""} sourceJobId=${to.sourceJobId ?: ""} from=${from.state} to=${to.state} reason=$reason",
+            )
+            return
+        }
         Log.i(
             TAG,
             "native_print_state_transition commandId=${to.commandId} orderId=${to.orderId ?: ""} sourceJobId=${to.sourceJobId ?: ""} from=${from.state} to=${to.state} reason=$reason",
