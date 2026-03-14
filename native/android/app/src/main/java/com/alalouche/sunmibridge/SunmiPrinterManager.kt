@@ -621,19 +621,19 @@ class SunmiPrinterManager(private val context: Context) {
                 val parityCallbackObserved = AtomicBoolean(false)
                 val parityCallback = object : ICallback.Stub() {
                     override fun onRunResult(isSuccess: Boolean) {
+                        parityCallbackObserved.set(true)
                         if (!isSuccess) {
                             parityCallbackErrors += "onRunResult:false"
                         }
                     }
 
-                    override fun onReturnString(result: String?) { }
-
-                    override fun onRaiseException(code: Int, msg: String?) {
-                        parityCallbackErrors += "onRaiseException:$code:${msg ?: "unknown"}"
+                    override fun onReturnString(result: String?) {
+                        parityCallbackObserved.set(true)
                     }
 
-                    override fun onPrintResult(code: Int, msg: String?) {
+                    override fun onRaiseException(code: Int, msg: String?) {
                         parityCallbackObserved.set(true)
+                        parityCallbackErrors += "onRaiseException:$code:${msg ?: "unknown"}"
                     }
                 }
 
