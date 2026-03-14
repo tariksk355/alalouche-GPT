@@ -9,6 +9,7 @@ interface NativePrintJobDao {
     fun insert(job: NativePrintJobEntity)
     fun getById(commandId: String): NativePrintJobEntity?
     fun getNextRunnableJob(nowEpochMs: Long): NativePrintJobEntity?
+    fun getByStates(states: Set<NativePrintJobState>): List<NativePrintJobEntity>
     fun update(job: NativePrintJobEntity)
 }
 
@@ -20,6 +21,7 @@ class NativePrintDatabase(context: Context) : SQLiteOpenHelper(context, DB_NAME,
             CREATE TABLE $TABLE_NATIVE_PRINT_JOBS (
                 command_id TEXT PRIMARY KEY NOT NULL,
                 order_id TEXT,
+                source_job_id TEXT,
                 payload_json TEXT NOT NULL,
                 state TEXT NOT NULL,
                 attempt_count INTEGER NOT NULL,
@@ -87,6 +89,20 @@ class NativePrintDatabase(context: Context) : SQLiteOpenHelper(context, DB_NAME,
             }
         }
 
+        override fun getByStates(states: Set<NativePrintJobState>): List<NativePrintJobEntity> {
+            if (states.isEmpty()) return emptyList()
+            val placeholders = states.joinToString(",") { "?" }
+            val sql = "SELECT * FROM $TABLE_NATIVE_PRINT_JOBS WHERE state IN ($placeholders) ORDER BY created_at_ms ASC"
+            val args = states.map { it.name }.toTypedArray()
+            val out = mutableListOf<NativePrintJobEntity>()
+            helper.readableDatabase.rawQuery(sql, args).use { cursor ->
+                while (cursor.moveToNext()) {
+                    out += cursor.toEntity()
+                }
+            }
+            return out
+        }
+
         override fun update(job: NativePrintJobEntity) {
             helper.writableDatabase.update(
                 TABLE_NATIVE_PRINT_JOBS,
@@ -100,6 +116,7 @@ class NativePrintDatabase(context: Context) : SQLiteOpenHelper(context, DB_NAME,
             return ContentValues().apply {
                 put("command_id", commandId)
                 put("order_id", orderId)
+                put("source_job_id", sourceJobId)
                 put("payload_json", payloadJson)
                 put("state", state.name)
                 put("attempt_count", attemptCount)
@@ -118,6 +135,7 @@ class NativePrintDatabase(context: Context) : SQLiteOpenHelper(context, DB_NAME,
             return NativePrintJobEntity(
                 commandId = getString(getColumnIndexOrThrow("command_id")),
                 orderId = getString(getColumnIndexOrThrow("order_id")),
+                sourceJobId = getString(getColumnIndexOrThrow("source_job_id")),
                 payloadJson = getString(getColumnIndexOrThrow("payload_json")),
                 state = NativePrintJobState.valueOf(getString(getColumnIndexOrThrow("state"))),
                 attemptCount = getInt(getColumnIndexOrThrow("attempt_count")),
@@ -135,7 +153,7 @@ class NativePrintDatabase(context: Context) : SQLiteOpenHelper(context, DB_NAME,
 
     companion object {
         private const val DB_NAME = "native_print_jobs.db"
-        private const val DB_VERSION = 1
+        private const val DB_VERSION = 2
         private const val TABLE_NATIVE_PRINT_JOBS = "native_print_jobs"
     }
 }

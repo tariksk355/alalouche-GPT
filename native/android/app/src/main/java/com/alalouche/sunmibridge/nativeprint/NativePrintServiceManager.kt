@@ -11,6 +11,10 @@ class NativePrintServiceManager(context: Context) {
     private val dao = db.nativePrintJobDao()
     private val queue = NativePrintQueueManager(dao, SunmiNativePrinterWorker(context))
 
+    init {
+        queue.reconcileUnfinishedOnStartup()
+    }
+
     fun submitPrintCommand(printJobJson: String?): JSONObject {
         if (printJobJson.isNullOrBlank()) {
             return error(
@@ -21,6 +25,7 @@ class NativePrintServiceManager(context: Context) {
             )
         }
 
+        Log.i(TAG, "native_print_command_received payloadLength=${printJobJson.length}")
         val payload = runCatching { JSONObject(printJobJson) }.getOrElse {
             return error(
                 code = "INVALID_PRINT_COMMAND_JSON",
@@ -34,12 +39,16 @@ class NativePrintServiceManager(context: Context) {
         val orderId = payload.optString("orderId").ifBlank {
             payload.optString("order_id").ifBlank { null }
         }
+        val sourceJobId = payload.optString("printJobId").ifBlank {
+            payload.optString("jobId").ifBlank { null }
+        }
 
         val now = System.currentTimeMillis()
         val commandId = "npc_${java.util.UUID.randomUUID()}"
         val job = NativePrintJobEntity(
             commandId = commandId,
             orderId = orderId,
+            sourceJobId = sourceJobId,
             payloadJson = printJobJson,
             state = NativePrintJobState.QUEUED,
             attemptCount = 0,
@@ -54,15 +63,22 @@ class NativePrintServiceManager(context: Context) {
         )
 
         queue.enqueue(job)
-        Log.i(TAG, "native_print_command accepted commandId=$commandId orderId=${orderId ?: ""}")
+        Log.i(TAG, "native_print_command_queued commandId=$commandId orderId=${orderId ?: ""} sourceJobId=${sourceJobId ?: ""}")
         return JSONObject().apply {
             put("ok", true)
             put("code", "COMMAND_ACCEPTED")
             put("commandAccepted", true)
             put("commandId", commandId)
+            put("jobId", commandId)
             put("orderId", orderId ?: JSONObject.NULL)
+            put("sourceJobId", sourceJobId ?: JSONObject.NULL)
             put("state", NativePrintJobState.QUEUED.name)
-            put("nativeDispatchAttempted", false)
+            put("nativeDispatchStarted", false)
+            put("nativeDispatchCompleted", false)
+            put("acceptedByNative", false)
+            put("printCompleted", false)
+            put("acceptanceOnly", true)
+            put("physicalPrintUnverified", true)
             put("physicalPrintOutcome", PhysicalPrintOutcome.UNKNOWN.name)
             put("message", "Print command accepted by native queue.")
             put("mode", "native_print_service")
@@ -77,22 +93,31 @@ class NativePrintServiceManager(context: Context) {
         val job = dao.getById(commandId)
             ?: return error("PRINT_COMMAND_NOT_FOUND", "No print command found for commandId.", retryable = false, needsAttention = true)
 
+        Log.i(TAG, "native_print_status_query commandId=${job.commandId} orderId=${job.orderId ?: ""} sourceJobId=${job.sourceJobId ?: ""} state=${job.state}")
         val physicalConfirmable = job.physicalOutcome == PhysicalPrintOutcome.CONFIRMED
         val successful = job.state == NativePrintJobState.PRINTED_IF_CONFIRMABLE && physicalConfirmable
+        val acceptedByNative = job.state == NativePrintJobState.ACCEPTED_BY_NATIVE || successful
+        val dispatchStarted = job.state != NativePrintJobState.QUEUED
+        val dispatchCompleted = job.state != NativePrintJobState.QUEUED && job.state != NativePrintJobState.DISPATCHING
+        val physicalPrintUnverified = !physicalConfirmable
         return JSONObject().apply {
             put("ok", true)
             put("commandId", job.commandId)
+            put("jobId", job.commandId)
             put("orderId", job.orderId ?: JSONObject.NULL)
+            put("sourceJobId", job.sourceJobId ?: JSONObject.NULL)
             put("state", job.state.name)
             put("attemptCount", job.attemptCount)
             put("maxAttempts", job.maxAttempts)
             put("retryable", job.retryable)
             put("needsAttention", job.state == NativePrintJobState.NEEDS_ATTENTION || job.state == NativePrintJobState.FAILED)
-            put("nativeDispatchStarted", job.state != NativePrintJobState.QUEUED)
-            put("nativeDispatchCompleted", job.state != NativePrintJobState.QUEUED && job.state != NativePrintJobState.DISPATCHING)
-            put("acceptedByNative", job.state == NativePrintJobState.ACCEPTED_BY_NATIVE || successful)
+            put("nativeDispatchStarted", dispatchStarted)
+            put("nativeDispatchCompleted", dispatchCompleted)
+            put("acceptedByNative", acceptedByNative)
             put("printCompleted", successful)
+            put("acceptanceOnly", acceptedByNative)
             put("physicalPrintConfirmable", physicalConfirmable)
+            put("physicalPrintUnverified", physicalPrintUnverified)
             put("physicalPrintOutcome", job.physicalOutcome.name)
             put("errorCode", job.errorCode ?: JSONObject.NULL)
             put("errorMessage", job.errorMessage ?: JSONObject.NULL)
@@ -110,6 +135,7 @@ class NativePrintServiceManager(context: Context) {
             ?: return error("PRINT_COMMAND_NOT_FOUND", "No print command found for commandId.", retryable = false, needsAttention = true)
 
         if (!current.retryable || current.state != NativePrintJobState.NEEDS_ATTENTION) {
+            Log.i(TAG, "native_print_retry_rejected commandId=${current.commandId} orderId=${current.orderId ?: ""} sourceJobId=${current.sourceJobId ?: ""} state=${current.state} retryable=${current.retryable}")
             return error(
                 code = "PRINT_COMMAND_NOT_RETRYABLE",
                 message = "Print command is not retryable.",
@@ -126,10 +152,17 @@ class NativePrintServiceManager(context: Context) {
             put("code", "COMMAND_REQUEUED")
             put("commandAccepted", true)
             put("commandId", retried.commandId)
+            put("jobId", retried.commandId)
             put("orderId", retried.orderId ?: JSONObject.NULL)
+            put("sourceJobId", retried.sourceJobId ?: JSONObject.NULL)
             put("state", retried.state.name)
             put("retryable", retried.retryable)
-            put("nativeDispatchAttempted", false)
+            put("nativeDispatchStarted", false)
+            put("nativeDispatchCompleted", false)
+            put("acceptedByNative", false)
+            put("printCompleted", false)
+            put("acceptanceOnly", true)
+            put("physicalPrintUnverified", true)
             put("physicalPrintOutcome", retried.physicalOutcome.name)
             put("message", "Print command re-queued.")
             put("mode", "native_print_service")
@@ -155,6 +188,12 @@ class NativePrintServiceManager(context: Context) {
             if (!details.isNullOrBlank()) put("details", details)
             put("retryable", retryable)
             put("needsAttention", needsAttention)
+            put("nativeDispatchStarted", false)
+            put("nativeDispatchCompleted", false)
+            put("acceptedByNative", false)
+            put("printCompleted", false)
+            put("acceptanceOnly", true)
+            put("physicalPrintUnverified", true)
             put("mode", "native_print_service")
             if (isLikelyV2s) {
                 put("architectureStatus", "UNSUITABLE_BRIDGE_AIDL_V2S")

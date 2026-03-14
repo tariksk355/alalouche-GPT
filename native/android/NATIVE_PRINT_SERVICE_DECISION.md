@@ -3,32 +3,43 @@
 ## Decision
 Chosen integration model: **D) Hybrid**
 - **Primary runtime path:** `WebView JavascriptInterface -> native queue command API only`.
-- **Target evolution:** promote queue/worker into a dedicated Android service process with Binder/Intent handoff while keeping the same command/status contract.
+- **Target evolution:** promote queue/worker into dedicated Android service process with Binder/Intent handoff while keeping the same command/status contract.
 
-## Why this is best for this repository now
-- Reuses current WebView shell and bridge wiring with minimal migration risk.
-- Immediately removes low-level printer sequencing from JS/web code.
-- Allows native queue + deterministic single worker to own printer lifecycle/retry/state.
-- Keeps a clean upgrade path to a standalone service/app without breaking web contract.
+## What is implemented now
+- Persistent native print command table (`native_print_jobs`) with restart-safe state.
+- Deterministic single-thread queue drain (`NativePrintQueueManager`).
+- Real worker execution entrypoint (`SunmiNativePrinterWorker`) that attempts a minimal native dispatch call path.
+- Startup reconciliation:
+  - `DISPATCHING` -> `NEEDS_ATTENTION` (conservative recovery)
+  - `QUEUED` jobs are resumed.
+- Command/status/retry APIs exposed to web bridge:
+  - `submitPrintCommand`
+  - `getPrintCommandStatus`
+  - `retryPrintCommand`
 
-## Boundaries
-- **Web layer:** submit command payloads, query status, render operator actions.
-- **Native layer:** binding, lifecycle, queueing, dispatch orchestration, retry policy, error classification, and status truth.
+## What remains stubbed / incomplete
+- Worker dispatch is intentionally minimal and acceptance-oriented; no physical confirmation mechanism is claimed yet.
+- Dedicated out-of-process Android print service boundary (Binder/Intent service process split) is not yet implemented.
+- Fine-grained printer-specific classification beyond dispatch acceptance/error remains to be implemented in worker.
 
-## State machine
-`QUEUED -> DISPATCHING -> ACCEPTED_BY_NATIVE -> PRINTED_IF_CONFIRMABLE`
+## State semantics (strict)
+- `QUEUED`: persisted, waiting for worker.
+- `DISPATCHING`: worker owns command execution.
+- `ACCEPTED_BY_NATIVE`: native call path accepted/attempted; **not physical success**.
+- `PRINTED_IF_CONFIRMABLE`: only if credible confirmation exists.
+- `NEEDS_ATTENTION`: terminal attention-required state (retry may be allowed).
+- `FAILED`: terminal non-retryable failure.
 
-Error/terminal branches:
-- `DISPATCHING -> NEEDS_ATTENTION` (retryable/operator action)
-- `DISPATCHING -> FAILED` (non-retryable)
+## Required log evidence (grep-friendly)
+Expected event names include:
+- `native_print_command_received`
+- `native_print_command_persisted`
+- `native_print_queue_drain_start`
+- `native_print_worker_started`
+- `native_print_state_transition`
+- `native_print_dispatch_start`
+- `native_print_dispatch_result`
+- `native_print_dispatch_error`
+- `native_print_terminal_state`
 
-Important semantics:
-- `ACCEPTED_BY_NATIVE` is **not** physical print success.
-- `PRINTED_IF_CONFIRMABLE` is used only if confirmation is genuinely possible.
-- Unknown physical completion must be surfaced as unknown, not success.
-
-## Failure handling model
-- Structured error codes + retryable flag.
-- Queue worker decides retry vs terminal.
-- UI consumes machine-readable status (`needsAttention`, `retryable`, `recommendedAction`).
-- No success coercion on acceptance-only events.
+Every event includes `commandId`, plus `orderId` and `sourceJobId` when present.

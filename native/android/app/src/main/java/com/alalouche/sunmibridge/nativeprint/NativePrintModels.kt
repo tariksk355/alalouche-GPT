@@ -18,6 +18,7 @@ enum class PhysicalPrintOutcome {
 data class NativePrintJobEntity(
     val commandId: String,
     val orderId: String?,
+    val sourceJobId: String?,
     val payloadJson: String,
     val state: NativePrintJobState,
     val attemptCount: Int,
