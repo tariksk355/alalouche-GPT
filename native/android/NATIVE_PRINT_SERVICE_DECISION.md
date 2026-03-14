@@ -43,3 +43,23 @@ Expected event names include:
 - `native_print_terminal_state`
 
 Every event includes `commandId`, plus `orderId` and `sourceJobId` when present.
+
+
+## Service discovery/binding matrix (implemented)
+- Candidate families probed in deterministic order:
+  1. `com.sunmi.peripheral.printer` + `com.sunmi.peripheral.printer.InnerPrinterService`
+  2. unscoped `com.sunmi.peripheral.printer.InnerPrinterService`
+  3. `woyou.aidlservice.jiuiv5` + `woyou.aidlservice.jiuiv5.IWoyouService`
+  4. unscoped `woyou.aidlservice.jiuiv5.IWoyouService`
+- For each candidate we now log and evaluate:
+  - package installed
+  - service resolvable
+  - bind attempted/succeeded
+  - binder null/non-null
+  - interface adaptation ready/not ready
+- Distinct machine-readable binding failure codes now reported:
+  - `NATIVE_PRINT_SERVICE_FAMILY_NOT_FOUND`
+  - `NATIVE_PRINT_SERVICE_BIND_FAILED`
+  - `NATIVE_PRINT_SERVICE_BINDER_NULL`
+  - `NATIVE_PRINT_SERVICE_INTERFACE_UNAVAILABLE`
+  - `NATIVE_PRINT_SERVICE_DISPATCH_NOT_ATTEMPTED`
