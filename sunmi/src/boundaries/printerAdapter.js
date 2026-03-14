@@ -138,14 +138,14 @@ function createNativeBridgePrinterAdapter(nativeBridge) {
     const raw = nativeBridge.getPrintStatus?.(JSON.stringify({ jobId }));
     const parsed = safeParseBridgeResponse(raw, null);
     if (parsed && typeof parsed === 'object') {
-      return parsed;
+      return mapReceiverPrintContract(parsed);
     }
 
-    return {
+    return mapReceiverPrintContract({
       ok: false,
       code: 'BRIDGE_BAD_RESPONSE',
       message: 'Invalid native bridge response for getPrintStatus.',
-    };
+    });
   }
 
   function invokeRetryPrint(jobId) {
@@ -168,14 +168,14 @@ function createNativeBridgePrinterAdapter(nativeBridge) {
     const raw = nativeBridge.retryPrint?.(JSON.stringify({ jobId }));
     const parsed = safeParseBridgeResponse(raw, null);
     if (parsed && typeof parsed === 'object') {
-      return parsed;
+      return mapReceiverPrintContract(parsed);
     }
 
-    return {
+    return mapReceiverPrintContract({
       ok: false,
       code: 'BRIDGE_BAD_RESPONSE',
       message: 'Invalid native bridge response for retryPrint.',
-    };
+    });
   }
 
   return {

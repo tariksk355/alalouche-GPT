@@ -128,6 +128,17 @@ class SunmiPrinterManager(private val context: Context) {
             return fail("INVALID_PRINT_JOB", "printJob JSON is required.")
         }
 
+        val isLikelyV2s = (Build.MODEL ?: "").lowercase(Locale.ROOT).contains("v2s")
+        if (isLikelyV2s && V2S_FINAL_CLASSIFICATION_CONFIRMED) {
+            logV2sFinalClassificationBlock()
+            return buildV2sDegradedModeResult(
+                code = "V2S_BRIDGE_ARCHITECTURE_UNSUITABLE",
+                message = "Sunmi V2s bridge/AIDL path is finalized as degraded for production printing.",
+                nativeDispatchAttempted = false,
+                bridgeAccepted = true,
+            )
+        }
+
         val now = System.currentTimeMillis()
         val payload = runCatching { JSONObject(printJobJson) }.getOrNull()
         val printJob = payload?.optJSONObject("printJob") ?: payload
@@ -172,6 +183,7 @@ class SunmiPrinterManager(private val context: Context) {
         val job = printJobDao.getById(jobId)
             ?: return fail("PRINT_JOB_NOT_FOUND", "No print job found for the provided jobId.")
 
+        val architectureUnsuitable = job.errorCode == "V2S_BRIDGE_ARCHITECTURE_UNSUITABLE"
         return JSONObject().apply {
             put("ok", true)
             put("jobId", job.jobId)
@@ -183,6 +195,15 @@ class SunmiPrinterManager(private val context: Context) {
             put("errorMessage", job.errorMessage ?: JSONObject.NULL)
             put("updatedAt", job.updatedAtEpochMs)
             put("createdAt", job.createdAtEpochMs)
+            put("retryable", !architectureUnsuitable && job.state == PrintJobState.NEEDS_ATTENTION)
+            put("needsAttention", job.state == PrintJobState.NEEDS_ATTENTION)
+            put("operatorActionRequired", architectureUnsuitable)
+            put("acceptanceOnly", architectureUnsuitable)
+            put("physicalPrintUnverified", architectureUnsuitable)
+            if (architectureUnsuitable) {
+                appendV2sArchitectureStatus(this)
+                put("recommendedAction", "Use dedicated native print service/app for this device")
+            }
         }
     }
 
@@ -197,6 +218,15 @@ class SunmiPrinterManager(private val context: Context) {
 
         if (current.state != PrintJobState.NEEDS_ATTENTION) {
             return fail("PRINT_JOB_NOT_RETRYABLE", "Print job is not in a retryable state.")
+        }
+
+        if (current.errorCode == "V2S_BRIDGE_ARCHITECTURE_UNSUITABLE") {
+            return buildV2sDegradedModeResult(
+                code = "V2S_BRIDGE_ARCHITECTURE_UNSUITABLE",
+                message = "Retry suppressed: architecture unsuitable on Sunmi V2s.",
+                nativeDispatchAttempted = false,
+                bridgeAccepted = true,
+            )
         }
 
         val retried = printQueueOrchestrator.retryPrint(jobId)

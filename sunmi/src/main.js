@@ -139,6 +139,63 @@ function printStateMessage(uiState) {
   return '';
 }
 
+function isArchitectureUnsuitableResult(result) {
+  return result?.errorCode === 'V2S_BRIDGE_ARCHITECTURE_UNSUITABLE'
+    || result?.code === 'V2S_BRIDGE_ARCHITECTURE_UNSUITABLE'
+    || result?.architectureStatus === 'UNSUITABLE_BRIDGE_AIDL_V2S';
+}
+
+function classifyPrintResult(result) {
+  const architectureUnsuitable = isArchitectureUnsuitableResult(result);
+  const classification = {
+    architectureUnsuitable,
+    terminalState: architectureUnsuitable ? 'NEEDS_ATTENTION' : null,
+    retryable: architectureUnsuitable ? false : Boolean(result?.retryable ?? true),
+    needsAttention: architectureUnsuitable ? true : Boolean(result?.needsAttention),
+    operatorActionRequired: architectureUnsuitable ? true : Boolean(result?.operatorActionRequired),
+    recommendedAction: architectureUnsuitable
+      ? (result?.recommendedAction || 'Use dedicated native print service/app for this device')
+      : (result?.recommendedAction || ''),
+    reasonCode: architectureUnsuitable ? 'V2S_BRIDGE_ARCHITECTURE_UNSUITABLE' : (result?.errorCode || result?.code || ''),
+  };
+  debugLog('print_result_classification', classification);
+  return classification;
+}
+
+function applyBlockedPrintState(orderId, result, messagePrefix = 'Impression bloquée') {
+  const classification = classifyPrintResult(result);
+  if (!classification.architectureUnsuitable) return false;
+  const blockedMessage = `${messagePrefix}: ${classification.recommendedAction}`;
+  state.printJobsByOrderId[orderId] = {
+    orderId,
+    jobId: result?.jobId || null,
+    nativeState: 'NEEDS_ATTENTION',
+    uiState: 'NEEDS_ATTENTION',
+    transientUnavailable: false,
+    nonRetryable: true,
+    blockedReasonCode: classification.reasonCode,
+    blockedReasonMessage: classification.recommendedAction,
+    message: blockedMessage,
+    updatedAt: Date.now(),
+  };
+  debugLog('print_job_terminal_state_reason', {
+    orderId,
+    terminalState: 'NEEDS_ATTENTION',
+    reasonCode: classification.reasonCode,
+    retryable: classification.retryable,
+    needsAttention: classification.needsAttention,
+    operatorActionRequired: classification.operatorActionRequired,
+  });
+  debugLog('receiver_ui_print_blocked_reason', {
+    orderId,
+    reasonCode: classification.reasonCode,
+    recommendedAction: classification.recommendedAction,
+  });
+  state.printerMessage = blockedMessage;
+  persistPrintJobTracking();
+  return true;
+}
+
 function safeReadPrintJobTrackingStorage() {
   try {
     const raw = localStorage.getItem(PRINT_JOB_TRACKING_STORAGE_KEY);
@@ -162,6 +219,9 @@ function persistPrintJobTracking() {
         nativeState: entry.nativeState || null,
         uiState: entry.uiState || null,
         updatedAt: Number(entry.updatedAt || Date.now()),
+        nonRetryable: Boolean(entry.nonRetryable),
+        blockedReasonCode: entry.blockedReasonCode || null,
+        blockedReasonMessage: entry.blockedReasonMessage || null,
       };
     });
     localStorage.setItem(PRINT_JOB_TRACKING_STORAGE_KEY, JSON.stringify(compact));
@@ -211,6 +271,9 @@ function hydratePrintJobTrackingFromStorage() {
       transientUnavailable: false,
       message: printStateMessage(uiState),
       updatedAt: Number(entry.updatedAt || Date.now()),
+      nonRetryable: Boolean(entry.nonRetryable),
+      blockedReasonCode: entry.blockedReasonCode || null,
+      blockedReasonMessage: entry.blockedReasonMessage || null,
     };
   });
   state.printJobsByOrderId = hydrated;
@@ -226,16 +289,37 @@ async function reconcilePrintJobTrackingWithNative() {
     if (!entry?.jobId || !entry?.orderId) continue;
     const status = await printerAdapter.getPrintStatus(entry.jobId);
     if (status?.ok) {
+      debugLog('normalized_native_print_result_json', safeStringify(status));
+      const classification = classifyPrintResult(status);
       const nativeState = String(status.state || '').toUpperCase();
-      const uiState = normalizePrintUiState(nativeState) || entry.uiState || 'QUEUED';
-      state.printJobsByOrderId[entry.orderId] = {
-        ...entry,
-        nativeState: nativeState || entry.nativeState,
-        uiState,
-        transientUnavailable: false,
-        message: printStateMessage(uiState),
-        updatedAt: Number(status.updatedAt || Date.now()),
-      };
+      if ((nativeState === 'NEEDS_ATTENTION' && status?.errorCode === 'V2S_BRIDGE_ARCHITECTURE_UNSUITABLE') || classification.architectureUnsuitable) {
+        state.printJobsByOrderId[entry.orderId] = {
+          ...entry,
+          nativeState: 'NEEDS_ATTENTION',
+          uiState: 'NEEDS_ATTENTION',
+          transientUnavailable: false,
+          nonRetryable: true,
+          blockedReasonCode: 'V2S_BRIDGE_ARCHITECTURE_UNSUITABLE',
+          blockedReasonMessage: classification.recommendedAction,
+          message: `Impression bloquée: ${classification.recommendedAction}`,
+          updatedAt: Number(status.updatedAt || Date.now()),
+        };
+        debugLog('print_job_terminal_state_reason', {
+          orderId: entry.orderId,
+          terminalState: 'NEEDS_ATTENTION',
+          reasonCode: 'V2S_BRIDGE_ARCHITECTURE_UNSUITABLE',
+        });
+      } else {
+        const uiState = normalizePrintUiState(nativeState) || entry.uiState || 'QUEUED';
+        state.printJobsByOrderId[entry.orderId] = {
+          ...entry,
+          nativeState: nativeState || entry.nativeState,
+          uiState,
+          transientUnavailable: false,
+          message: printStateMessage(uiState),
+          updatedAt: Number(status.updatedAt || Date.now()),
+        };
+      }
       changed = true;
       continue;
     }
@@ -288,16 +372,37 @@ async function pollPrintStatusesOnce() {
 
     const status = await printerAdapter.getPrintStatus(entry.jobId);
     if (status?.ok) {
+      debugLog('normalized_native_print_result_json', safeStringify(status));
+      const classification = classifyPrintResult(status);
       const nativeState = String(status.state || '').toUpperCase();
-      const uiState = normalizePrintUiState(nativeState);
-      state.printJobsByOrderId[entry.orderId] = {
-        ...entry,
-        nativeState: nativeState || entry.nativeState,
-        uiState: uiState || entry.uiState,
-        transientUnavailable: false,
-        message: (uiState && printStateMessage(uiState)) || entry.message || '',
-        updatedAt: Number(status.updatedAt || Date.now()),
-      };
+      if ((nativeState === 'NEEDS_ATTENTION' && status?.errorCode === 'V2S_BRIDGE_ARCHITECTURE_UNSUITABLE') || classification.architectureUnsuitable) {
+        state.printJobsByOrderId[entry.orderId] = {
+          ...entry,
+          nativeState: 'NEEDS_ATTENTION',
+          uiState: 'NEEDS_ATTENTION',
+          transientUnavailable: false,
+          nonRetryable: true,
+          blockedReasonCode: 'V2S_BRIDGE_ARCHITECTURE_UNSUITABLE',
+          blockedReasonMessage: classification.recommendedAction,
+          message: `Impression bloquée: ${classification.recommendedAction}`,
+          updatedAt: Number(status.updatedAt || Date.now()),
+        };
+        debugLog('print_job_terminal_state_reason', {
+          orderId: entry.orderId,
+          terminalState: 'NEEDS_ATTENTION',
+          reasonCode: 'V2S_BRIDGE_ARCHITECTURE_UNSUITABLE',
+        });
+      } else {
+        const uiState = normalizePrintUiState(nativeState);
+        state.printJobsByOrderId[entry.orderId] = {
+          ...entry,
+          nativeState: nativeState || entry.nativeState,
+          uiState: uiState || entry.uiState,
+          transientUnavailable: false,
+          message: (uiState && printStateMessage(uiState)) || entry.message || '',
+          updatedAt: Number(status.updatedAt || Date.now()),
+        };
+      }
       changed = true;
       continue;
     }
@@ -460,7 +565,8 @@ function render() {
           <strong>${order.orderNumber || order.id}</strong>
           <span class="status-pill">${formatOrderStatus(order.status)}</span>
         </div>
-        ${printUiState ? `<div class="print-state-row"><span class="print-status-pill print-status-pill-${printUiState.toLowerCase()}">${printMessage}</span>${printUiState === 'NEEDS_ATTENTION' && printJob?.jobId ? `<button class="btn-secondary-inline print-retry-btn" data-action="retry-print" data-job-id="${printJob.jobId}" data-id="${order.id}" ${state.printRetryInFlightByOrderId[order.id] ? 'disabled' : ''}>Réessayer</button>` : ''}${printUiState === 'PRINTED' ? `<button class="btn-secondary-inline print-retry-btn" data-action="reprint-order" data-id="${order.id}">Réimprimer</button>` : ''}</div>` : ''}
+        ${printUiState ? `<div class="print-state-row"><span class="print-status-pill print-status-pill-${printUiState.toLowerCase()}">${printMessage}</span>${printUiState === 'NEEDS_ATTENTION' && printJob?.jobId && !printJob?.nonRetryable ? `<button class="btn-secondary-inline print-retry-btn" data-action="retry-print" data-job-id="${printJob.jobId}" data-id="${order.id}" ${state.printRetryInFlightByOrderId[order.id] ? 'disabled' : ''}>Réessayer</button>` : ''}${printUiState === 'PRINTED' ? `<button class="btn-secondary-inline print-retry-btn" data-action="reprint-order" data-id="${order.id}">Réimprimer</button>` : ''}</div>` : ''}
+        ${printJob?.nonRetryable ? `<div class="subtle print-status-unavailable">Impression bloquée: ${escapeHtml(printJob.blockedReasonMessage || 'Action opérateur requise.')}</div>` : ''}
         ${printJob?.transientUnavailable ? '<div class="subtle print-status-unavailable">Statut impression temporairement indisponible.</div>' : ''}
         ${sectionRowsHtml}
         <div class="prep-row">
@@ -843,6 +949,7 @@ async function printOrderTicket(order, options = {}) {
     const res = await printerAdapter.printReceipt(printJob);
     debugLog('print_job_result', res);
     debugLog('print_job_result_json', safeStringify(res));
+    debugLog('normalized_native_print_result_json', safeStringify(res));
 
     setPrintDebug({
       mode: 'native_response',
@@ -856,8 +963,8 @@ async function printOrderTicket(order, options = {}) {
       receiptPreview: typeof res?.renderedReceiptText === 'string' ? res.renderedReceiptText : '',
     });
 
-    if (res.errorCode === 'V2S_BRIDGE_ARCHITECTURE_UNSUITABLE' || res.architectureStatus === 'UNSUITABLE_BRIDGE_AIDL_V2S') {
-      state.printerMessage = `Impression bloquée (${res.errorCode || res.code || 'V2S'}): ${res.recommendedAction || 'Use dedicated native print service/app for this device'}`;
+    if (applyBlockedPrintState(order.id, res)) {
+      // blocked non-retryable architecture classification
     } else if (res.ok && res.jobId) {
       ensurePrintJobTracking(order.id, res.jobId);
       state.printerMessage = isReprint
@@ -981,6 +1088,17 @@ app.addEventListener('click', async (event) => {
 
   if (target.dataset.action === 'retry-print' && target.dataset.jobId && target.dataset.id) {
     const orderIdForRetry = target.dataset.id;
+    const tracked = state.printJobsByOrderId[orderIdForRetry];
+    if (tracked?.nonRetryable || tracked?.blockedReasonCode === 'V2S_BRIDGE_ARCHITECTURE_UNSUITABLE') {
+      debugLog('retry_suppressed_nonretryable_architecture', {
+        orderId: orderIdForRetry,
+        jobId: target.dataset.jobId,
+        reasonCode: tracked?.blockedReasonCode || 'V2S_BRIDGE_ARCHITECTURE_UNSUITABLE',
+      });
+      state.printerMessage = `Réessai désactivé: ${tracked?.blockedReasonMessage || 'Use dedicated native print service/app for this device'}`;
+      render();
+      return;
+    }
     state.printRetryInFlightByOrderId[orderIdForRetry] = true;
     render();
 
@@ -1000,6 +1118,12 @@ app.addEventListener('click', async (event) => {
         };
         persistPrintJobTracking();
         state.printerMessage = "Ticket remis en file d'impression.";
+      } else if (applyBlockedPrintState(orderIdForRetry, retryRes, 'Réessai bloqué')) {
+        debugLog('retry_suppressed_nonretryable_architecture', {
+          orderId: orderIdForRetry,
+          jobId: target.dataset.jobId,
+          reasonCode: retryRes?.errorCode || retryRes?.code || 'V2S_BRIDGE_ARCHITECTURE_UNSUITABLE',
+        });
       } else {
         state.printerMessage = `Impossible de relancer l'impression: ${retryRes?.message || retryRes?.code || 'UNKNOWN'}`;
       }
