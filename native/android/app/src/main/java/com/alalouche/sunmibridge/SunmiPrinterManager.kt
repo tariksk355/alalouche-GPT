@@ -603,9 +603,20 @@ class SunmiPrinterManager(private val context: Context) {
                     else -> coreReceiptText
                 }
                 val readiness = waitForPrinterReadyState(service, OFFICIAL_PARITY_READY_RETRIES, OFFICIAL_PARITY_READY_RETRY_DELAY_MS)
-                if (!readiness.ready) {
-                    Log.e(TAG, "official_parity_readiness failed=true lastState=${readiness.lastState}")
-                    return fail("PRINTER_NOT_READY", "Official parity path aborted: printer not in ready state.")
+                val stateIsDispatchable = readiness.lastState in OFFICIAL_PARITY_DISPATCHABLE_STATE_CODES
+                val continueDespiteNotReady = OFFICIAL_PARITY_ALLOW_DISPATCH_ON_NON_READY_STATE && stateIsDispatchable
+                val readinessDecisionReason = when {
+                    readiness.ready -> "ready_state_allowed"
+                    continueDespiteNotReady -> "state_${readiness.lastState}_temporarily_dispatchable_for_parity"
+                    else -> "state_${readiness.lastState}_not_dispatchable"
+                }
+                Log.i(
+                    TAG,
+                    "official_parity_readiness_decision rawState=${readiness.lastState} ready=${readiness.ready} stateIsDispatchable=$stateIsDispatchable continueDespiteNotReady=$continueDespiteNotReady reason=$readinessDecisionReason",
+                )
+                if (!readiness.ready && !continueDespiteNotReady) {
+                    Log.e(TAG, "official_parity_readiness failed=true lastState=${readiness.lastState} reason=$readinessDecisionReason")
+                    return fail("PRINTER_NOT_READY", "Official parity path aborted: $readinessDecisionReason.")
                 }
 
                 val parityCallbackErrors = mutableListOf<String>()
@@ -618,28 +629,53 @@ class SunmiPrinterManager(private val context: Context) {
 
                 runCatching {
                     Log.i(TAG, "official_parity_sequence sequence=printerInit->enterBuffer->setAlignmentLeft->dispatch->rawEscDFeed->commitBuffer->exitBuffer")
+
+                    Log.i(TAG, "official_parity_step before=printerInit")
                     service.printerInit(parityCallback)
+                    Log.i(TAG, "official_parity_step after=printerInit")
+
                     Thread.sleep(OFFICIAL_PARITY_INIT_DELAY_MS)
+
+                    Log.i(TAG, "official_parity_step before=enterPrinterBuffer clean=true")
                     service.enterPrinterBuffer(true)
+                    Log.i(TAG, "official_parity_step after=enterPrinterBuffer clean=true")
+
+                    Log.i(TAG, "official_parity_step before=setAlignment alignment=0")
                     service.setAlignment(0, parityCallback)
+                    Log.i(TAG, "official_parity_step after=setAlignment alignment=0")
+
                     if (officialParitySyntheticBitmapRequested) {
                         val parityBitmap = buildReceiptBitmapMonochrome(parityTextPayload)
                         val stats = computeBitmapPixelStats(parityBitmap)
                         try {
                             Log.i(TAG, "official_parity_bitmap_payload_start\n$parityTextPayload\nofficial_parity_bitmap_payload_end")
                             Log.i(TAG, "official_parity_bitmap_diagnostics config=${parityBitmap.config?.name ?: "UNKNOWN"} monochrome=${isBitmapMonochrome(parityBitmap)} hasAlpha=${parityBitmap.hasAlpha()} blackPixelCount=${stats.blackPixelCount} whitePixelCount=${stats.whitePixelCount} otherPixelCount=${stats.otherPixelCount} width=${parityBitmap.width} height=${parityBitmap.height}")
+                            Log.i(TAG, "official_parity_step before=dispatch printBitmap")
                             service.printBitmap(parityBitmap, parityCallback)
+                            Log.i(TAG, "official_parity_step after=dispatch printBitmap")
                         } finally {
                             parityBitmap.recycle()
                         }
                     } else {
                         Log.i(TAG, "official_parity_text_payload_start\n$parityTextPayload\nofficial_parity_text_payload_end")
+                        Log.i(TAG, "official_parity_step before=dispatch printText")
                         service.printText(finalReceiptBlockForStrategy(parityTextPayload), parityCallback)
+                        Log.i(TAG, "official_parity_step after=dispatch printText")
                     }
+
                     val rawFeedCmd = byteArrayOf(0x1B, 0x64, OFFICIAL_PARITY_FINAL_FEED_LINES.coerceIn(0, 255).toByte())
+                    Log.i(TAG, "official_parity_step before=sendRAWData esc=d lines=$OFFICIAL_PARITY_FINAL_FEED_LINES")
                     service.sendRAWData(rawFeedCmd, parityCallback)
+                    Log.i(TAG, "official_parity_step after=sendRAWData esc=d")
+
+                    Log.i(TAG, "official_parity_step before=commitPrinterBufferWithCallback")
                     service.commitPrinterBufferWithCallback(parityCallback)
+                    Log.i(TAG, "official_parity_step after=commitPrinterBufferWithCallback")
+
+                    Log.i(TAG, "official_parity_step before=exitPrinterBufferWithCallback commit=true")
                     service.exitPrinterBufferWithCallback(true, parityCallback)
+                    Log.i(TAG, "official_parity_step after=exitPrinterBufferWithCallback commit=true")
+
                     Thread.sleep(OFFICIAL_PARITY_SETTLE_WAIT_MS)
                 }.onFailure { err ->
                     Log.e(TAG, "official_parity_sequence failed=true reason=${err.message ?: "unknown"}")
@@ -658,6 +694,9 @@ class SunmiPrinterManager(private val context: Context) {
                     put("callbackObservedThisAttempt", parityCallbackObserved.get())
                     put("callbackErrors", JSONArray(parityCallbackErrors))
                     put("printerReadyBefore", readiness.ready)
+                    put("printerStateBefore", readiness.lastState)
+                    put("readinessDecisionReason", readinessDecisionReason)
+                    put("continuedDespiteNotReady", continueDespiteNotReady)
                     put("printerReadyAfter", postReady.ready)
                     put("printerStateAfter", postReady.lastState)
                     put("mainContentPrimitive", if (officialParitySyntheticBitmapRequested) "printBitmap" else "printText")
@@ -1557,6 +1596,8 @@ class SunmiPrinterManager(private val context: Context) {
         private const val OFFICIAL_PARITY_READY_RETRY_DELAY_MS = 250L
         private const val OFFICIAL_PARITY_READY_RETRIES = 8
         private val OFFICIAL_PARITY_READY_STATE_CODES = setOf(1, 2)
+        private val OFFICIAL_PARITY_DISPATCHABLE_STATE_CODES = setOf(1, 2, 24)
+        private const val OFFICIAL_PARITY_ALLOW_DISPATCH_ON_NON_READY_STATE = true
         private const val OFFICIAL_PARITY_FINAL_FEED_LINES = 6
     }
 }
