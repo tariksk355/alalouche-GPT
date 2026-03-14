@@ -623,6 +623,9 @@ class SunmiPrinterManager(private val context: Context) {
                                 bitmapTest3LinesChunkedRequested -> "bitmap_test_3lines_chunked"
                                 else -> "bitmap_test_10lines_chunked"
                             }
+                            if (bitmapTest3LinesChunkedMonoRequested) {
+                                Log.i(TAG, "bitmap_synthetic_test_name=bitmap_test_3lines_chunked_mono")
+                            }
                             Log.i(TAG, "bitmap_synthetic_test_name=$syntheticBitmapTestName")
                             Log.i(TAG, "bitmap_synthetic_test_payload_lines=${chunkSource.size}")
                             Log.i(TAG, "bitmap_synthetic_test_text_start\n${chunkSource.joinToString("\n")}\nbitmap_synthetic_test_text_end")
@@ -1423,9 +1426,9 @@ class SunmiPrinterManager(private val context: Context) {
         private const val BITMAP_INTER_CHUNK_ADVANCE_LINES = 0
         private const val SECTION_INTER_DISPATCH_DELAY_MS = 120L
         // TEMP device-test override: force one strategy regardless of web payload.
-        private const val FORCE_OUTPUT_STRATEGY = ""
+        private const val FORCE_OUTPUT_STRATEGY = "bitmap_test_3lines_chunked_mono"
         private const val V2S_BITMAP_PRIMARY_ENABLED = true
-        private const val V2S_BITMAP_PRIMARY_STRATEGY = "bitmap_test_10lines_chunked"
+        private const val V2S_BITMAP_PRIMARY_STRATEGY = "bitmap_test_3lines_chunked_mono"
         private const val SYNTHETIC_TEST_ENABLED = false
         private const val SYNTHETIC_TEST_NAME = "text_test_3lines_rawfeed"
         private const val FORCE_SYNTHETIC_TEST_NAME = ""
