@@ -178,8 +178,27 @@ class SunmiNativePrinterWorker(
             service.setAlignment(0, callbackFor(job, "setAlignment", callbackErrors))
         }
 
-        callPrinterPrimitive(job, "printText", detail = "payloadLength=${renderedText.length}") {
-            service.printText(renderedText, callbackFor(job, "printText", callbackErrors))
+        val normalizedLines = renderedText
+            .replace("\r\n", "\n")
+            .replace("\r", "\n")
+            .split("\n")
+            .map { it.trimEnd() }
+            .filter { it.isNotBlank() }
+
+        Log.i(
+            TAG,
+            "native_print_dispatch_mode commandId=${job.commandId} orderId=${job.orderId ?: ""} sourceJobId=${job.sourceJobId ?: ""} mode=line_by_line renderedCharLength=${renderedText.length} renderedLineCount=${normalizedLines.size}",
+        )
+
+        normalizedLines.forEachIndexed { idx, line ->
+            val payload = "$line\n"
+            callPrinterPrimitive(job, "printText", detail = "mode=line_by_line lineIndex=$idx payloadLength=${payload.length}") {
+                service.printText(payload, callbackFor(job, "printText_line_$idx", callbackErrors))
+            }
+            Log.i(
+                TAG,
+                "native_print_payload_dispatch commandId=${job.commandId} orderId=${job.orderId ?: ""} sourceJobId=${job.sourceJobId ?: ""} mode=line_by_line lineIndex=$idx payloadLength=${payload.length} payload=$line",
+            )
         }
 
         callPrinterPrimitive(job, "lineWrap", detail = "lines=3") {
@@ -191,7 +210,7 @@ class SunmiNativePrinterWorker(
             service.sendRAWData(rawFeed, callbackFor(job, "sendRAWData", callbackErrors))
         }
 
-        return "printerInit->setAlignment->printText->lineWrap->sendRAWData"
+        return "printerInit->setAlignment->printText(line_by_line)->lineWrap->sendRAWData"
     }
 
     private fun renderPrintableText(job: NativePrintJobEntity): RenderedPrintText {
@@ -208,22 +227,35 @@ class SunmiNativePrinterWorker(
         }
 
         val lines = mutableListOf<String>()
-        lines += payload.optString("orderNumber").ifBlank {
+        val primaryHeader = payload.optString("orderNumber").ifBlank {
             payload.optString("order_number").ifBlank {
                 payload.optString("orderId").ifBlank { payload.optString("order_id") }
             }
         }.ifBlank { "ORDER" }
 
+        val receiptLinesFromDisplay = mutableListOf<String>()
         payload.optJSONObject("displayModel")
             ?.optJSONArray("receiptLines")
             ?.let { receiptLines ->
                 for (i in 0 until receiptLines.length()) {
                     val line = receiptLines.optString(i).trimEnd()
-                    if (line.isNotBlank()) lines += line
+                    if (line.isNotBlank()) receiptLinesFromDisplay += line
                 }
             }
 
-        if (lines.size <= 1) {
+        if (receiptLinesFromDisplay.isNotEmpty()) {
+            lines += receiptLinesFromDisplay
+            if (receiptLinesFromDisplay.first().trim() == primaryHeader.trim()) {
+                Log.i(TAG, "native_print_render_dedup_header commandId=${job.commandId} orderId=${job.orderId ?: ""} dedupApplied=true header=$primaryHeader")
+            } else {
+                lines.add(0, primaryHeader)
+                Log.i(TAG, "native_print_render_dedup_header commandId=${job.commandId} orderId=${job.orderId ?: ""} dedupApplied=false headerPrepended=true header=$primaryHeader")
+            }
+        } else {
+            lines += primaryHeader
+        }
+
+        if (receiptLinesFromDisplay.isEmpty()) {
             val items = payload.optJSONArray("lines") ?: payload.optJSONArray("items")
             if (items != null) {
                 lines += "Articles:"
@@ -271,6 +303,7 @@ class SunmiNativePrinterWorker(
         val renderedLines = rendered.text.lines().filter { it.isNotBlank() }
         val containsArticles = rendered.text.contains("article", ignoreCase = true) || rendered.text.contains("x ")
         val containsTotal = rendered.text.contains("total", ignoreCase = true)
+        val markerInjected = rendered.text.contains("NATIVE COMMAND DISPATCH", ignoreCase = true)
 
         Log.i(
             TAG,
@@ -278,7 +311,7 @@ class SunmiNativePrinterWorker(
         )
         Log.i(
             TAG,
-            "native_print_rendered_text_meta commandId=${job.commandId} orderId=${job.orderId ?: ""} source=${rendered.source} renderedLineCount=${renderedLines.size} renderedCharLength=${rendered.text.length} containsArticles=$containsArticles containsTotal=$containsTotal",
+            "native_print_rendered_text_meta commandId=${job.commandId} orderId=${job.orderId ?: ""} source=${rendered.source} renderedLineCount=${renderedLines.size} renderedCharLength=${rendered.text.length} containsArticles=$containsArticles containsTotal=$containsTotal markerInjected=$markerInjected",
         )
         Log.i(TAG, "native_print_rendered_text_start commandId=${job.commandId} orderId=${job.orderId ?: ""}")
         renderedLines.forEachIndexed { idx, line ->
