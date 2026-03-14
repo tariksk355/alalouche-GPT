@@ -856,7 +856,9 @@ async function printOrderTicket(order, options = {}) {
       receiptPreview: typeof res?.renderedReceiptText === 'string' ? res.renderedReceiptText : '',
     });
 
-    if (res.ok && res.jobId) {
+    if (res.errorCode === 'V2S_BRIDGE_ARCHITECTURE_UNSUITABLE' || res.architectureStatus === 'UNSUITABLE_BRIDGE_AIDL_V2S') {
+      state.printerMessage = `Impression bloquée (${res.errorCode || res.code || 'V2S'}): ${res.recommendedAction || 'Use dedicated native print service/app for this device'}`;
+    } else if (res.ok && res.jobId) {
       ensurePrintJobTracking(order.id, res.jobId);
       state.printerMessage = isReprint
         ? `Commande ${order.orderNumber || order.id}: réimpression mise en file d'impression.`

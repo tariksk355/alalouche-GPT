@@ -23,7 +23,41 @@ import { debugLog } from '../debug.js';
  * @property {boolean} ok
  * @property {string=} code
  * @property {string=} message
+ * @property {string=} errorCode
+ * @property {boolean=} acceptedByBridge
+ * @property {boolean=} nativeDispatchAttempted
+ * @property {boolean=} acceptanceOnly
+ * @property {boolean=} physicalPrintUnverified
+ * @property {string=} architectureStatus
+ * @property {boolean=} retryable
+ * @property {boolean=} needsAttention
+ * @property {boolean=} operatorActionRequired
+ * @property {string=} recommendedAction
  */
+
+
+function mapReceiverPrintContract(result) {
+  const res = (result && typeof result === 'object') ? { ...result } : {};
+  const architectureUnsuitable =
+    res.errorCode === 'V2S_BRIDGE_ARCHITECTURE_UNSUITABLE'
+    || res.code === 'V2S_BRIDGE_ARCHITECTURE_UNSUITABLE'
+    || res.architectureStatus === 'UNSUITABLE_BRIDGE_AIDL_V2S';
+
+  if (architectureUnsuitable) {
+    res.ok = false;
+    res.errorCode = 'V2S_BRIDGE_ARCHITECTURE_UNSUITABLE';
+    res.retryable = false;
+    res.needsAttention = true;
+    res.operatorActionRequired = true;
+    res.recommendedAction = 'Use dedicated native print service/app for this device';
+    if (typeof res.acceptedByBridge !== 'boolean') res.acceptedByBridge = true;
+    if (typeof res.nativeDispatchAttempted !== 'boolean') res.nativeDispatchAttempted = false;
+    if (typeof res.acceptanceOnly !== 'boolean') res.acceptanceOnly = true;
+    if (typeof res.physicalPrintUnverified !== 'boolean') res.physicalPrintUnverified = true;
+  }
+
+  return res;
+}
 
 /**
  * @typedef {Object} PrinterAdapter
@@ -78,18 +112,18 @@ function createNativeBridgePrinterAdapter(nativeBridge) {
     const raw = nativeBridge[methodName]?.(payload);
     const parsed = safeParseBridgeResponse(raw, null);
     if (parsed && typeof parsed === 'object') {
-      return {
+      return mapReceiverPrintContract({
         ...parsed,
         bridgeMethod: methodName,
-      };
+      });
     }
 
-    return {
+    return mapReceiverPrintContract({
       ok: false,
       code: 'BRIDGE_BAD_RESPONSE',
       message: `Invalid native bridge response for ${methodName}.`,
       bridgeMethod: methodName,
-    };
+    });
   }
 
   function invokeGetPrintStatus(jobId) {
@@ -192,11 +226,11 @@ function createUnavailableWebPrinterAdapter() {
     },
 
     async printReceipt() {
-      return {
+      return mapReceiverPrintContract({
         ok: false,
         code: 'PRINTER_UNAVAILABLE',
         message: 'Direct Sunmi printer access is unavailable in pure web mode.',
-      };
+      });
     },
 
     async getPrintStatus() {

@@ -1,78 +1,71 @@
-# Sunmi V2s Print Path Audit (Bridge/AIDL)
+# Sunmi V2s Printing: Final Classification and Replacement Direction
 
-## A) Concise gap audit vs official-equivalent flow
+## Final device findings (ground truth)
+- Non-buffer `printText` via bridge/AIDL is physically unreliable on Sunmi V2s.
+- Non-buffer bitmap paths did not produce reliable physical output.
+- Official parity buffered path was executed and reached `enterPrinterBuffer(clean=true)`.
+- Sunmi service crashed in buffer flow with NPE (`TransBean.l()` null object reference).
+- Parity layer summary shows:
+  - readiness: passed
+  - bufferEnter: failed (`service_null_pointer`)
+  - contentDispatch: not started
+  - commit: not started
+  - exit: not started
 
-### Proven negative evidence (physical V2s)
-- AIDL `printText` failed even on minimal synthetic ASCII.
-- Bitmap ARGB chunked path failed.
-- Bitmap monochrome chunked path (`RGB_565`, `monochrome=true`, `hasAlpha=false`, `otherPixelCount=0`) also failed.
+## Conclusion
+Current WebView bridge + AIDL sequencing is **unsuitable for V2s production printing**.
 
-### Current bridge flow (this repo)
-1. Bind `InnerPrinterService` (and legacy fallback).
-2. Optional `printerInit`.
-3. `setAlignment`.
-4. Dispatch via `printText` or `printBitmap`.
-5. Final feed (`sendRAWData ESC d` with fallback).
-6. Log callbacks and printer state.
+Status fields used in native results:
+- `architectureStatus=UNSUITABLE_BRIDGE_AIDL_V2S`
+- `bufferApiStatus=CRASHES_IN_SERVICE`
+- `nonBufferTextStatus=UNRELIABLE`
+- `nonBufferBitmapStatus=NO_PHYSICAL_OUTPUT`
+- `recommendedNextStep=DEDICATED_NATIVE_PRINT_SERVICE`
 
-### Gaps against official-equivalent lifecycle concerns
-1. **Readiness gating was mostly observational** (state logged but not enforced as hard precondition).
-2. **Transactional parity path was not first-class** in normal experimentation (buffer enter/commit/exit not mirrored as strict sequence).
-3. **Callback semantics were over-trusted historically** (service acceptance != physical completion).
-4. **Bridge context differs from official native sample context** (service/activity lifecycle assumptions may differ on V2s firmware).
+## Replacement architecture options
 
----
+### 1) Local HTTP server in native app
+- Pros: simple request model from web layer, easy payload evolution.
+- Cons: lifecycle/network surface area, local server hardening required.
 
-## B) Parity sprint implementation plan
+### 2) Android Intent/Broadcast handoff
+- Pros: Android-native IPC, low implementation effort.
+- Cons: delivery/retry/ordering semantics are weaker unless extra queue layer is added.
 
-Run exactly one official-flow parity sprint in current module with explicit strategy paths:
-- `official_parity_synth_text`
-- `official_parity_synth_bitmap`
-- `official_parity_receipt`
+### 3) Persistent native queue with polling sync
+- Pros: strongest reliability and observability, robust offline/retry handling.
+- Cons: highest implementation complexity.
 
-For each strategy, use strict ordering:
-1. readiness check (retry-gated)
-2. `printerInit`
-3. `enterPrinterBuffer(true)`
-4. `setAlignment(0)`
-5. dispatch content primitive (`printText` or `printBitmap`)
-6. `sendRAWData(ESC d)` final feed
-7. `commitPrinterBufferWithCallback`
-8. `exitPrinterBufferWithCallback(true, ...)`
-9. settle wait + post-readiness check
+### 4) WebSocket/native listener model
+- Pros: real-time bidirectional signaling.
+- Cons: more moving parts than needed for receipt dispatch.
 
-No rendering-tweak experiments are in scope unless required for official parity.
+## Preferred option (production-practical)
+**Option 2 + small persistent queue in native app**:
+- Use Intent/Binder-style command handoff from web shell to native print module.
+- Native module owns service binding, readiness checks, buffer lifecycle, retries, and printer diagnostics.
+- Add minimal local persistence for queued print commands to survive process restarts.
 
----
+This is the simplest practical path with enough reliability for restaurant operations.
 
-## C) Exact parity experiment code path added
+## Minimum web-to-native contract
+Web layer is command source only (no low-level printer sequencing).
 
-Implemented in `SunmiPrinterManager`:
-- New parity strategies:
-  - `official_parity_synth_text`
-  - `official_parity_synth_bitmap`
-  - `official_parity_receipt`
-- Added strict readiness gating helper:
-  - `waitForPrinterReadyState(...)` with retry window and ready-state set.
-- Added explicit parity sequence execution and logs:
-  - readiness checks
-  - exact method ordering
-  - payload boundary logs
-  - `acceptanceOnly=true` response semantics
+Command payload (web -> native):
+- `commandId`
+- `orderId`
+- `ticketType`
+- `contentModel` (structured receipt lines/items/totals)
+- `requestedCopies`
+- `createdAt`
 
----
-
-## D) Exit criteria (hard stop rules)
-
-If the parity path still fails on physical V2s for any of:
-- synthetic text baseline,
-- synthetic bitmap baseline,
-- real receipt payload,
-
-then **stop iterating on bridge rendering tricks**.
-
-### Required replacement architecture
-- Build a minimal dedicated native Android printer app/service based directly on official Sunmi sample patterns.
-- Web layer sends only high-level print commands.
-- Native layer owns binding, readiness gating, initialization, transaction lifecycle, and dispatch.
-- Treat callbacks as “service accepted request,” not proof of physical print completion.
+Result payload (native -> web/backend):
+- `ok` (dispatch outcome only)
+- `errorCode`
+- `retryable`
+- `needsAttention`
+- `recommendedAction`
+- `acceptedByBridge`
+- `nativeDispatchAttempted`
+- `physicalPrintUnverified`
+- `architectureStatus`

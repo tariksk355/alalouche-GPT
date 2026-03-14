@@ -275,6 +275,16 @@ class SunmiPrinterManager(private val context: Context) {
             "native_requested_output_strategy requested=$requestedOutputStrategyRaw forced=$forcedOutputStrategy forcedSynthetic=$forcedSyntheticTestName syntheticConfigEnabled=$syntheticConfigEnabled syntheticConfigEnabledFromPayload=$syntheticConfigEnabledFromPayload syntheticEntryModeRequested=$syntheticEntryModeRequested syntheticTestOnlyRequested=$syntheticTestOnlyRequested isLikelyV2s=$isLikelyV2s v2sBitmapPrimaryStrategy=$v2sBitmapPrimaryStrategy effective=$requestedOutputStrategy",
         )
 
+        if (isLikelyV2s && V2S_FINAL_CLASSIFICATION_CONFIRMED) {
+            logV2sFinalClassificationBlock()
+            return buildV2sDegradedModeResult(
+                code = "V2S_BRIDGE_ARCHITECTURE_UNSUITABLE",
+                message = "Sunmi V2s bridge/AIDL path is finalized as degraded for production printing.",
+                nativeDispatchAttempted = false,
+                bridgeAccepted = true,
+            )
+        }
+
         val bitmapExperimentRequested = requestedOutputStrategy == "bitmap" || requestedOutputStrategy == "bitmap_experiment"
         val bitmapSmokeTestRequested = requestedOutputStrategy == "bitmap_smoke_test"
         val textInitFirstRequested = requestedOutputStrategy == "text_init_first" || requestedOutputStrategy == "text_init_first_single_block"
@@ -1240,7 +1250,11 @@ class SunmiPrinterManager(private val context: Context) {
 
     private fun appendV2sArchitectureStatus(target: JSONObject) {
         target.put("v2sCapabilityClassification", buildV2sCapabilityClassification())
-        target.put("architectureStatus", "bridge_aidl_unsuitable_for_v2s_if_repeated")
+        target.put("architectureStatus", "UNSUITABLE_BRIDGE_AIDL_V2S")
+        target.put("bufferApiStatus", "CRASHES_IN_SERVICE")
+        target.put("nonBufferTextStatus", "UNRELIABLE")
+        target.put("nonBufferBitmapStatus", "NO_PHYSICAL_OUTPUT")
+        target.put("recommendedNextStep", "DEDICATED_NATIVE_PRINT_SERVICE")
     }
 
     private fun logV2sArchitectureAuditNote() {
@@ -1250,12 +1264,51 @@ class SunmiPrinterManager(private val context: Context) {
         )
     }
 
+    private fun logV2sFinalClassificationBlock() {
+        Log.e(
+            TAG,
+            "V2S_FINAL_CLASSIFICATION architectureStatus=UNSUITABLE_BRIDGE_AIDL_V2S bufferApiStatus=CRASHES_IN_SERVICE nonBufferTextStatus=UNRELIABLE nonBufferBitmapStatus=NO_PHYSICAL_OUTPUT recommendedNextStep=DEDICATED_NATIVE_PRINT_SERVICE",
+        )
+    }
+
+    private fun buildV2sDegradedModeResult(
+        code: String = "V2S_BRIDGE_ARCHITECTURE_UNSUITABLE",
+        message: String = "Printing unavailable: bridge/AIDL architecture unsuitable on this V2s.",
+        nativeDispatchAttempted: Boolean,
+        bridgeAccepted: Boolean,
+    ): JSONObject {
+        logV2sArchitectureAuditNote()
+        return JSONObject().apply {
+            put("ok", false)
+            put("code", code)
+            put("errorCode", "V2S_BRIDGE_ARCHITECTURE_UNSUITABLE")
+            put("message", message)
+            put("acceptedByBridge", bridgeAccepted)
+            put("nativeDispatchAttempted", nativeDispatchAttempted)
+            put("acceptanceOnly", true)
+            put("physicalPrintUnverified", true)
+            put("retryable", false)
+            put("needsAttention", true)
+            put("operatorActionRequired", true)
+            put("recommendedAction", "Use dedicated native print service/app for this device")
+            appendV2sArchitectureStatus(this)
+        }
+    }
+
     private fun fail(code: String, message: String, details: String? = null): JSONObject {
         return JSONObject().apply {
             put("ok", false)
             put("code", code)
             put("message", message)
             if (!details.isNullOrBlank()) put("details", details)
+            put("acceptedByBridge", true)
+            put("nativeDispatchAttempted", false)
+            put("acceptanceOnly", true)
+            put("physicalPrintUnverified", true)
+            put("retryable", false)
+            put("needsAttention", true)
+            put("operatorActionRequired", true)
+            put("recommendedAction", "Use dedicated native print service/app for this device")
             appendV2sArchitectureStatus(this)
         }
     }
@@ -1714,6 +1767,7 @@ class SunmiPrinterManager(private val context: Context) {
         private const val OFFICIAL_PARITY_ALLOW_DISPATCH_ON_NON_READY_STATE = true
         private const val OFFICIAL_PARITY_DISABLE_AFTER_BUFFER_CRASH_CONFIRMED = true
         private const val OFFICIAL_PARITY_FINAL_FEED_LINES = 6
+        private const val V2S_FINAL_CLASSIFICATION_CONFIRMED = true
         // V2s audit summary:
         // - synthetic printText was physically unreliable.
         // - synthetic bitmap tests produced no reliable physical output.
