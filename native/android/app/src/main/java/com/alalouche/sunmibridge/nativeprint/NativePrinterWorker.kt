@@ -1,10 +1,16 @@
 package com.alalouche.sunmibridge.nativeprint
 
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.Paint
+import android.graphics.Typeface
 import android.os.RemoteException
 import android.util.Log
 import org.json.JSONObject
 import java.text.Normalizer
+import kotlin.math.max
 import woyou.aidlservice.jiuiv5.ICallback
 import woyou.aidlservice.jiuiv5.IWoyouService
 
@@ -17,6 +23,8 @@ private enum class PhysicalFidelityStrategy {
     LINE_BY_LINE_TEXT_WITH_EXPLICIT_LINEWRAP,
     LINE_BY_LINE_TEXT_WITH_EXPLICIT_LINEWRAP_ASCII,
     LINE_BY_LINE_ASCII_EXPLICIT_LINEWRAP_WITH_TICKET_SPACING,
+    BITMAP_RECEIPT_SINGLE_IMAGE,
+    BITMAP_RECEIPT_SEGMENTED_BLOCKS,
     GROUPED_SMALL_BLOCKS,
 }
 
@@ -46,6 +54,15 @@ private data class PhysicalFidelityConfig(
     val asciiSafeMode: Boolean,
     val blockSize: Int,
     val appendNewline: Boolean,
+    val bitmapWidthPx: Int,
+    val horizontalPaddingPx: Int,
+    val topPaddingPx: Int,
+    val bottomPaddingPx: Int,
+    val lineHeightPx: Int,
+    val sectionGapPx: Int,
+    val finalFooterGapPx: Int,
+    val bitmapInterBlockGapPx: Int,
+    val bitmapSegmentedMode: Boolean,
 )
 
 private data class SectionLine(
@@ -57,6 +74,15 @@ private data class AsciiNormalizationResult(
     val text: String,
     val nonAsciiDetectedCount: Int,
     val replacedGlyphCount: Int,
+)
+
+private data class BitmapRenderResult(
+    val bitmap: Bitmap,
+    val widthPx: Int,
+    val heightPx: Int,
+    val lineCount: Int,
+    val firstLinePreview: String,
+    val lastLinePreview: String,
 )
 
 private class LowLevelStepException(
@@ -110,7 +136,7 @@ class SunmiNativePrinterWorker(
             val fidelityConfig = parsePhysicalFidelityConfig(job)
             Log.i(
                 TAG,
-                "native_print_strategy_selected commandId=${job.commandId} orderId=${job.orderId ?: ""} sourceJobId=${job.sourceJobId ?: ""} strategy=${strategyName(fidelityConfig.strategy)} dispatchDelayMs=${fidelityConfig.dispatchDelayMs} finalSettleMs=${fidelityConfig.finalSettleMs} asciiSafeMode=${fidelityConfig.asciiSafeMode} perLineWrap=${fidelityConfig.perLineWrap} perSectionExtraWrap=${fidelityConfig.perSectionExtraWrap} finalTicketSpacingLines=${fidelityConfig.finalTicketSpacingLines} addEndDivider=${fidelityConfig.addEndDivider} appendNewline=${fidelityConfig.appendNewline} blockSize=${fidelityConfig.blockSize}",
+                "native_print_strategy_selected commandId=${job.commandId} orderId=${job.orderId ?: ""} sourceJobId=${job.sourceJobId ?: ""} strategy=${strategyName(fidelityConfig.strategy)} dispatchDelayMs=${fidelityConfig.dispatchDelayMs} finalSettleMs=${fidelityConfig.finalSettleMs} asciiSafeMode=${fidelityConfig.asciiSafeMode} perLineWrap=${fidelityConfig.perLineWrap} perSectionExtraWrap=${fidelityConfig.perSectionExtraWrap} finalTicketSpacingLines=${fidelityConfig.finalTicketSpacingLines} addEndDivider=${fidelityConfig.addEndDivider} bitmapSegmentedMode=${fidelityConfig.bitmapSegmentedMode}",
             )
 
             val callbackErrors = mutableListOf<String>()
@@ -146,10 +172,7 @@ class SunmiNativePrinterWorker(
                 )
             }
         } catch (e: RenderTextException) {
-            Log.e(
-                TAG,
-                "native_print_low_level_exception commandId=${job.commandId} orderId=${job.orderId ?: ""} sourceJobId=${job.sourceJobId ?: ""} step=render_text reason=${e.message ?: "render_error"}",
-            )
+            Log.e(TAG, "native_print_low_level_exception commandId=${job.commandId} orderId=${job.orderId ?: ""} sourceJobId=${job.sourceJobId ?: ""} step=render_text reason=${e.message ?: "render_error"}")
             NativeDispatchReport(
                 acceptedByNative = false,
                 dispatchStarted = true,
@@ -166,10 +189,7 @@ class SunmiNativePrinterWorker(
             )
         } catch (e: LowLevelStepException) {
             val cause = e.cause ?: e
-            Log.e(
-                TAG,
-                "native_print_low_level_exception commandId=${job.commandId} orderId=${job.orderId ?: ""} sourceJobId=${job.sourceJobId ?: ""} step=${e.step} reason=${cause.message ?: "unknown"}",
-            )
+            Log.e(TAG, "native_print_low_level_exception commandId=${job.commandId} orderId=${job.orderId ?: ""} sourceJobId=${job.sourceJobId ?: ""} step=${e.step} reason=${cause.message ?: "unknown"}")
             NativeDispatchReport(
                 acceptedByNative = false,
                 dispatchStarted = true,
@@ -224,58 +244,39 @@ class SunmiNativePrinterWorker(
     private fun parsePhysicalFidelityConfig(job: NativePrintJobEntity): PhysicalFidelityConfig {
         val payload = runCatching { JSONObject(job.payloadJson) }.getOrNull()
         val hints = payload?.optJSONObject("formattingHints")
-        val rawStrategy = hints?.optString("nativePrintStrategy", "")?.trim().orEmpty()
-        val strategy = when (rawStrategy.lowercase()) {
+        val strategyRaw = hints?.optString("nativePrintStrategy", "")?.trim().orEmpty().lowercase()
+        val bitmapSegmentedMode = hints?.optBoolean("bitmapSegmentedMode", true) ?: true
+        val strategy = when (strategyRaw) {
+            "bitmap_receipt_single_image" -> PhysicalFidelityStrategy.BITMAP_RECEIPT_SINGLE_IMAGE
+            "bitmap_receipt_segmented_blocks" -> PhysicalFidelityStrategy.BITMAP_RECEIPT_SEGMENTED_BLOCKS
             "line_by_line_text_with_delay" -> PhysicalFidelityStrategy.LINE_BY_LINE_TEXT_WITH_DELAY
             "line_by_line_text_with_explicit_linewrap" -> PhysicalFidelityStrategy.LINE_BY_LINE_TEXT_WITH_EXPLICIT_LINEWRAP
             "line_by_line_text_with_explicit_linewrap_ascii" -> PhysicalFidelityStrategy.LINE_BY_LINE_TEXT_WITH_EXPLICIT_LINEWRAP_ASCII
             "line_by_line_ascii_explicit_linewrap_with_ticket_spacing" -> PhysicalFidelityStrategy.LINE_BY_LINE_ASCII_EXPLICIT_LINEWRAP_WITH_TICKET_SPACING
             "grouped_small_blocks" -> PhysicalFidelityStrategy.GROUPED_SMALL_BLOCKS
-            else -> DEFAULT_ACTIVE_STRATEGY
+            else -> if (bitmapSegmentedMode) PhysicalFidelityStrategy.BITMAP_RECEIPT_SEGMENTED_BLOCKS else DEFAULT_ACTIVE_STRATEGY
         }
 
-        val defaults = if (strategy == PhysicalFidelityStrategy.LINE_BY_LINE_ASCII_EXPLICIT_LINEWRAP_WITH_TICKET_SPACING) {
-            PhysicalFidelityConfig(
-                strategy = strategy,
-                dispatchDelayMs = 35L,
-                finalSettleMs = 120L,
-                perLineWrap = 1,
-                perSectionExtraWrap = 1,
-                finalTicketSpacingLines = 4,
-                addEndDivider = false,
-                asciiSafeMode = true,
-                blockSize = DEFAULT_BLOCK_SIZE,
-                appendNewline = false,
-            )
-        } else {
-            PhysicalFidelityConfig(
-                strategy = strategy,
-                dispatchDelayMs = DEFAULT_LINE_DELAY_MS,
-                finalSettleMs = DEFAULT_FINAL_SETTLE_MS,
-                perLineWrap = 1,
-                perSectionExtraWrap = 0,
-                finalTicketSpacingLines = 3,
-                addEndDivider = false,
-                asciiSafeMode = strategy == PhysicalFidelityStrategy.LINE_BY_LINE_TEXT_WITH_EXPLICIT_LINEWRAP_ASCII,
-                blockSize = DEFAULT_BLOCK_SIZE,
-                appendNewline = true,
-            )
-        }
-
-        return defaults.copy(
-            dispatchDelayMs = (hints?.optLong("dispatchDelayMs", defaults.dispatchDelayMs)
-                ?: hints?.optLong("nativePrintLineDelayMs", defaults.dispatchDelayMs)
-                ?: defaults.dispatchDelayMs).coerceIn(0L, 300L),
-            finalSettleMs = (hints?.optLong("finalSettleMs", defaults.finalSettleMs)
-                ?: hints?.optLong("nativePrintFinalSettleMs", defaults.finalSettleMs)
-                ?: defaults.finalSettleMs).coerceIn(0L, 800L),
-            perLineWrap = (hints?.optInt("perLineWrap", defaults.perLineWrap) ?: defaults.perLineWrap).coerceIn(0, 3),
-            perSectionExtraWrap = (hints?.optInt("perSectionExtraWrap", defaults.perSectionExtraWrap) ?: defaults.perSectionExtraWrap).coerceIn(0, 2),
-            finalTicketSpacingLines = (hints?.optInt("finalTicketSpacingLines", defaults.finalTicketSpacingLines) ?: defaults.finalTicketSpacingLines).coerceIn(1, 8),
-            addEndDivider = hints?.optBoolean("addEndDivider", defaults.addEndDivider) ?: defaults.addEndDivider,
-            asciiSafeMode = hints?.optBoolean("asciiSafeMode", defaults.asciiSafeMode) ?: defaults.asciiSafeMode,
-            blockSize = (hints?.optInt("nativePrintBlockSize", defaults.blockSize) ?: defaults.blockSize).coerceIn(2, 3),
-            appendNewline = hints?.optBoolean("nativePrintAppendNewline", defaults.appendNewline) ?: defaults.appendNewline,
+        return PhysicalFidelityConfig(
+            strategy = strategy,
+            dispatchDelayMs = (hints?.optLong("dispatchDelayMs", 35L) ?: 35L).coerceIn(0L, 400L),
+            finalSettleMs = (hints?.optLong("finalSettleMs", 150L) ?: 150L).coerceIn(0L, 1000L),
+            perLineWrap = (hints?.optInt("perLineWrap", 1) ?: 1).coerceIn(0, 3),
+            perSectionExtraWrap = (hints?.optInt("perSectionExtraWrap", 1) ?: 1).coerceIn(0, 3),
+            finalTicketSpacingLines = (hints?.optInt("finalTicketSpacingLines", 4) ?: 4).coerceIn(1, 10),
+            addEndDivider = hints?.optBoolean("addEndDivider", false) ?: false,
+            asciiSafeMode = hints?.optBoolean("asciiSafeMode", true) ?: true,
+            blockSize = (hints?.optInt("nativePrintBlockSize", 2) ?: 2).coerceIn(2, 3),
+            appendNewline = hints?.optBoolean("nativePrintAppendNewline", false) ?: false,
+            bitmapWidthPx = (hints?.optInt("bitmapWidthPx", DEFAULT_BITMAP_WIDTH_PX) ?: DEFAULT_BITMAP_WIDTH_PX).coerceIn(280, 640),
+            horizontalPaddingPx = (hints?.optInt("horizontalPaddingPx", 16) ?: 16).coerceIn(4, 40),
+            topPaddingPx = (hints?.optInt("topPaddingPx", 20) ?: 20).coerceIn(0, 80),
+            bottomPaddingPx = (hints?.optInt("bottomPaddingPx", 20) ?: 20).coerceIn(0, 120),
+            lineHeightPx = (hints?.optInt("lineHeightPx", 34) ?: 34).coerceIn(20, 64),
+            sectionGapPx = (hints?.optInt("sectionGapPx", 20) ?: 20).coerceIn(0, 80),
+            finalFooterGapPx = (hints?.optInt("finalFooterGapPx", 80) ?: 80).coerceIn(0, 220),
+            bitmapInterBlockGapPx = (hints?.optInt("bitmapInterBlockGapPx", 12) ?: 12).coerceIn(0, 80),
+            bitmapSegmentedMode = bitmapSegmentedMode,
         )
     }
 
@@ -290,146 +291,105 @@ class SunmiNativePrinterWorker(
         callPrinterPrimitive(job, "printerInit") {
             service.printerInit(callbackFor(job, "printerInit", callbackErrors, dispatchStartMs))
         }
-
         callPrinterPrimitive(job, "setAlignment", detail = "value=0") {
             service.setAlignment(0, callbackFor(job, "setAlignment", callbackErrors, dispatchStartMs))
         }
 
-        val lines = renderedText
-            .replace("\r\n", "\n")
-            .replace("\r", "\n")
-            .split("\n")
-            .map { it.trimEnd() }
-            .filter { it.isNotBlank() }
-        val sectionLines = lines.mapIndexed { idx, line ->
-            SectionLine(
-                section = inferSection(idx, line),
-                text = line,
+        val lines = renderedText.replace("\r\n", "\n").replace("\r", "\n").split("\n").map { it.trimEnd() }.filter { it.isNotBlank() }
+        val sectionLines = lines.mapIndexed { idx, line -> SectionLine(inferSection(idx, line), "%02d %s".format(idx + 1, line)) }
+
+        return when (fidelityConfig.strategy) {
+            PhysicalFidelityStrategy.BITMAP_RECEIPT_SINGLE_IMAGE,
+            PhysicalFidelityStrategy.BITMAP_RECEIPT_SEGMENTED_BLOCKS,
+            -> executeBitmapStrategies(service, job, sectionLines, fidelityConfig, callbackErrors, dispatchStartMs)
+
+            else -> executeTextStrategies(service, job, sectionLines, fidelityConfig, callbackErrors, dispatchStartMs)
+        }
+    }
+
+    private fun executeBitmapStrategies(
+        service: IWoyouService,
+        job: NativePrintJobEntity,
+        sectionLines: List<SectionLine>,
+        config: PhysicalFidelityConfig,
+        callbackErrors: MutableList<String>,
+        dispatchStartMs: Long,
+    ): String {
+        val processed = sectionLines.mapIndexed { idx, s ->
+            val ascii = if (config.asciiSafeMode) toSafeAscii(s.text) else AsciiNormalizationResult(s.text, 0, 0)
+            Log.i(
+                TAG,
+                "native_print_bitmap_render_line commandId=${job.commandId} orderId=${job.orderId ?: ""} lineIndex=$idx semanticSection=${s.section.name} originalRenderedLine=${s.text} bitmapRenderedLine=${ascii.text} asciiNormalized=${config.asciiSafeMode} nonAsciiDetectedCount=${ascii.nonAsciiDetectedCount} replacedGlyphCount=${ascii.replacedGlyphCount}",
             )
+            SectionLine(s.section, ascii.text)
         }
-
-        val asciiStats = if (fidelityConfig.asciiSafeMode) {
-            sectionLines.fold(Pair(0, 0)) { acc, sectionLine ->
-                val normalized = toSafeAscii(sectionLine.text)
-                Pair(acc.first + normalized.nonAsciiDetectedCount, acc.second + normalized.replacedGlyphCount)
-            }
-        } else {
-            Pair(0, 0)
-        }
-
-        val useExplicitLineWrapPerLine = fidelityConfig.strategy == PhysicalFidelityStrategy.LINE_BY_LINE_TEXT_WITH_EXPLICIT_LINEWRAP ||
-            fidelityConfig.strategy == PhysicalFidelityStrategy.LINE_BY_LINE_TEXT_WITH_EXPLICIT_LINEWRAP_ASCII ||
-            fidelityConfig.strategy == PhysicalFidelityStrategy.LINE_BY_LINE_ASCII_EXPLICIT_LINEWRAP_WITH_TICKET_SPACING
-        val newlineEmbeddedInPayload = !useExplicitLineWrapPerLine && fidelityConfig.appendNewline
 
         Log.i(
             TAG,
-            "native_print_physical_fidelity_test commandId=${job.commandId} orderId=${job.orderId ?: ""} sourceJobId=${job.sourceJobId ?: ""} strategy=${strategyName(fidelityConfig.strategy)} renderedLineCount=${sectionLines.size} renderedCharLength=${renderedText.length} explicitLineWrapPerLine=$useExplicitLineWrapPerLine newlineEmbeddedInPayload=$newlineEmbeddedInPayload asciiNormalized=${fidelityConfig.asciiSafeMode} nonAsciiDetectedCount=${asciiStats.first} replacedGlyphCount=${asciiStats.second} perLineWrap=${fidelityConfig.perLineWrap} perSectionExtraWrap=${fidelityConfig.perSectionExtraWrap} finalTicketSpacingLines=${fidelityConfig.finalTicketSpacingLines}",
+            "native_print_bitmap_strategy_selected commandId=${job.commandId} orderId=${job.orderId ?: ""} strategy=${strategyName(config.strategy)} asciiSafeMode=${config.asciiSafeMode} bitmapWidthPx=${config.bitmapWidthPx} horizontalPaddingPx=${config.horizontalPaddingPx} topPaddingPx=${config.topPaddingPx} bottomPaddingPx=${config.bottomPaddingPx} lineHeightPx=${config.lineHeightPx} sectionGapPx=${config.sectionGapPx} finalFooterGapPx=${config.finalFooterGapPx} bitmapInterBlockGapPx=${config.bitmapInterBlockGapPx}",
         )
 
-        when (fidelityConfig.strategy) {
-            PhysicalFidelityStrategy.LINE_BY_LINE_TEXT_WITH_DELAY -> {
-                sectionLines.forEachIndexed { idx, sectionLine ->
-                    val payload = if (fidelityConfig.appendNewline) "${sectionLine.text}\n" else sectionLine.text
-                    Log.i(
-                        TAG,
-                        "native_print_line_dispatch commandId=${job.commandId} orderId=${job.orderId ?: ""} sourceJobId=${job.sourceJobId ?: ""} lineIndex=$idx semanticSection=${sectionLine.section.name} strategy=${strategyName(fidelityConfig.strategy)} originalLength=${sectionLine.text.length} asciiLength=${sectionLine.text.length} payloadLength=${payload.length} newlineAppended=${fidelityConfig.appendNewline} lineWrapAfter=0 extraSectionWrapApplied=false asciiNormalized=false text=${sectionLine.text}",
-                    )
-                    callPrinterPrimitive(job, "printText", detail = "strategy=delay lineIndex=$idx payloadLength=${payload.length}") {
-                        service.printText(payload, callbackFor(job, "printText_line_$idx", callbackErrors, dispatchStartMs))
-                    }
-                    sleepAfterDispatch(job, idx, fidelityConfig.dispatchDelayMs)
-                }
-                callPrinterPrimitive(job, "lineWrap", detail = "lines=${fidelityConfig.finalTicketSpacingLines}") {
-                    service.lineWrap(fidelityConfig.finalTicketSpacingLines, callbackFor(job, "lineWrap_final", callbackErrors, dispatchStartMs))
-                }
-            }
+        val estimatedHeightPx = estimateBitmapHeight(processed, config)
+        Log.i(TAG, "native_print_bitmap_render_start commandId=${job.commandId} orderId=${job.orderId ?: ""} strategy=${strategyName(config.strategy)} estimatedHeightPx=$estimatedHeightPx lineCount=${processed.size}")
 
-            PhysicalFidelityStrategy.LINE_BY_LINE_TEXT_WITH_EXPLICIT_LINEWRAP,
-            PhysicalFidelityStrategy.LINE_BY_LINE_TEXT_WITH_EXPLICIT_LINEWRAP_ASCII,
-            PhysicalFidelityStrategy.LINE_BY_LINE_ASCII_EXPLICIT_LINEWRAP_WITH_TICKET_SPACING,
-            -> {
-                sectionLines.forEachIndexed { idx, sectionLine ->
-                    val normalized = if (fidelityConfig.asciiSafeMode) toSafeAscii(sectionLine.text) else AsciiNormalizationResult(sectionLine.text, 0, 0)
-                    if (fidelityConfig.asciiSafeMode) {
-                        Log.i(
-                            TAG,
-                            "native_print_ascii_normalization commandId=${job.commandId} orderId=${job.orderId ?: ""} sourceJobId=${job.sourceJobId ?: ""} lineIndex=$idx semanticSection=${sectionLine.section.name} originalRenderedLine=${sectionLine.text} asciiNormalizedLine=${normalized.text} nonAsciiDetectedCount=${normalized.nonAsciiDetectedCount} replacedGlyphCount=${normalized.replacedGlyphCount}",
-                        )
-                    }
-                    val payload = normalized.text
-                    val extraSectionWrap = sectionExtraWrapFor(idx, sectionLines, fidelityConfig.perSectionExtraWrap)
-                    Log.i(
-                        TAG,
-                        "native_print_line_dispatch commandId=${job.commandId} orderId=${job.orderId ?: ""} sourceJobId=${job.sourceJobId ?: ""} lineIndex=$idx semanticSection=${sectionLine.section.name} strategy=${strategyName(fidelityConfig.strategy)} originalLength=${sectionLine.text.length} asciiLength=${normalized.text.length} payloadLength=${payload.length} newlineAppended=false lineWrapAfter=${fidelityConfig.perLineWrap} extraSectionWrapApplied=${extraSectionWrap > 0} asciiNormalized=${fidelityConfig.asciiSafeMode} text=$payload",
-                    )
-                    callPrinterPrimitive(job, "printText", detail = "strategy=explicit_wrap lineIndex=$idx payloadLength=${payload.length}") {
-                        service.printText(payload, callbackFor(job, "printText_line_$idx", callbackErrors, dispatchStartMs))
-                    }
-                    if (fidelityConfig.perLineWrap > 0) {
-                        Log.i(TAG, "native_print_linewrap_dispatch commandId=${job.commandId} orderId=${job.orderId ?: ""} sourceJobId=${job.sourceJobId ?: ""} lineIndex=$idx semanticSection=${sectionLine.section.name} lines=${fidelityConfig.perLineWrap} event=start")
-                        callPrinterPrimitive(job, "lineWrap", detail = "lineIndex=$idx lines=${fidelityConfig.perLineWrap}") {
-                            service.lineWrap(fidelityConfig.perLineWrap, callbackFor(job, "lineWrap_line_$idx", callbackErrors, dispatchStartMs))
-                        }
-                        Log.i(TAG, "native_print_linewrap_dispatch commandId=${job.commandId} orderId=${job.orderId ?: ""} sourceJobId=${job.sourceJobId ?: ""} lineIndex=$idx semanticSection=${sectionLine.section.name} lines=${fidelityConfig.perLineWrap} event=end")
-                    }
-                    if (extraSectionWrap > 0) {
-                        Log.i(TAG, "native_print_linewrap_dispatch commandId=${job.commandId} orderId=${job.orderId ?: ""} sourceJobId=${job.sourceJobId ?: ""} lineIndex=$idx semanticSection=${sectionLine.section.name} lines=$extraSectionWrap event=section_extra")
-                        callPrinterPrimitive(job, "lineWrap", detail = "lineIndex=$idx sectionExtraWrap=$extraSectionWrap") {
-                            service.lineWrap(extraSectionWrap, callbackFor(job, "lineWrap_section_$idx", callbackErrors, dispatchStartMs))
-                        }
-                    }
-                    sleepAfterDispatch(job, idx, fidelityConfig.dispatchDelayMs)
-                }
-            }
-
-            PhysicalFidelityStrategy.GROUPED_SMALL_BLOCKS -> {
-                var blockIndex = 0
-                sectionLines.chunked(fidelityConfig.blockSize).forEach { chunk ->
-                    val block = if (fidelityConfig.appendNewline) {
-                        chunk.joinToString(separator = "\n", postfix = "\n") { it.text }
-                    } else {
-                        chunk.joinToString(separator = "\n") { it.text }
-                    }
-                    Log.i(
-                        TAG,
-                        "native_print_block_dispatch commandId=${job.commandId} orderId=${job.orderId ?: ""} sourceJobId=${job.sourceJobId ?: ""} strategy=${strategyName(fidelityConfig.strategy)} blockIndex=$blockIndex lineCount=${chunk.size} payloadLength=${block.length} newlineAppended=${fidelityConfig.appendNewline}",
-                    )
-                    callPrinterPrimitive(job, "printText", detail = "strategy=block blockIndex=$blockIndex payloadLength=${block.length}") {
-                        service.printText(block, callbackFor(job, "printText_block_$blockIndex", callbackErrors, dispatchStartMs))
-                    }
-                    sleepAfterDispatch(job, blockIndex, fidelityConfig.dispatchDelayMs)
-                    blockIndex += 1
-                }
-                callPrinterPrimitive(job, "lineWrap", detail = "lines=${fidelityConfig.finalTicketSpacingLines}") {
-                    service.lineWrap(fidelityConfig.finalTicketSpacingLines, callbackFor(job, "lineWrap_final", callbackErrors, dispatchStartMs))
-                }
-            }
+        val effectiveStrategy = if (config.strategy == PhysicalFidelityStrategy.BITMAP_RECEIPT_SINGLE_IMAGE && estimatedHeightPx > MAX_SINGLE_BITMAP_HEIGHT_PX) {
+            Log.w(TAG, "native_print_bitmap_height_warning commandId=${job.commandId} orderId=${job.orderId ?: ""} estimatedHeightPx=$estimatedHeightPx threshold=$MAX_SINGLE_BITMAP_HEIGHT_PX fallbackStrategy=bitmap_receipt_segmented_blocks")
+            PhysicalFidelityStrategy.BITMAP_RECEIPT_SEGMENTED_BLOCKS
+        } else {
+            config.strategy
         }
 
-        if (fidelityConfig.addEndDivider) {
-            val divider = "--------------------------------"
-            Log.i(TAG, "native_print_ticket_divider commandId=${job.commandId} orderId=${job.orderId ?: ""} sourceJobId=${job.sourceJobId ?: ""} dividerPrintedAtEnd=true")
-            callPrinterPrimitive(job, "printText", detail = "ticketDivider payloadLength=${divider.length}") {
-                service.printText(divider, callbackFor(job, "printText_ticket_divider", callbackErrors, dispatchStartMs))
-            }
-            callPrinterPrimitive(job, "lineWrap", detail = "ticketDivider lines=1") {
-                service.lineWrap(1, callbackFor(job, "lineWrap_ticket_divider", callbackErrors, dispatchStartMs))
-            }
+        val blocks = if (effectiveStrategy == PhysicalFidelityStrategy.BITMAP_RECEIPT_SINGLE_IMAGE) {
+            listOf("single_receipt" to processed)
+        } else {
+            groupedBitmapBlocks(processed)
         }
 
-        if (fidelityConfig.finalTicketSpacingLines > 0) {
-            callPrinterPrimitive(job, "lineWrap", detail = "finalTicketSpacing lines=${fidelityConfig.finalTicketSpacingLines}") {
-                service.lineWrap(fidelityConfig.finalTicketSpacingLines, callbackFor(job, "lineWrap_final_spacing", callbackErrors, dispatchStartMs))
-            }
-        }
-
-        if (fidelityConfig.finalSettleMs > 0) {
+        var blockIndex = 0
+        for ((blockName, blockLines) in blocks) {
+            if (blockLines.isEmpty()) continue
+            val render = renderBitmapBlock(blockLines, config)
             Log.i(
                 TAG,
-                "native_print_final_settle_sleep commandId=${job.commandId} orderId=${job.orderId ?: ""} sourceJobId=${job.sourceJobId ?: ""} settleMs=${fidelityConfig.finalSettleMs}",
+                "native_print_bitmap_render_block commandId=${job.commandId} orderId=${job.orderId ?: ""} strategy=${strategyName(effectiveStrategy)} blockIndex=$blockIndex blockName=$blockName widthPx=${render.widthPx} heightPx=${render.heightPx} lineCount=${render.lineCount} firstLinePreview=${render.firstLinePreview} lastLinePreview=${render.lastLinePreview} asciiSafeMode=${config.asciiSafeMode} sectionGapPx=${config.sectionGapPx} finalFooterGapPx=${config.finalFooterGapPx}",
             )
-            runCatching { Thread.sleep(fidelityConfig.finalSettleMs) }
+            Log.i(TAG, "native_print_bitmap_dimensions commandId=${job.commandId} orderId=${job.orderId ?: ""} blockIndex=$blockIndex widthPx=${render.widthPx} heightPx=${render.heightPx}")
+            try {
+                Log.i(TAG, "native_print_bitmap_print_call commandId=${job.commandId} orderId=${job.orderId ?: ""} blockIndex=$blockIndex event=start")
+                callPrinterPrimitive(job, "printBitmap", detail = "blockIndex=$blockIndex blockName=$blockName width=${render.widthPx} height=${render.heightPx}") {
+                    service.printBitmap(render.bitmap, callbackFor(job, "printBitmap_block_$blockIndex", callbackErrors, dispatchStartMs))
+                }
+                Log.i(TAG, "native_print_bitmap_print_call commandId=${job.commandId} orderId=${job.orderId ?: ""} blockIndex=$blockIndex event=end")
+            } finally {
+                render.bitmap.recycle()
+            }
+
+            if (blockIndex < blocks.lastIndex && config.bitmapInterBlockGapPx > 0) {
+                val gapLines = pxToLines(config.bitmapInterBlockGapPx, config.lineHeightPx)
+                Log.i(TAG, "native_print_bitmap_spacing_applied commandId=${job.commandId} orderId=${job.orderId ?: ""} blockIndex=$blockIndex spacingType=inter_block gapPx=${config.bitmapInterBlockGapPx} lines=$gapLines")
+                callPrinterPrimitive(job, "lineWrap", detail = "bitmapInterBlock lines=$gapLines") {
+                    service.lineWrap(gapLines, callbackFor(job, "lineWrap_bitmap_gap_$blockIndex", callbackErrors, dispatchStartMs))
+                }
+            }
+            sleepAfterDispatch(job, blockIndex, config.dispatchDelayMs)
+            blockIndex += 1
+        }
+
+        if (config.finalFooterGapPx > 0) {
+            val footerLines = pxToLines(config.finalFooterGapPx, config.lineHeightPx)
+            Log.i(TAG, "native_print_bitmap_spacing_applied commandId=${job.commandId} orderId=${job.orderId ?: ""} spacingType=final_footer gapPx=${config.finalFooterGapPx} lines=$footerLines")
+            callPrinterPrimitive(job, "lineWrap", detail = "bitmapFinalFooter lines=$footerLines") {
+                service.lineWrap(footerLines, callbackFor(job, "lineWrap_bitmap_footer", callbackErrors, dispatchStartMs))
+            }
+        }
+
+        callPrinterPrimitive(job, "lineWrap", detail = "finalTicketSpacing lines=${config.finalTicketSpacingLines}") {
+            service.lineWrap(config.finalTicketSpacingLines, callbackFor(job, "lineWrap_final_spacing", callbackErrors, dispatchStartMs))
+        }
+
+        if (config.finalSettleMs > 0) {
+            Log.i(TAG, "native_print_final_settle_sleep commandId=${job.commandId} orderId=${job.orderId ?: ""} settleMs=${config.finalSettleMs}")
+            runCatching { Thread.sleep(config.finalSettleMs) }
         }
 
         val rawFeed = byteArrayOf(0x1B, 0x64, 0x03)
@@ -437,32 +397,151 @@ class SunmiNativePrinterWorker(
             service.sendRAWData(rawFeed, callbackFor(job, "sendRAWData", callbackErrors, dispatchStartMs))
         }
 
-        val primitiveSequence = when (fidelityConfig.strategy) {
-            PhysicalFidelityStrategy.LINE_BY_LINE_TEXT_WITH_DELAY -> "printerInit->setAlignment->printText(line+newline)->lineWrap(finalSpacing)->sendRAWData"
-            PhysicalFidelityStrategy.LINE_BY_LINE_TEXT_WITH_EXPLICIT_LINEWRAP -> "printerInit->setAlignment->printText(line)->lineWrap(1 each)->lineWrap(finalSpacing)->sendRAWData"
-            PhysicalFidelityStrategy.LINE_BY_LINE_TEXT_WITH_EXPLICIT_LINEWRAP_ASCII -> "printerInit->setAlignment->printText(line_ascii)->lineWrap(1 each)->lineWrap(finalSpacing)->sendRAWData"
-            PhysicalFidelityStrategy.LINE_BY_LINE_ASCII_EXPLICIT_LINEWRAP_WITH_TICKET_SPACING -> "printerInit->setAlignment->printText(line_ascii)->lineWrap(perLine+section+finalSpacing)->sendRAWData"
-            PhysicalFidelityStrategy.GROUPED_SMALL_BLOCKS -> "printerInit->setAlignment->printText(grouped_small_blocks)->lineWrap(finalSpacing)->sendRAWData"
+        val sequence = if (effectiveStrategy == PhysicalFidelityStrategy.BITMAP_RECEIPT_SINGLE_IMAGE) {
+            "printerInit->setAlignment->printBitmap(single)->lineWrap(spacing)->sendRAWData"
+        } else {
+            "printerInit->setAlignment->printBitmap(segmented_blocks)->lineWrap(spacing)->sendRAWData"
         }
 
         Log.i(
             TAG,
-            "native_print_physical_fidelity_summary commandId=${job.commandId} orderId=${job.orderId ?: ""} sourceJobId=${job.sourceJobId ?: ""} strategy=${strategyName(fidelityConfig.strategy)} renderedLineCount=${sectionLines.size} explicitLineWrapPerLine=$useExplicitLineWrapPerLine newlineEmbeddedInPayload=$newlineEmbeddedInPayload asciiNormalized=${fidelityConfig.asciiSafeMode} nonAsciiDetectedCount=${asciiStats.first} replacedGlyphCount=${asciiStats.second} delayMs=${fidelityConfig.dispatchDelayMs} finalSettleMs=${fidelityConfig.finalSettleMs} perLineWrap=${fidelityConfig.perLineWrap} perSectionExtraWrap=${fidelityConfig.perSectionExtraWrap} finalTicketSpacingLines=${fidelityConfig.finalTicketSpacingLines} ticketSeparationMode=explicit_linewrap dividerPrintedAtEnd=${fidelityConfig.addEndDivider} finalSpacingAppliedLines=${fidelityConfig.finalTicketSpacingLines} primitiveSequence=$primitiveSequence",
+            "native_print_bitmap_render_complete commandId=${job.commandId} orderId=${job.orderId ?: ""} strategy=${strategyName(effectiveStrategy)} blocksPrinted=$blockIndex",
         )
-
-        return primitiveSequence
+        Log.i(
+            TAG,
+            "native_print_bitmap_summary commandId=${job.commandId} orderId=${job.orderId ?: ""} strategy=${strategyName(effectiveStrategy)} asciiSafeMode=${config.asciiSafeMode} renderedLineCount=${sectionLines.size} ticketSeparationMode=bitmap_spacing finalSpacingAppliedLines=${config.finalTicketSpacingLines} primitiveSequence=$sequence",
+        )
+        return sequence
     }
 
-    private fun sectionExtraWrapFor(index: Int, lines: List<SectionLine>, perSectionExtraWrap: Int): Int {
-        if (perSectionExtraWrap <= 0 || lines.isEmpty()) return 0
-        val current = lines[index].section
-        val next = lines.getOrNull(index + 1)?.section
-        return when {
-            current == SemanticSection.HEADER && next != SemanticSection.HEADER -> perSectionExtraWrap
-            next == SemanticSection.ARTICLES_HEADER -> perSectionExtraWrap
-            next == SemanticSection.TOTAL -> perSectionExtraWrap
-            else -> 0
+    private fun groupedBitmapBlocks(sectionLines: List<SectionLine>): List<Pair<String, List<SectionLine>>> {
+        val header = sectionLines.filter { it.section == SemanticSection.HEADER }
+        val customer = sectionLines.filter { it.section in setOf(SemanticSection.CUSTOMER, SemanticSection.ADDRESS, SemanticSection.PAYMENT, SemanticSection.TIMESTAMP, SemanticSection.HISTORY, SemanticSection.PREPARATION) }
+        val articlesHeader = sectionLines.filter { it.section == SemanticSection.DIVIDER || it.section == SemanticSection.ARTICLES_HEADER }
+        val articleLines = sectionLines.filter { it.section == SemanticSection.ARTICLE_LINE }
+        val totalFooter = sectionLines.filter { it.section == SemanticSection.TOTAL || it.section == SemanticSection.FOOTER_GAP }
+
+        return listOf(
+            "header_block" to header,
+            "customer_info_block" to customer,
+            "articles_header_block" to articlesHeader,
+            "article_lines_block" to articleLines,
+            "total_footer_block" to totalFooter,
+        ).filter { it.second.isNotEmpty() }
+    }
+
+    private fun renderBitmapBlock(lines: List<SectionLine>, config: PhysicalFidelityConfig): BitmapRenderResult {
+        val width = config.bitmapWidthPx
+        val baseHeight = config.topPaddingPx + config.bottomPaddingPx + (lines.size * config.lineHeightPx) + config.finalFooterGapPx
+        val extraGaps = lines.zipWithNext().count { it.first.section != it.second.section } * config.sectionGapPx
+        val height = max(120, baseHeight + extraGaps)
+        val bmp = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bmp)
+        canvas.drawColor(Color.WHITE)
+
+        val normalPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.BLACK
+            textSize = 26f
+            typeface = Typeface.MONOSPACE
         }
+        val headerPaint = Paint(normalPaint).apply { textSize = 30f; typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD) }
+        val totalPaint = Paint(normalPaint).apply { textSize = 28f; typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD) }
+
+        var y = config.topPaddingPx + config.lineHeightPx
+        lines.forEachIndexed { idx, line ->
+            val paint = when (line.section) {
+                SemanticSection.HEADER -> headerPaint
+                SemanticSection.TOTAL -> totalPaint
+                else -> normalPaint
+            }
+            canvas.drawText(line.text, config.horizontalPaddingPx.toFloat(), y.toFloat(), paint)
+            y += config.lineHeightPx
+            val next = lines.getOrNull(idx + 1)
+            if (next != null && next.section != line.section) {
+                y += config.sectionGapPx
+            }
+        }
+
+        return BitmapRenderResult(
+            bitmap = bmp,
+            widthPx = width,
+            heightPx = height,
+            lineCount = lines.size,
+            firstLinePreview = lines.first().text.take(48),
+            lastLinePreview = lines.last().text.take(48),
+        )
+    }
+
+    private fun estimateBitmapHeight(lines: List<SectionLine>, config: PhysicalFidelityConfig): Int {
+        val sectionTransitions = lines.zipWithNext().count { it.first.section != it.second.section }
+        return config.topPaddingPx + config.bottomPaddingPx + config.finalFooterGapPx + (lines.size * config.lineHeightPx) + (sectionTransitions * config.sectionGapPx)
+    }
+
+    private fun pxToLines(px: Int, lineHeightPx: Int): Int = max(1, px / max(1, lineHeightPx))
+
+    private fun executeTextStrategies(
+        service: IWoyouService,
+        job: NativePrintJobEntity,
+        sectionLines: List<SectionLine>,
+        config: PhysicalFidelityConfig,
+        callbackErrors: MutableList<String>,
+        dispatchStartMs: Long,
+    ): String {
+        val asciiStats = if (config.asciiSafeMode) {
+            sectionLines.fold(Pair(0, 0)) { acc, s ->
+                val n = toSafeAscii(s.text)
+                Pair(acc.first + n.nonAsciiDetectedCount, acc.second + n.replacedGlyphCount)
+            }
+        } else Pair(0, 0)
+
+        val explicitWrap = config.strategy in setOf(
+            PhysicalFidelityStrategy.LINE_BY_LINE_TEXT_WITH_EXPLICIT_LINEWRAP,
+            PhysicalFidelityStrategy.LINE_BY_LINE_TEXT_WITH_EXPLICIT_LINEWRAP_ASCII,
+            PhysicalFidelityStrategy.LINE_BY_LINE_ASCII_EXPLICIT_LINEWRAP_WITH_TICKET_SPACING,
+        )
+
+        Log.i(TAG, "native_print_physical_fidelity_test commandId=${job.commandId} orderId=${job.orderId ?: ""} strategy=${strategyName(config.strategy)} renderedLineCount=${sectionLines.size} explicitLineWrapPerLine=$explicitWrap newlineEmbeddedInPayload=${!explicitWrap && config.appendNewline} asciiNormalized=${config.asciiSafeMode} nonAsciiDetectedCount=${asciiStats.first} replacedGlyphCount=${asciiStats.second}")
+
+        when (config.strategy) {
+            PhysicalFidelityStrategy.GROUPED_SMALL_BLOCKS -> {
+                var idx = 0
+                sectionLines.chunked(config.blockSize).forEach { chunk ->
+                    val payload = chunk.joinToString("\n") { it.text } + if (config.appendNewline) "\n" else ""
+                    Log.i(TAG, "native_print_block_dispatch commandId=${job.commandId} orderId=${job.orderId ?: ""} blockIndex=$idx lineCount=${chunk.size} payloadLength=${payload.length}")
+                    callPrinterPrimitive(job, "printText", detail = "blockIndex=$idx payloadLength=${payload.length}") {
+                        service.printText(payload, callbackFor(job, "printText_block_$idx", callbackErrors, dispatchStartMs))
+                    }
+                    sleepAfterDispatch(job, idx, config.dispatchDelayMs)
+                    idx++
+                }
+            }
+
+            else -> {
+                sectionLines.forEachIndexed { i, s ->
+                    val ascii = if (config.asciiSafeMode) toSafeAscii(s.text) else AsciiNormalizationResult(s.text, 0, 0)
+                    val payload = if (explicitWrap) ascii.text else if (config.appendNewline) ascii.text + "\n" else ascii.text
+                    Log.i(TAG, "native_print_line_dispatch commandId=${job.commandId} orderId=${job.orderId ?: ""} lineIndex=$i semanticSection=${s.section.name} payloadLength=${payload.length} newlineAppended=${!explicitWrap && config.appendNewline} explicitLineWrapAfterLine=$explicitWrap asciiNormalized=${config.asciiSafeMode} text=$payload")
+                    callPrinterPrimitive(job, "printText", detail = "lineIndex=$i payloadLength=${payload.length}") {
+                        service.printText(payload, callbackFor(job, "printText_line_$i", callbackErrors, dispatchStartMs))
+                    }
+                    if (explicitWrap && config.perLineWrap > 0) {
+                        callPrinterPrimitive(job, "lineWrap", detail = "lineIndex=$i lines=${config.perLineWrap}") {
+                            service.lineWrap(config.perLineWrap, callbackFor(job, "lineWrap_line_$i", callbackErrors, dispatchStartMs))
+                        }
+                    }
+                    sleepAfterDispatch(job, i, config.dispatchDelayMs)
+                }
+            }
+        }
+
+        callPrinterPrimitive(job, "lineWrap", detail = "finalTicketSpacing lines=${config.finalTicketSpacingLines}") {
+            service.lineWrap(config.finalTicketSpacingLines, callbackFor(job, "lineWrap_final_spacing", callbackErrors, dispatchStartMs))
+        }
+        if (config.finalSettleMs > 0) runCatching { Thread.sleep(config.finalSettleMs) }
+        callPrinterPrimitive(job, "sendRAWData", detail = "bytes=3") {
+            service.sendRAWData(byteArrayOf(0x1B, 0x64, 0x03), callbackFor(job, "sendRAWData", callbackErrors, dispatchStartMs))
+        }
+        return "printerInit->setAlignment->printText(text_modes)->lineWrap(finalSpacing)->sendRAWData"
     }
 
     private fun inferSection(index: Int, line: String): SemanticSection {
@@ -485,25 +564,16 @@ class SunmiNativePrinterWorker(
 
     private fun sleepAfterDispatch(job: NativePrintJobEntity, stepIndex: Int, delayMs: Long) {
         if (delayMs <= 0) return
-        Log.i(
-            TAG,
-            "native_print_dispatch_delay commandId=${job.commandId} orderId=${job.orderId ?: ""} sourceJobId=${job.sourceJobId ?: ""} stepIndex=$stepIndex delayMs=$delayMs",
-        )
+        Log.i(TAG, "native_print_dispatch_delay commandId=${job.commandId} orderId=${job.orderId ?: ""} stepIndex=$stepIndex delayMs=$delayMs")
         runCatching { Thread.sleep(delayMs) }
-            .onFailure { err ->
-                Log.w(
-                    TAG,
-                    "native_print_dispatch_delay_interrupted commandId=${job.commandId} orderId=${job.orderId ?: ""} sourceJobId=${job.sourceJobId ?: ""} stepIndex=$stepIndex reason=${err.message ?: "interrupted"}",
-                )
-            }
     }
 
     private fun toSafeAscii(input: String): AsciiNormalizationResult {
-        var replacedCount = 0
-        var nonAsciiDetected = 0
+        var replaced = 0
+        var nonAscii = 0
         val mapped = buildString {
             for (ch in input) {
-                val replacement = when (ch) {
+                val r = when (ch) {
                     '•' -> '-'
                     'é', 'è', 'ê', 'ë' -> 'e'
                     'à', 'â', 'ä' -> 'a'
@@ -522,33 +592,25 @@ class SunmiNativePrinterWorker(
                     '“', '”' -> '"'
                     else -> ch
                 }
-                if (ch.code > 127) nonAsciiDetected += 1
-                if (replacement != ch) replacedCount += 1
-                append(replacement)
+                if (ch.code > 127) nonAscii++
+                if (r != ch) replaced++
+                append(r)
             }
         }
-
         val normalized = Normalizer.normalize(mapped, Normalizer.Form.NFD)
-        val stripped = buildString {
+        val out = buildString {
             for (ch in normalized) {
                 if (Character.getType(ch) == Character.NON_SPACING_MARK.toInt()) {
-                    replacedCount += 1
+                    replaced++
                     continue
                 }
-                if (ch.code in 32..126) {
-                    append(ch)
-                } else {
+                if (ch.code in 32..126) append(ch) else {
                     append('?')
-                    replacedCount += 1
+                    replaced++
                 }
             }
         }
-
-        return AsciiNormalizationResult(
-            text = stripped,
-            nonAsciiDetectedCount = nonAsciiDetected,
-            replacedGlyphCount = replacedCount,
-        )
+        return AsciiNormalizationResult(out, nonAscii, replaced)
     }
 
     private fun strategyName(strategy: PhysicalFidelityStrategy): String {
@@ -557,6 +619,8 @@ class SunmiNativePrinterWorker(
             PhysicalFidelityStrategy.LINE_BY_LINE_TEXT_WITH_EXPLICIT_LINEWRAP -> "line_by_line_text_with_explicit_linewrap"
             PhysicalFidelityStrategy.LINE_BY_LINE_TEXT_WITH_EXPLICIT_LINEWRAP_ASCII -> "line_by_line_text_with_explicit_linewrap_ascii"
             PhysicalFidelityStrategy.LINE_BY_LINE_ASCII_EXPLICIT_LINEWRAP_WITH_TICKET_SPACING -> "line_by_line_ascii_explicit_linewrap_with_ticket_spacing"
+            PhysicalFidelityStrategy.BITMAP_RECEIPT_SINGLE_IMAGE -> "bitmap_receipt_single_image"
+            PhysicalFidelityStrategy.BITMAP_RECEIPT_SEGMENTED_BLOCKS -> "bitmap_receipt_segmented_blocks"
             PhysicalFidelityStrategy.GROUPED_SMALL_BLOCKS -> "grouped_small_blocks"
         }
     }
@@ -565,115 +629,50 @@ class SunmiNativePrinterWorker(
         val payload = runCatching { JSONObject(job.payloadJson) }
             .getOrElse { throw RenderTextException("invalid_json:${it.message ?: "malformed"}") }
 
-        val hints = payload.optJSONObject("formattingHints")
-        val useSynthetic = hints?.optBoolean("nativeSyntheticTest", false) == true
-        if (useSynthetic) {
-            return RenderedPrintText(
-                text = "NP TEST A\nNP TEST B\nNP TEST C\n",
-                source = "synthetic_test",
-            )
-        }
-
         val lines = mutableListOf<String>()
         val primaryHeader = payload.optString("orderNumber").ifBlank {
-            payload.optString("order_number").ifBlank {
-                payload.optString("orderId").ifBlank { payload.optString("order_id") }
-            }
+            payload.optString("order_number").ifBlank { payload.optString("orderId").ifBlank { payload.optString("order_id") } }
         }.ifBlank { "ORDER" }
 
-        val receiptLinesFromDisplay = mutableListOf<String>()
-        payload.optJSONObject("displayModel")
-            ?.optJSONArray("receiptLines")
-            ?.let { receiptLines ->
-                for (i in 0 until receiptLines.length()) {
-                    val line = receiptLines.optString(i).trimEnd()
-                    if (line.isNotBlank()) receiptLinesFromDisplay += line
-                }
+        val receiptLines = mutableListOf<String>()
+        payload.optJSONObject("displayModel")?.optJSONArray("receiptLines")?.let { arr ->
+            for (i in 0 until arr.length()) {
+                val line = arr.optString(i).trimEnd()
+                if (line.isNotBlank()) receiptLines += line
             }
-
-        if (receiptLinesFromDisplay.isNotEmpty()) {
-            lines += receiptLinesFromDisplay
-            if (receiptLinesFromDisplay.first().trim() == primaryHeader.trim()) {
-                Log.i(TAG, "native_print_render_dedup_header commandId=${job.commandId} orderId=${job.orderId ?: ""} dedupApplied=true header=$primaryHeader")
-            } else {
-                lines.add(0, primaryHeader)
-                Log.i(TAG, "native_print_render_dedup_header commandId=${job.commandId} orderId=${job.orderId ?: ""} dedupApplied=false headerPrepended=true header=$primaryHeader")
-            }
-        } else {
-            lines += primaryHeader
         }
 
-        if (receiptLinesFromDisplay.isEmpty()) {
+        if (receiptLines.isNotEmpty()) {
+            lines += receiptLines
+            if (receiptLines.first().trim() != primaryHeader.trim()) lines.add(0, primaryHeader)
+        } else {
+            lines += primaryHeader
             val items = payload.optJSONArray("lines") ?: payload.optJSONArray("items")
             if (items != null) {
                 lines += "Articles:"
                 for (i in 0 until items.length()) {
                     val item = items.optJSONObject(i) ?: continue
-                    val qty = item.optInt("quantity", 1)
-                    val name = item.optString("name").ifBlank {
-                        item.optString("title").ifBlank { "Article" }
-                    }
-                    val totalPrice = when {
-                        item.has("totalPrice") -> item.optDouble("totalPrice")
-                        item.has("total_price") -> item.optDouble("total_price")
-                        item.has("unitPrice") -> item.optDouble("unitPrice")
-                        else -> Double.NaN
-                    }
-                    val priceText = if (!totalPrice.isNaN()) "  ${"%.2f".format(totalPrice)}" else ""
-                    lines += "$qty x $name$priceText"
+                    lines += "${item.optInt("quantity", 1)} x ${item.optString("name").ifBlank { item.optString("title", "Article") }}"
                 }
             }
-
-            payload.optJSONObject("totals")?.let { totals ->
-                if (totals.has("total")) {
-                    val currency = totals.optString("currency").ifBlank { "CHF" }
-                    lines += "TOTAL: ${"%.2f".format(totals.optDouble("total"))} $currency"
-                }
-            }
+            payload.optJSONObject("totals")?.takeIf { it.has("total") }?.let {
+                lines += "TOTAL: ${"%.2f".format(it.optDouble("total"))} ${it.optString("currency", "CHF")}" }
         }
 
-        val finalText = lines
-            .map { it.trimEnd() }
-            .filter { it.isNotBlank() }
-            .joinToString(separator = "\n", postfix = "\n")
-
-        if (finalText.isBlank() || finalText == "ORDER\n") {
-            throw RenderTextException("empty_rendered_text")
-        }
-
-        return RenderedPrintText(
-            text = finalText,
-            source = "real_order_payload",
-        )
+        val text = lines.map { it.trimEnd() }.filter { it.isNotBlank() }.joinToString("\n", postfix = "\n")
+        if (text.isBlank() || text == "ORDER\n") throw RenderTextException("empty_rendered_text")
+        return RenderedPrintText(text, "real_order_payload")
     }
 
     private fun logRenderedText(job: NativePrintJobEntity, rendered: RenderedPrintText) {
         val renderedLines = rendered.text.lines().filter { it.isNotBlank() }
-        val containsArticles = rendered.text.contains("article", ignoreCase = true) || rendered.text.contains("x ")
-        val containsTotal = rendered.text.contains("total", ignoreCase = true)
-        val markerInjected = rendered.text.contains("NATIVE COMMAND DISPATCH", ignoreCase = true)
-
-        Log.i(
-            TAG,
-            "native_print_content_source commandId=${job.commandId} orderId=${job.orderId ?: ""} source=${rendered.source}",
-        )
-        Log.i(
-            TAG,
-            "native_print_rendered_text_meta commandId=${job.commandId} orderId=${job.orderId ?: ""} source=${rendered.source} renderedLineCount=${renderedLines.size} renderedCharLength=${rendered.text.length} containsArticles=$containsArticles containsTotal=$containsTotal markerInjected=$markerInjected",
-        )
+        Log.i(TAG, "native_print_rendered_text_meta commandId=${job.commandId} orderId=${job.orderId ?: ""} source=${rendered.source} renderedLineCount=${renderedLines.size} renderedCharLength=${rendered.text.length}")
         Log.i(TAG, "native_print_rendered_text_start commandId=${job.commandId} orderId=${job.orderId ?: ""}")
-        renderedLines.forEachIndexed { idx, line ->
-            Log.i(TAG, "native_print_rendered_text_line commandId=${job.commandId} orderId=${job.orderId ?: ""} lineIndex=$idx text=$line")
-        }
+        renderedLines.forEachIndexed { idx, line -> Log.i(TAG, "native_print_rendered_text_line commandId=${job.commandId} orderId=${job.orderId ?: ""} lineIndex=$idx text=$line") }
         Log.i(TAG, "native_print_rendered_text_end commandId=${job.commandId} orderId=${job.orderId ?: ""}")
     }
 
-    private fun callPrinterPrimitive(
-        job: NativePrintJobEntity,
-        step: String,
-        detail: String? = null,
-        call: () -> Unit,
-    ) {
+    private fun callPrinterPrimitive(job: NativePrintJobEntity, step: String, detail: String? = null, call: () -> Unit) {
         val suffix = if (detail.isNullOrBlank()) "" else " $detail"
         Log.i(TAG, "native_print_low_level_call $step start commandId=${job.commandId} orderId=${job.orderId ?: ""} sourceJobId=${job.sourceJobId ?: ""}$suffix")
         try {
@@ -684,38 +683,20 @@ class SunmiNativePrinterWorker(
         }
     }
 
-    private fun callbackFor(
-        job: NativePrintJobEntity,
-        step: String,
-        callbackErrors: MutableList<String>,
-        dispatchStartMs: Long,
-    ): ICallback {
+    private fun callbackFor(job: NativePrintJobEntity, step: String, callbackErrors: MutableList<String>, dispatchStartMs: Long): ICallback {
         return object : ICallback.Stub() {
             override fun onRunResult(isSuccess: Boolean) {
                 val deltaMs = System.currentTimeMillis() - dispatchStartMs
-                Log.i(
-                    TAG,
-                    "native_print_low_level_callback commandId=${job.commandId} orderId=${job.orderId ?: ""} sourceJobId=${job.sourceJobId ?: ""} step=$step callback=onRunResult success=$isSuccess code=NA message=NA deltaMs=$deltaMs",
-                )
-                if (!isSuccess) {
-                    callbackErrors += "$step:onRunResult:false"
-                }
+                Log.i(TAG, "native_print_low_level_callback commandId=${job.commandId} orderId=${job.orderId ?: ""} step=$step callback=onRunResult success=$isSuccess code=NA message=NA deltaMs=$deltaMs")
+                if (!isSuccess) callbackErrors += "$step:onRunResult:false"
             }
-
             override fun onReturnString(result: String?) {
                 val deltaMs = System.currentTimeMillis() - dispatchStartMs
-                Log.i(
-                    TAG,
-                    "native_print_low_level_callback commandId=${job.commandId} orderId=${job.orderId ?: ""} sourceJobId=${job.sourceJobId ?: ""} step=$step callback=onReturnString success=true code=NA message=${result ?: ""} deltaMs=$deltaMs",
-                )
+                Log.i(TAG, "native_print_low_level_callback commandId=${job.commandId} orderId=${job.orderId ?: ""} step=$step callback=onReturnString success=true code=NA message=${result ?: ""} deltaMs=$deltaMs")
             }
-
             override fun onRaiseException(code: Int, msg: String?) {
                 val deltaMs = System.currentTimeMillis() - dispatchStartMs
-                Log.i(
-                    TAG,
-                    "native_print_low_level_callback commandId=${job.commandId} orderId=${job.orderId ?: ""} sourceJobId=${job.sourceJobId ?: ""} step=$step callback=onRaiseException success=false code=$code message=${msg ?: "unknown"} deltaMs=$deltaMs",
-                )
+                Log.i(TAG, "native_print_low_level_callback commandId=${job.commandId} orderId=${job.orderId ?: ""} step=$step callback=onRaiseException success=false code=$code message=${msg ?: "unknown"} deltaMs=$deltaMs")
                 callbackErrors += "$step:onRaiseException:$code:${msg ?: "unknown"}"
             }
         }
@@ -723,9 +704,11 @@ class SunmiNativePrinterWorker(
 
     companion object {
         private const val TAG = "NativePrinterWorker"
-        private val DEFAULT_ACTIVE_STRATEGY = PhysicalFidelityStrategy.LINE_BY_LINE_ASCII_EXPLICIT_LINEWRAP_WITH_TICKET_SPACING
+        private val DEFAULT_ACTIVE_STRATEGY = PhysicalFidelityStrategy.BITMAP_RECEIPT_SEGMENTED_BLOCKS
+        private const val DEFAULT_BITMAP_WIDTH_PX = 384
+        private const val MAX_SINGLE_BITMAP_HEIGHT_PX = 2600
         private const val DEFAULT_LINE_DELAY_MS = 35L
-        private const val DEFAULT_FINAL_SETTLE_MS = 120L
+        private const val DEFAULT_FINAL_SETTLE_MS = 150L
         private const val DEFAULT_BLOCK_SIZE = 2
     }
 }
