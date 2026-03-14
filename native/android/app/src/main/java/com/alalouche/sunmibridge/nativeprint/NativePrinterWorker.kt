@@ -27,6 +27,7 @@ private enum class PhysicalFidelityStrategy {
     BITMAP_RECEIPT_SEGMENTED_BLOCKS,
     BITMAP_SMOKE_TEST_MINIMAL_BLOCKS,
     VENDOR_PARITY_WOYOU_MINIMAL_TEST,
+    VENDOR_PARITY_BITMAP_CUSTOM_COMPARE,
     GROUPED_SMALL_BLOCKS,
 }
 
@@ -76,6 +77,17 @@ private data class PhysicalFidelityConfig(
     val vendorParityFinalSpacingLines: Int,
     val vendorParityDispatchDelayMs: Int,
     val vendorParityFinalSettleMs: Int,
+    val vendorBitmapCompareRunAllModes: Boolean,
+    val vendorBitmapCompareMode: String,
+    val vendorBitmapWidthPx: Int,
+    val vendorBitmapHorizontalPaddingPx: Int,
+    val vendorBitmapTopPaddingPx: Int,
+    val vendorBitmapBottomPaddingPx: Int,
+    val vendorBitmapLineHeightPx: Int,
+    val vendorBitmapSpacingLinesAfterEachMode: Int,
+    val vendorBitmapFinalSpacingLines: Int,
+    val vendorBitmapDispatchDelayMs: Int,
+    val vendorBitmapFinalSettleMs: Int,
 )
 
 private data class SectionLine(
@@ -151,7 +163,7 @@ class SunmiNativePrinterWorker(
                 "native_print_strategy_selected commandId=${job.commandId} orderId=${job.orderId ?: ""} sourceJobId=${job.sourceJobId ?: ""} strategy=${strategyName(fidelityConfig.strategy)} dispatchDelayMs=${fidelityConfig.dispatchDelayMs} finalSettleMs=${fidelityConfig.finalSettleMs} asciiSafeMode=${fidelityConfig.asciiSafeMode} perLineWrap=${fidelityConfig.perLineWrap} perSectionExtraWrap=${fidelityConfig.perSectionExtraWrap} finalTicketSpacingLines=${fidelityConfig.finalTicketSpacingLines} addEndDivider=${fidelityConfig.addEndDivider} bitmapSegmentedMode=${fidelityConfig.bitmapSegmentedMode} selectedFamily=${selectedFamily ?: ""} packageName=${selectedPackage ?: ""} action=${selectedAction ?: ""}",
             )
 
-            val renderedTextForDispatch = if (fidelityConfig.strategy == PhysicalFidelityStrategy.BITMAP_SMOKE_TEST_MINIMAL_BLOCKS || fidelityConfig.strategy == PhysicalFidelityStrategy.VENDOR_PARITY_WOYOU_MINIMAL_TEST) {
+            val renderedTextForDispatch = if (fidelityConfig.strategy == PhysicalFidelityStrategy.BITMAP_SMOKE_TEST_MINIMAL_BLOCKS || fidelityConfig.strategy == PhysicalFidelityStrategy.VENDOR_PARITY_WOYOU_MINIMAL_TEST || fidelityConfig.strategy == PhysicalFidelityStrategy.VENDOR_PARITY_BITMAP_CUSTOM_COMPARE) {
                 Log.i(
                     TAG,
                     "native_print_smoke_test_render_bypass commandId=${job.commandId} orderId=${job.orderId ?: ""} sourceJobId=${job.sourceJobId ?: ""} strategy=${strategyName(fidelityConfig.strategy)} bypassRealPayloadRender=true",
@@ -275,6 +287,7 @@ class SunmiNativePrinterWorker(
             "bitmap_receipt_segmented_blocks" -> PhysicalFidelityStrategy.BITMAP_RECEIPT_SEGMENTED_BLOCKS
             "bitmap_smoke_test_minimal_blocks" -> PhysicalFidelityStrategy.BITMAP_SMOKE_TEST_MINIMAL_BLOCKS
             "vendor_parity_woyou_minimal_test" -> PhysicalFidelityStrategy.VENDOR_PARITY_WOYOU_MINIMAL_TEST
+            "vendor_parity_bitmap_custom_compare" -> PhysicalFidelityStrategy.VENDOR_PARITY_BITMAP_CUSTOM_COMPARE
             "line_by_line_text_with_delay" -> PhysicalFidelityStrategy.LINE_BY_LINE_TEXT_WITH_DELAY
             "line_by_line_text_with_explicit_linewrap" -> PhysicalFidelityStrategy.LINE_BY_LINE_TEXT_WITH_EXPLICIT_LINEWRAP
             "line_by_line_text_with_explicit_linewrap_ascii" -> PhysicalFidelityStrategy.LINE_BY_LINE_TEXT_WITH_EXPLICIT_LINEWRAP_ASCII
@@ -314,6 +327,17 @@ class SunmiNativePrinterWorker(
             vendorParityFinalSpacingLines = (hints?.optInt("vendorParityFinalSpacingLines", 4) ?: 4).coerceIn(1, 12),
             vendorParityDispatchDelayMs = (hints?.optInt("vendorParityDispatchDelayMs", 35) ?: 35).coerceIn(0, 400),
             vendorParityFinalSettleMs = (hints?.optInt("vendorParityFinalSettleMs", 150) ?: 150).coerceIn(0, 1000),
+            vendorBitmapCompareRunAllModes = hints?.optBoolean("vendorBitmapCompareRunAllModes", true) ?: true,
+            vendorBitmapCompareMode = hints?.optString("vendorBitmapCompareMode", "A")?.uppercase()?.let { if (it in setOf("A","B","C","D")) it else "A" } ?: "A",
+            vendorBitmapWidthPx = (hints?.optInt("vendorBitmapWidthPx", 384) ?: 384).coerceIn(280, 640),
+            vendorBitmapHorizontalPaddingPx = (hints?.optInt("vendorBitmapHorizontalPaddingPx", 16) ?: 16).coerceIn(4, 40),
+            vendorBitmapTopPaddingPx = (hints?.optInt("vendorBitmapTopPaddingPx", 20) ?: 20).coerceIn(0, 80),
+            vendorBitmapBottomPaddingPx = (hints?.optInt("vendorBitmapBottomPaddingPx", 20) ?: 20).coerceIn(0, 120),
+            vendorBitmapLineHeightPx = (hints?.optInt("vendorBitmapLineHeightPx", 36) ?: 36).coerceIn(20, 64),
+            vendorBitmapSpacingLinesAfterEachMode = (hints?.optInt("vendorBitmapSpacingLinesAfterEachMode", 5) ?: 5).coerceIn(1, 12),
+            vendorBitmapFinalSpacingLines = (hints?.optInt("vendorBitmapFinalSpacingLines", 6) ?: 6).coerceIn(1, 14),
+            vendorBitmapDispatchDelayMs = (hints?.optInt("vendorBitmapDispatchDelayMs", 35) ?: 35).coerceIn(0, 400),
+            vendorBitmapFinalSettleMs = (hints?.optInt("vendorBitmapFinalSettleMs", 150) ?: 150).coerceIn(0, 1000),
         )
     }
 
@@ -341,6 +365,7 @@ class SunmiNativePrinterWorker(
             PhysicalFidelityStrategy.BITMAP_SMOKE_TEST_MINIMAL_BLOCKS,
             -> executeBitmapStrategies(service, job, sectionLines, fidelityConfig, callbackErrors, dispatchStartMs)
             PhysicalFidelityStrategy.VENDOR_PARITY_WOYOU_MINIMAL_TEST -> executeVendorParityWoyouMinimalTest(service, job, fidelityConfig, callbackErrors, dispatchStartMs)
+            PhysicalFidelityStrategy.VENDOR_PARITY_BITMAP_CUSTOM_COMPARE -> executeVendorParityBitmapCustomCompare(service, job, fidelityConfig, callbackErrors, dispatchStartMs)
 
             else -> executeTextStrategies(service, job, sectionLines, fidelityConfig, callbackErrors, dispatchStartMs)
         }
@@ -410,6 +435,100 @@ class SunmiNativePrinterWorker(
         }
         Log.i(TAG, "native_print_vendor_parity_summary commandId=${job.commandId} orderId=${job.orderId ?: ""} mode=${config.vendorParityMode} finalSpacingLines=${config.vendorParityFinalSpacingLines} dispatchDelayMs=${config.vendorParityDispatchDelayMs} finalSettleMs=${config.vendorParityFinalSettleMs} primitiveSequence=$sequence")
         return sequence
+    }
+
+    private fun executeVendorParityBitmapCustomCompare(
+        service: IWoyouService,
+        job: NativePrintJobEntity,
+        config: PhysicalFidelityConfig,
+        callbackErrors: MutableList<String>,
+        dispatchStartMs: Long,
+    ): String {
+        Log.i(TAG, "native_print_vendor_bitmap_compare_selected commandId=${job.commandId} orderId=${job.orderId ?: ""} strategy=vendor_parity_bitmap_custom_compare runAllModes=${config.vendorBitmapCompareRunAllModes} requestedMode=${config.vendorBitmapCompareMode}")
+        Log.i(TAG, "native_print_vendor_bitmap_compare_service_info commandId=${job.commandId} orderId=${job.orderId ?: ""} selectedFamily=woyou_legacy_packaged packageName=woyou.aidlservice.jiuiv5 interfaceAction=woyou.aidlservice.jiuiv5.IWoyouService")
+
+        val modes = if (config.vendorBitmapCompareRunAllModes) listOf("A", "B", "C", "D") else listOf(config.vendorBitmapCompareMode)
+
+        modes.forEachIndexed { modeIndex, mode ->
+            val (label, primitive, customType) = when (mode) {
+                "A" -> Triple("MODE A printBitmap", "printBitmap", null)
+                "B" -> Triple("MODE B custom0", "printBitmapCustom", 0)
+                "C" -> Triple("MODE C custom1", "printBitmapCustom", 1)
+                else -> Triple("MODE D custom2", "printBitmapCustom", 2)
+            }
+            val lines = listOf(label, "1234567890", "ABCDEFGHIJ")
+            val render = renderVendorBitmapComparePayload(lines, config)
+            Log.i(TAG, "native_print_vendor_bitmap_compare_mode_start commandId=${job.commandId} orderId=${job.orderId ?: ""} modeLabel=$label primitiveUsed=$primitive customType=${customType ?: "null"} payloadPreview=${lines.joinToString(" | ")}")
+            Log.i(TAG, "native_print_vendor_bitmap_compare_bitmap_dimensions commandId=${job.commandId} orderId=${job.orderId ?: ""} modeLabel=$label primitiveUsed=$primitive customType=${customType ?: "null"} widthPx=${render.widthPx} heightPx=${render.heightPx} lineCount=${render.lineCount}")
+            try {
+                Log.i(TAG, "native_print_vendor_bitmap_compare_print_call commandId=${job.commandId} orderId=${job.orderId ?: ""} modeLabel=$label primitiveUsed=$primitive customType=${customType ?: "null"} event=start")
+                if (customType == null) {
+                    callPrinterPrimitive(job, "printBitmap", detail = "vendorCompare mode=$mode width=${render.widthPx} height=${render.heightPx}") {
+                        service.printBitmap(render.bitmap, callbackFor(job, "vendorCompare_${mode}_printBitmap", callbackErrors, dispatchStartMs))
+                    }
+                } else {
+                    callPrinterPrimitive(job, "printBitmapCustom", detail = "vendorCompare mode=$mode type=$customType width=${render.widthPx} height=${render.heightPx}") {
+                        service.printBitmapCustom(render.bitmap, customType, callbackFor(job, "vendorCompare_${mode}_printBitmapCustom_$customType", callbackErrors, dispatchStartMs))
+                    }
+                }
+                Log.i(TAG, "native_print_vendor_bitmap_compare_print_call commandId=${job.commandId} orderId=${job.orderId ?: ""} modeLabel=$label primitiveUsed=$primitive customType=${customType ?: "null"} event=end")
+            } finally {
+                render.bitmap.recycle()
+            }
+
+            val spacing = if (modeIndex == modes.lastIndex) config.vendorBitmapFinalSpacingLines else config.vendorBitmapSpacingLinesAfterEachMode
+            Log.i(TAG, "native_print_vendor_bitmap_compare_spacing_applied commandId=${job.commandId} orderId=${job.orderId ?: ""} modeLabel=$label spacingType=${if (modeIndex == modes.lastIndex) "final" else "between_modes"} requestedLines=$spacing")
+            callPrinterPrimitive(job, "lineWrap", detail = "vendorCompare mode=$mode lines=$spacing") {
+                service.lineWrap(spacing, callbackFor(job, "vendorCompare_${mode}_lineWrap", callbackErrors, dispatchStartMs))
+            }
+            Log.i(TAG, "native_print_vendor_bitmap_compare_mode_summary commandId=${job.commandId} orderId=${job.orderId ?: ""} modeLabel=$label primitiveUsed=$primitive customType=${customType ?: "null"} spacingLinesAfterMode=$spacing")
+            sleepAfterDispatch(job, modeIndex, config.vendorBitmapDispatchDelayMs.toLong())
+        }
+
+        if (config.vendorBitmapFinalSettleMs > 0) {
+            runCatching { Thread.sleep(config.vendorBitmapFinalSettleMs.toLong()) }
+        }
+
+        val rawFeed = byteArrayOf(0x1B, 0x64, 0x03)
+        callPrinterPrimitive(job, "sendRAWData", detail = "vendorBitmapCompare bytes=${rawFeed.size}") {
+            service.sendRAWData(rawFeed, callbackFor(job, "vendorBitmapCompare_sendRaw", callbackErrors, dispatchStartMs))
+        }
+
+        val sequence = "printerInit->setAlignment->printBitmap/printBitmapCustom(compare A/B/C/D)->lineWrap(spacing)->sendRAWData"
+        Log.i(TAG, "native_print_vendor_bitmap_compare_final_summary commandId=${job.commandId} orderId=${job.orderId ?: ""} modes=${modes.joinToString(",")} spacingLinesAfterEachMode=${config.vendorBitmapSpacingLinesAfterEachMode} finalSpacingLines=${config.vendorBitmapFinalSpacingLines} dispatchDelayMs=${config.vendorBitmapDispatchDelayMs} finalSettleMs=${config.vendorBitmapFinalSettleMs} primitiveSequence=$sequence")
+        return sequence
+    }
+
+    private fun renderVendorBitmapComparePayload(
+        lines: List<String>,
+        config: PhysicalFidelityConfig,
+    ): BitmapRenderResult {
+        val width = config.vendorBitmapWidthPx
+        val height = max(
+            120,
+            config.vendorBitmapTopPaddingPx + config.vendorBitmapBottomPaddingPx + (lines.size * config.vendorBitmapLineHeightPx),
+        )
+        val bmp = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bmp)
+        canvas.drawColor(Color.WHITE)
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.BLACK
+            textSize = 28f
+            typeface = Typeface.MONOSPACE
+        }
+        var y = config.vendorBitmapTopPaddingPx + config.vendorBitmapLineHeightPx
+        lines.forEach { line ->
+            canvas.drawText(line, config.vendorBitmapHorizontalPaddingPx.toFloat(), y.toFloat(), paint)
+            y += config.vendorBitmapLineHeightPx
+        }
+        return BitmapRenderResult(
+            bitmap = bmp,
+            widthPx = width,
+            heightPx = height,
+            lineCount = lines.size,
+            firstLinePreview = lines.firstOrNull().orEmpty(),
+            lastLinePreview = lines.lastOrNull().orEmpty(),
+        )
     }
 
     private fun executeBitmapStrategies(
@@ -830,6 +949,7 @@ class SunmiNativePrinterWorker(
             PhysicalFidelityStrategy.BITMAP_RECEIPT_SEGMENTED_BLOCKS -> "bitmap_receipt_segmented_blocks"
             PhysicalFidelityStrategy.BITMAP_SMOKE_TEST_MINIMAL_BLOCKS -> "bitmap_smoke_test_minimal_blocks"
             PhysicalFidelityStrategy.VENDOR_PARITY_WOYOU_MINIMAL_TEST -> "vendor_parity_woyou_minimal_test"
+            PhysicalFidelityStrategy.VENDOR_PARITY_BITMAP_CUSTOM_COMPARE -> "vendor_parity_bitmap_custom_compare"
             PhysicalFidelityStrategy.GROUPED_SMALL_BLOCKS -> "grouped_small_blocks"
         }
     }
@@ -913,7 +1033,7 @@ class SunmiNativePrinterWorker(
 
     companion object {
         private const val TAG = "NativePrinterWorker"
-        private val DEFAULT_ACTIVE_STRATEGY = PhysicalFidelityStrategy.VENDOR_PARITY_WOYOU_MINIMAL_TEST
+        private val DEFAULT_ACTIVE_STRATEGY = PhysicalFidelityStrategy.VENDOR_PARITY_BITMAP_CUSTOM_COMPARE
         private const val DEFAULT_BITMAP_WIDTH_PX = 384
         private const val MAX_SINGLE_BITMAP_HEIGHT_PX = 2600
         private const val DEFAULT_LINE_DELAY_MS = 35L
