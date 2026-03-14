@@ -28,6 +28,7 @@ private enum class PhysicalFidelityStrategy {
     BITMAP_SMOKE_TEST_MINIMAL_BLOCKS,
     VENDOR_PARITY_WOYOU_MINIMAL_TEST,
     VENDOR_PARITY_BITMAP_CUSTOM_COMPARE,
+    VENDOR_PARITY_BITMAP_PHYSICAL_DIAGNOSTICS,
     TRANSACTION_MODE_TINY_DIAGNOSTIC_TEST,
     GROUPED_SMALL_BLOCKS,
 }
@@ -178,7 +179,7 @@ class SunmiNativePrinterWorker(
                 "native_print_strategy_selected commandId=${job.commandId} orderId=${job.orderId ?: ""} sourceJobId=${job.sourceJobId ?: ""} strategy=${strategyName(fidelityConfig.strategy)} dispatchDelayMs=${fidelityConfig.dispatchDelayMs} finalSettleMs=${fidelityConfig.finalSettleMs} asciiSafeMode=${fidelityConfig.asciiSafeMode} perLineWrap=${fidelityConfig.perLineWrap} perSectionExtraWrap=${fidelityConfig.perSectionExtraWrap} finalTicketSpacingLines=${fidelityConfig.finalTicketSpacingLines} addEndDivider=${fidelityConfig.addEndDivider} bitmapSegmentedMode=${fidelityConfig.bitmapSegmentedMode} selectedFamily=${selectedFamily ?: ""} packageName=${selectedPackage ?: ""} action=${selectedAction ?: ""}",
             )
 
-            val renderedTextForDispatch = if (fidelityConfig.strategy == PhysicalFidelityStrategy.BITMAP_SMOKE_TEST_MINIMAL_BLOCKS || fidelityConfig.strategy == PhysicalFidelityStrategy.VENDOR_PARITY_WOYOU_MINIMAL_TEST || fidelityConfig.strategy == PhysicalFidelityStrategy.VENDOR_PARITY_BITMAP_CUSTOM_COMPARE || fidelityConfig.strategy == PhysicalFidelityStrategy.TRANSACTION_MODE_TINY_DIAGNOSTIC_TEST) {
+            val renderedTextForDispatch = if (fidelityConfig.strategy == PhysicalFidelityStrategy.BITMAP_SMOKE_TEST_MINIMAL_BLOCKS || fidelityConfig.strategy == PhysicalFidelityStrategy.VENDOR_PARITY_WOYOU_MINIMAL_TEST || fidelityConfig.strategy == PhysicalFidelityStrategy.VENDOR_PARITY_BITMAP_CUSTOM_COMPARE || fidelityConfig.strategy == PhysicalFidelityStrategy.VENDOR_PARITY_BITMAP_PHYSICAL_DIAGNOSTICS || fidelityConfig.strategy == PhysicalFidelityStrategy.TRANSACTION_MODE_TINY_DIAGNOSTIC_TEST) {
                 Log.i(
                     TAG,
                     "native_print_smoke_test_render_bypass commandId=${job.commandId} orderId=${job.orderId ?: ""} sourceJobId=${job.sourceJobId ?: ""} strategy=${strategyName(fidelityConfig.strategy)} bypassRealPayloadRender=true",
@@ -315,6 +316,7 @@ class SunmiNativePrinterWorker(
             "bitmap_smoke_test_minimal_blocks" -> PhysicalFidelityStrategy.BITMAP_SMOKE_TEST_MINIMAL_BLOCKS
             "vendor_parity_woyou_minimal_test" -> PhysicalFidelityStrategy.VENDOR_PARITY_WOYOU_MINIMAL_TEST
             "vendor_parity_bitmap_custom_compare" -> PhysicalFidelityStrategy.VENDOR_PARITY_BITMAP_CUSTOM_COMPARE
+            "vendor_parity_bitmap_physical_diagnostics" -> PhysicalFidelityStrategy.VENDOR_PARITY_BITMAP_PHYSICAL_DIAGNOSTICS
             "transaction_mode_tiny_diagnostic_test" -> PhysicalFidelityStrategy.TRANSACTION_MODE_TINY_DIAGNOSTIC_TEST
             "line_by_line_text_with_delay" -> PhysicalFidelityStrategy.LINE_BY_LINE_TEXT_WITH_DELAY
             "line_by_line_text_with_explicit_linewrap" -> PhysicalFidelityStrategy.LINE_BY_LINE_TEXT_WITH_EXPLICIT_LINEWRAP
@@ -405,6 +407,7 @@ class SunmiNativePrinterWorker(
             -> executeBitmapStrategies(service, job, sectionLines, fidelityConfig, callbackErrors, dispatchStartMs)
             PhysicalFidelityStrategy.VENDOR_PARITY_WOYOU_MINIMAL_TEST -> executeVendorParityWoyouMinimalTest(service, job, fidelityConfig, callbackErrors, dispatchStartMs)
             PhysicalFidelityStrategy.VENDOR_PARITY_BITMAP_CUSTOM_COMPARE -> executeVendorParityBitmapCustomCompare(service, job, fidelityConfig, callbackErrors, dispatchStartMs)
+            PhysicalFidelityStrategy.VENDOR_PARITY_BITMAP_PHYSICAL_DIAGNOSTICS -> executeVendorParityBitmapPhysicalDiagnostics(service, job, fidelityConfig, callbackErrors, dispatchStartMs)
             PhysicalFidelityStrategy.TRANSACTION_MODE_TINY_DIAGNOSTIC_TEST -> executeTransactionModeTinyDiagnosticTest(service, job, fidelityConfig, callbackErrors, dispatchStartMs)
 
             else -> executeTextStrategies(service, job, sectionLines, fidelityConfig, callbackErrors, dispatchStartMs)
@@ -538,6 +541,188 @@ class SunmiNativePrinterWorker(
     }
 
 
+
+    private fun executeVendorParityBitmapPhysicalDiagnostics(
+        service: IWoyouService,
+        job: NativePrintJobEntity,
+        config: PhysicalFidelityConfig,
+        callbackErrors: MutableList<String>,
+        dispatchStartMs: Long,
+    ): String {
+        val strategy = "vendor_parity_bitmap_physical_diagnostics"
+        val events = mutableListOf<String>()
+        Log.i(TAG, "native_print_vendor_physical_diagnostics_selected commandId=${job.commandId} orderId=${job.orderId ?: ""} strategy=$strategy selectedFamily=woyou_legacy_packaged packageName=woyou.aidlservice.jiuiv5 action=woyou.aidlservice.jiuiv5.IWoyouService")
+
+        // Experiment 1: single tall bitmap
+        runCatching {
+            val lines = listOf("HEADER", "", "BLOCK A", "", "BLOCK B", "", "FOOTER")
+            val render = renderVendorBitmapDiagnosticsPayload(lines, config.vendorBitmapWidthPx, config)
+            try {
+                Log.i(TAG, "native_print_vendor_physical_diagnostics_experiment commandId=${job.commandId} orderId=${job.orderId ?: ""} name=single_tall_bitmap textIncluded=${lines.joinToString("|")} bitmapWidthPx=${render.widthPx} bitmapHeightPx=${render.heightPx} printedBlocks=1 lineWrapPlan=8 transactionModeUsed=false rawFeedUsed=false")
+                callPrinterPrimitive(job, "printBitmap", detail = "vendorPhysicalDiag experiment=single_tall_bitmap width=${render.widthPx} height=${render.heightPx}") {
+                    service.printBitmap(render.bitmap, callbackFor(job, "vendorPhysicalDiag_exp1_printBitmap", callbackErrors, dispatchStartMs))
+                }
+            } finally {
+                render.bitmap.recycle()
+            }
+            callPrinterPrimitive(job, "lineWrap", detail = "vendorPhysicalDiag experiment=single_tall_bitmap lines=8") {
+                service.lineWrap(8, callbackFor(job, "vendorPhysicalDiag_exp1_lineWrap", callbackErrors, dispatchStartMs))
+            }
+            events += "exp1:ok"
+        }.onFailure {
+            Log.e(TAG, "native_print_vendor_physical_diagnostics_experiment_failed commandId=${job.commandId} orderId=${job.orderId ?: ""} name=single_tall_bitmap reason=${it.message ?: "unknown"}")
+            events += "exp1:failed"
+        }
+
+        // Experiment 2: segmented bitmap + large inter-block feed
+        runCatching {
+            val blockLines = listOf(listOf("HEADER"), listOf("BLOCK A", "BLOCK B"), listOf("FOOTER"))
+            blockLines.forEachIndexed { idx, lines ->
+                val render = renderVendorBitmapDiagnosticsPayload(lines, config.vendorBitmapWidthPx, config)
+                try {
+                    val wrap = if (idx == blockLines.lastIndex) 10 else 8
+                    Log.i(TAG, "native_print_vendor_physical_diagnostics_experiment commandId=${job.commandId} orderId=${job.orderId ?: ""} name=segmented_large_feed blockIndex=$idx bitmapWidthPx=${render.widthPx} bitmapHeightPx=${render.heightPx} printedBlocks=${blockLines.size} lineWrapAfterBlock=$wrap transactionModeUsed=false rawFeedUsed=false textIncluded=${lines.joinToString("|")}")
+                    callPrinterPrimitive(job, "printBitmap", detail = "vendorPhysicalDiag experiment=segmented_large_feed block=$idx width=${render.widthPx} height=${render.heightPx}") {
+                        service.printBitmap(render.bitmap, callbackFor(job, "vendorPhysicalDiag_exp2_printBitmap_$idx", callbackErrors, dispatchStartMs))
+                    }
+                } finally {
+                    render.bitmap.recycle()
+                }
+                val wrap = if (idx == blockLines.lastIndex) 10 else 8
+                callPrinterPrimitive(job, "lineWrap", detail = "vendorPhysicalDiag experiment=segmented_large_feed block=$idx lines=$wrap") {
+                    service.lineWrap(wrap, callbackFor(job, "vendorPhysicalDiag_exp2_lineWrap_$idx", callbackErrors, dispatchStartMs))
+                }
+            }
+            events += "exp2:ok"
+        }.onFailure {
+            Log.e(TAG, "native_print_vendor_physical_diagnostics_experiment_failed commandId=${job.commandId} orderId=${job.orderId ?: ""} name=segmented_large_feed reason=${it.message ?: "unknown"}")
+            events += "exp2:failed"
+        }
+
+        // Experiment 3: segmented bitmap in transaction mode
+        runCatching {
+            val blockLines = listOf(listOf("TX HEADER"), listOf("TX BLOCK A", "TX BLOCK B"), listOf("TX FOOTER"))
+            var flushMethod = "exitPrinterBufferWithCallback"
+            Log.i(TAG, "native_print_vendor_physical_diagnostics_experiment commandId=${job.commandId} orderId=${job.orderId ?: ""} name=segmented_transaction_mode transactionModeUsed=true bufferEnter=true")
+            service.enterPrinterBuffer(true)
+            blockLines.forEachIndexed { idx, lines ->
+                val render = renderVendorBitmapDiagnosticsPayload(lines, config.vendorBitmapWidthPx, config)
+                try {
+                    callPrinterPrimitive(job, "printBitmap", detail = "vendorPhysicalDiag experiment=segmented_transaction_mode block=$idx width=${render.widthPx} height=${render.heightPx}") {
+                        service.printBitmap(render.bitmap, callbackFor(job, "vendorPhysicalDiag_exp3_printBitmap_$idx", callbackErrors, dispatchStartMs))
+                    }
+                } finally {
+                    render.bitmap.recycle()
+                }
+                val wrap = if (idx == blockLines.lastIndex) 10 else 8
+                Log.i(TAG, "native_print_vendor_physical_diagnostics_experiment commandId=${job.commandId} orderId=${job.orderId ?: ""} name=segmented_transaction_mode blockIndex=$idx lineWrapAfterBlock=$wrap bitmapBlocks=${blockLines.size}")
+                callPrinterPrimitive(job, "lineWrap", detail = "vendorPhysicalDiag experiment=segmented_transaction_mode block=$idx lines=$wrap") {
+                    service.lineWrap(wrap, callbackFor(job, "vendorPhysicalDiag_exp3_lineWrap_$idx", callbackErrors, dispatchStartMs))
+                }
+            }
+            runCatching {
+                callPrinterPrimitive(job, "exitPrinterBufferWithCallback", detail = "vendorPhysicalDiag experiment=segmented_transaction_mode commit=true") {
+                    service.exitPrinterBufferWithCallback(true, callbackFor(job, "vendorPhysicalDiag_exp3_exitBuffer", callbackErrors, dispatchStartMs))
+                }
+            }.onFailure {
+                flushMethod = "commitPrinterBuffer"
+                callPrinterPrimitive(job, "commitPrinterBuffer", detail = "vendorPhysicalDiag experiment=segmented_transaction_mode fallback=true") {
+                    service.commitPrinterBuffer()
+                }
+            }
+            Log.i(TAG, "native_print_vendor_physical_diagnostics_experiment commandId=${job.commandId} orderId=${job.orderId ?: ""} name=segmented_transaction_mode flushMethod=$flushMethod")
+            events += "exp3:ok"
+        }.onFailure {
+            Log.e(TAG, "native_print_vendor_physical_diagnostics_experiment_failed commandId=${job.commandId} orderId=${job.orderId ?: ""} name=segmented_transaction_mode reason=${it.message ?: "unknown"}")
+            events += "exp3:failed"
+        }
+
+        // Experiment 4: bitmap + explicit ESC/POS feed tail
+        runCatching {
+            val lines = listOf("RAW FEED TEST", "BLOCK X")
+            val render = renderVendorBitmapDiagnosticsPayload(lines, config.vendorBitmapWidthPx, config)
+            val rawTail = byteArrayOf(0x1B, 0x64, 0x08)
+            try {
+                Log.i(TAG, "native_print_vendor_physical_diagnostics_experiment commandId=${job.commandId} orderId=${job.orderId ?: ""} name=bitmap_plus_escpos_tail bitmapWidthPx=${render.widthPx} bitmapHeightPx=${render.heightPx} printedBlocks=1 lineWrapPlan=8 transactionModeUsed=false rawFeedUsed=true rawFeedHex=${rawTail.joinToString(" ") { b -> "0x%02X".format(b) }}")
+                callPrinterPrimitive(job, "printBitmap", detail = "vendorPhysicalDiag experiment=bitmap_plus_escpos_tail width=${render.widthPx} height=${render.heightPx}") {
+                    service.printBitmap(render.bitmap, callbackFor(job, "vendorPhysicalDiag_exp4_printBitmap", callbackErrors, dispatchStartMs))
+                }
+            } finally {
+                render.bitmap.recycle()
+            }
+            callPrinterPrimitive(job, "sendRAWData", detail = "vendorPhysicalDiag experiment=bitmap_plus_escpos_tail bytes=${rawTail.size}") {
+                service.sendRAWData(rawTail, callbackFor(job, "vendorPhysicalDiag_exp4_sendRaw", callbackErrors, dispatchStartMs))
+            }
+            callPrinterPrimitive(job, "lineWrap", detail = "vendorPhysicalDiag experiment=bitmap_plus_escpos_tail lines=8") {
+                service.lineWrap(8, callbackFor(job, "vendorPhysicalDiag_exp4_lineWrap", callbackErrors, dispatchStartMs))
+            }
+            events += "exp4:ok"
+        }.onFailure {
+            Log.e(TAG, "native_print_vendor_physical_diagnostics_experiment_failed commandId=${job.commandId} orderId=${job.orderId ?: ""} name=bitmap_plus_escpos_tail reason=${it.message ?: "unknown"}")
+            events += "exp4:failed"
+        }
+
+        // Experiment 5: reduced width comparison
+        runCatching {
+            val widths = listOf(384, 360, 320)
+            val lines = listOf("WIDTH TEST", "1234567890", "ABCDEFGHIJ")
+            widths.forEachIndexed { idx, width ->
+                val render = renderVendorBitmapDiagnosticsPayload(lines, width, config)
+                try {
+                    Log.i(TAG, "native_print_vendor_physical_diagnostics_experiment commandId=${job.commandId} orderId=${job.orderId ?: ""} name=reduced_bitmap_width widthVariantPx=$width bitmapWidthPx=${render.widthPx} bitmapHeightPx=${render.heightPx} printedBlocks=${widths.size} lineWrapAfterBlock=8 transactionModeUsed=false rawFeedUsed=false textIncluded=${lines.joinToString("|")}")
+                    callPrinterPrimitive(job, "printBitmap", detail = "vendorPhysicalDiag experiment=reduced_bitmap_width index=$idx width=${render.widthPx} height=${render.heightPx}") {
+                        service.printBitmap(render.bitmap, callbackFor(job, "vendorPhysicalDiag_exp5_printBitmap_$idx", callbackErrors, dispatchStartMs))
+                    }
+                } finally {
+                    render.bitmap.recycle()
+                }
+                callPrinterPrimitive(job, "lineWrap", detail = "vendorPhysicalDiag experiment=reduced_bitmap_width index=$idx lines=8") {
+                    service.lineWrap(8, callbackFor(job, "vendorPhysicalDiag_exp5_lineWrap_$idx", callbackErrors, dispatchStartMs))
+                }
+            }
+            events += "exp5:ok"
+        }.onFailure {
+            Log.e(TAG, "native_print_vendor_physical_diagnostics_experiment_failed commandId=${job.commandId} orderId=${job.orderId ?: ""} name=reduced_bitmap_width reason=${it.message ?: "unknown"}")
+            events += "exp5:failed"
+        }
+
+        val sequence = "printerInit->exp1(single_tall)->exp2(segmented_large_feed)->exp3(segmented_transaction)->exp4(raw_tail)->exp5(width_384_360_320)"
+        Log.i(TAG, "native_print_vendor_physical_diagnostics_summary commandId=${job.commandId} orderId=${job.orderId ?: ""} experimentResults=${events.joinToString(",")} primitiveSequence=$sequence")
+        return sequence
+    }
+
+    private fun renderVendorBitmapDiagnosticsPayload(
+        lines: List<String>,
+        widthPx: Int,
+        config: PhysicalFidelityConfig,
+    ): BitmapRenderResult {
+        val safeWidth = widthPx.coerceIn(280, 640)
+        val height = max(
+            120,
+            config.vendorBitmapTopPaddingPx + config.vendorBitmapBottomPaddingPx + (lines.size * config.vendorBitmapLineHeightPx),
+        )
+        val bmp = Bitmap.createBitmap(safeWidth, height, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bmp)
+        canvas.drawColor(Color.WHITE)
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.BLACK
+            textSize = 28f
+            typeface = Typeface.MONOSPACE
+        }
+        var y = config.vendorBitmapTopPaddingPx + config.vendorBitmapLineHeightPx
+        lines.forEach { line ->
+            canvas.drawText(line, config.vendorBitmapHorizontalPaddingPx.toFloat(), y.toFloat(), paint)
+            y += config.vendorBitmapLineHeightPx
+        }
+        return BitmapRenderResult(
+            bitmap = bmp,
+            widthPx = safeWidth,
+            heightPx = height,
+            lineCount = lines.size,
+            firstLinePreview = lines.firstOrNull().orEmpty(),
+            lastLinePreview = lines.lastOrNull().orEmpty(),
+        )
+    }
 
     private fun executeTransactionModeTinyDiagnosticTest(
         service: IWoyouService,
@@ -1108,6 +1293,7 @@ class SunmiNativePrinterWorker(
             PhysicalFidelityStrategy.BITMAP_SMOKE_TEST_MINIMAL_BLOCKS -> "bitmap_smoke_test_minimal_blocks"
             PhysicalFidelityStrategy.VENDOR_PARITY_WOYOU_MINIMAL_TEST -> "vendor_parity_woyou_minimal_test"
             PhysicalFidelityStrategy.VENDOR_PARITY_BITMAP_CUSTOM_COMPARE -> "vendor_parity_bitmap_custom_compare"
+            PhysicalFidelityStrategy.VENDOR_PARITY_BITMAP_PHYSICAL_DIAGNOSTICS -> "vendor_parity_bitmap_physical_diagnostics"
             PhysicalFidelityStrategy.TRANSACTION_MODE_TINY_DIAGNOSTIC_TEST -> "transaction_mode_tiny_diagnostic_test"
             PhysicalFidelityStrategy.GROUPED_SMALL_BLOCKS -> "grouped_small_blocks"
         }
