@@ -201,23 +201,31 @@ class NativePrintServiceManager(context: Context) {
         val normalized = JSONObject(candidate.toString())
         val hints = normalized.optJSONObject("formattingHints") ?: JSONObject().also { normalized.put("formattingHints", it) }
 
-        val forceOutput = normalized.optString("forceOutputStrategy", "").trim()
-        val topLevelOutput = normalized.optString("outputStrategy", "").trim()
+        val forceOutput = normalized.optString("forceOutputStrategy", "").trim().ifBlank {
+            root.optString("forceOutputStrategy", "").trim()
+        }
+        val topLevelOutput = normalized.optString("outputStrategy", "").trim().ifBlank {
+            root.optString("outputStrategy", "").trim()
+        }
+        val topLevelNative = normalized.optString("nativePrintStrategy", "").trim().ifBlank {
+            root.optString("nativePrintStrategy", "").trim()
+        }
         val hintsOutput = hints.optString("outputStrategy", "").trim()
+        val hintsNative = hints.optString("nativePrintStrategy", "").trim()
         val effectiveOutput = when {
             forceOutput.isNotBlank() -> forceOutput
+            hintsNative.isNotBlank() -> hintsNative
             hintsOutput.isNotBlank() -> hintsOutput
+            topLevelNative.isNotBlank() -> topLevelNative
             topLevelOutput.isNotBlank() -> topLevelOutput
             else -> ""
         }
         if (effectiveOutput.isNotBlank()) {
             hints.put("outputStrategy", effectiveOutput)
-            if (hints.optString("nativePrintStrategy", "").isBlank()) {
-                hints.put("nativePrintStrategy", effectiveOutput)
-            }
+            hints.put("nativePrintStrategy", effectiveOutput)
         }
 
-        Log.i(TAG, "native_print_service_payload_normalized outputStrategyRaw=${hints.optString("outputStrategy", "")} nativePrintStrategyRaw=${hints.optString("nativePrintStrategy", "")} usedTopLevelOutput=${topLevelOutput.isNotBlank()} usedForceOutput=${forceOutput.isNotBlank()}")
+        Log.i(TAG, "native_print_service_payload_normalized outputStrategyRaw=${hints.optString("outputStrategy", "")} nativePrintStrategyRaw=${hints.optString("nativePrintStrategy", "")} usedTopLevelOutput=${topLevelOutput.isNotBlank()} usedTopLevelNative=${topLevelNative.isNotBlank()} usedForceOutput=${forceOutput.isNotBlank()}")
         return normalized
     }
 
