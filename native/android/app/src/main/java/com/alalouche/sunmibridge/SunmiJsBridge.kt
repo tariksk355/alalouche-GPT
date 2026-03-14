@@ -4,10 +4,12 @@ import android.content.Context
 import android.os.Build
 import android.util.Log
 import android.webkit.JavascriptInterface
+import com.alalouche.sunmibridge.nativeprint.NativePrintServiceManager
 import org.json.JSONObject
 
 class SunmiJsBridge(context: Context) {
     private val printerManager = SunmiPrinterManager(context)
+    private val nativePrintServiceManager = NativePrintServiceManager(context)
 
     @JavascriptInterface
     fun isAvailable(requestJson: String?): String {
@@ -32,7 +34,11 @@ class SunmiJsBridge(context: Context) {
     fun printReceipt(printJobJson: String?): String {
         Log.i(TAG, "JS bridge printReceipt invoked payloadLength=${printJobJson?.length ?: 0}")
         return safeResponse("printReceipt") {
-            printerManager.printReceipt(printJobJson)
+            if (NativePrintFeatureFlags.USE_NATIVE_PRINT_SERVICE) {
+                nativePrintServiceManager.submitPrintCommand(printJobJson)
+            } else {
+                printerManager.printReceipt(printJobJson)
+            }
         }
     }
 
@@ -61,7 +67,11 @@ class SunmiJsBridge(context: Context) {
                 !requestJson.isNullOrBlank() && requestJson.trim().startsWith("{") -> ""
                 else -> requestJson?.trim() ?: ""
             }
-            printerManager.getPrintStatus(jobId)
+            if (NativePrintFeatureFlags.USE_NATIVE_PRINT_SERVICE) {
+                nativePrintServiceManager.getPrintCommandStatus(jobId)
+            } else {
+                printerManager.getPrintStatus(jobId)
+            }
         }
     }
 
@@ -75,7 +85,46 @@ class SunmiJsBridge(context: Context) {
                 !requestJson.isNullOrBlank() && requestJson.trim().startsWith("{") -> ""
                 else -> requestJson?.trim() ?: ""
             }
-            printerManager.retryPrint(jobId)
+            if (NativePrintFeatureFlags.USE_NATIVE_PRINT_SERVICE) {
+                nativePrintServiceManager.retryPrintCommand(jobId)
+            } else {
+                printerManager.retryPrint(jobId)
+            }
+        }
+    }
+
+
+    @JavascriptInterface
+    fun submitPrintCommand(printJobJson: String?): String {
+        Log.i(TAG, "JS bridge submitPrintCommand invoked payloadLength=${printJobJson?.length ?: 0}")
+        return safeResponse("submitPrintCommand") {
+            nativePrintServiceManager.submitPrintCommand(printJobJson)
+        }
+    }
+
+    @JavascriptInterface
+    fun getPrintCommandStatus(requestJson: String?): String {
+        return safeResponse("getPrintCommandStatus") {
+            val parsed = runCatching { JSONObject(requestJson ?: "") }.getOrNull()
+            val commandId = when {
+                !parsed?.optString("commandId").isNullOrBlank() -> parsed?.optString("commandId") ?: ""
+                !requestJson.isNullOrBlank() && requestJson.trim().startsWith("{") -> ""
+                else -> requestJson?.trim() ?: ""
+            }
+            nativePrintServiceManager.getPrintCommandStatus(commandId)
+        }
+    }
+
+    @JavascriptInterface
+    fun retryPrintCommand(requestJson: String?): String {
+        return safeResponse("retryPrintCommand") {
+            val parsed = runCatching { JSONObject(requestJson ?: "") }.getOrNull()
+            val commandId = when {
+                !parsed?.optString("commandId").isNullOrBlank() -> parsed?.optString("commandId") ?: ""
+                !requestJson.isNullOrBlank() && requestJson.trim().startsWith("{") -> ""
+                else -> requestJson?.trim() ?: ""
+            }
+            nativePrintServiceManager.retryPrintCommand(commandId)
         }
     }
 
@@ -88,6 +137,7 @@ class SunmiJsBridge(context: Context) {
 
     fun release() {
         printerManager.release()
+        nativePrintServiceManager.release()
     }
 
     private fun safeResponse(operation: String, block: () -> JSONObject): String {

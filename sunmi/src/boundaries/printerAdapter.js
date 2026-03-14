@@ -43,6 +43,10 @@ function mapReceiverPrintContract(result) {
     || res.code === 'V2S_BRIDGE_ARCHITECTURE_UNSUITABLE'
     || res.architectureStatus === 'UNSUITABLE_BRIDGE_AIDL_V2S';
 
+  if (res.commandId && !res.jobId) {
+    res.jobId = res.commandId;
+  }
+
   if (architectureUnsuitable) {
     res.ok = false;
     res.errorCode = 'V2S_BRIDGE_ARCHITECTURE_UNSUITABLE';
@@ -83,6 +87,7 @@ function safeParseBridgeResponse(raw, fallback) {
 
 function createNativeBridgePrinterAdapter(nativeBridge) {
   function resolvePrintMethod() {
+    if (typeof nativeBridge.submitPrintCommand === 'function') return 'submitPrintCommand';
     if (typeof nativeBridge.printReceipt === 'function') return 'printReceipt';
     if (typeof nativeBridge.printOrder === 'function') return 'printOrder';
     if (typeof nativeBridge.print === 'function') return 'print';
@@ -127,7 +132,13 @@ function createNativeBridgePrinterAdapter(nativeBridge) {
   }
 
   function invokeGetPrintStatus(jobId) {
-    if (typeof nativeBridge.getPrintStatus !== 'function') {
+    const statusMethod = typeof nativeBridge.getPrintCommandStatus === 'function'
+      ? 'getPrintCommandStatus'
+      : typeof nativeBridge.getPrintStatus === 'function'
+        ? 'getPrintStatus'
+        : null;
+
+    if (!statusMethod) {
       return {
         ok: false,
         code: 'BRIDGE_METHOD_MISSING',
@@ -135,7 +146,8 @@ function createNativeBridgePrinterAdapter(nativeBridge) {
       };
     }
 
-    const raw = nativeBridge.getPrintStatus?.(JSON.stringify({ jobId }));
+    const statusPayload = statusMethod === 'getPrintCommandStatus' ? { commandId: jobId } : { jobId };
+    const raw = nativeBridge[statusMethod]?.(JSON.stringify(statusPayload));
     const parsed = safeParseBridgeResponse(raw, null);
     if (parsed && typeof parsed === 'object') {
       return mapReceiverPrintContract(parsed);
@@ -157,7 +169,13 @@ function createNativeBridgePrinterAdapter(nativeBridge) {
       };
     }
 
-    if (typeof nativeBridge.retryPrint !== 'function') {
+    const retryMethod = typeof nativeBridge.retryPrintCommand === 'function'
+      ? 'retryPrintCommand'
+      : typeof nativeBridge.retryPrint === 'function'
+        ? 'retryPrint'
+        : null;
+
+    if (!retryMethod) {
       return {
         ok: false,
         code: 'BRIDGE_METHOD_MISSING',
@@ -165,7 +183,8 @@ function createNativeBridgePrinterAdapter(nativeBridge) {
       };
     }
 
-    const raw = nativeBridge.retryPrint?.(JSON.stringify({ jobId }));
+    const retryPayload = retryMethod === 'retryPrintCommand' ? { commandId: jobId } : { jobId };
+    const raw = nativeBridge[retryMethod]?.(JSON.stringify(retryPayload));
     const parsed = safeParseBridgeResponse(raw, null);
     if (parsed && typeof parsed === 'object') {
       return mapReceiverPrintContract(parsed);
