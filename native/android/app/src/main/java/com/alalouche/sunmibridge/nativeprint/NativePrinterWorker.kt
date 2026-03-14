@@ -24,6 +24,7 @@ private enum class PhysicalFidelityStrategy {
     LINE_BY_LINE_TEXT_WITH_EXPLICIT_LINEWRAP_ASCII,
     LINE_BY_LINE_ASCII_EXPLICIT_LINEWRAP_WITH_TICKET_SPACING,
     TEXT_VENDOR_PARITY_UNBUFFERED,
+    DIRECT_SELF_CHECK_THEN_MINIMAL_TEXT,
     TEXT_VENDOR_PARITY_BUFFERED,
     BITMAP_RECEIPT_SINGLE_IMAGE,
     BITMAP_RECEIPT_SEGMENTED_BLOCKS,
@@ -181,7 +182,7 @@ class SunmiNativePrinterWorker(
                 "native_print_strategy_selected commandId=${job.commandId} orderId=${job.orderId ?: ""} sourceJobId=${job.sourceJobId ?: ""} strategy=${strategyName(fidelityConfig.strategy)} dispatchDelayMs=${fidelityConfig.dispatchDelayMs} finalSettleMs=${fidelityConfig.finalSettleMs} asciiSafeMode=${fidelityConfig.asciiSafeMode} perLineWrap=${fidelityConfig.perLineWrap} perSectionExtraWrap=${fidelityConfig.perSectionExtraWrap} finalTicketSpacingLines=${fidelityConfig.finalTicketSpacingLines} addEndDivider=${fidelityConfig.addEndDivider} bitmapSegmentedMode=${fidelityConfig.bitmapSegmentedMode} selectedFamily=${selectedFamily ?: ""} packageName=${selectedPackage ?: ""} action=${selectedAction ?: ""}",
             )
 
-            val renderedTextForDispatch = if (fidelityConfig.strategy == PhysicalFidelityStrategy.BITMAP_SMOKE_TEST_MINIMAL_BLOCKS || fidelityConfig.strategy == PhysicalFidelityStrategy.VENDOR_PARITY_WOYOU_MINIMAL_TEST || fidelityConfig.strategy == PhysicalFidelityStrategy.VENDOR_PARITY_BITMAP_CUSTOM_COMPARE || fidelityConfig.strategy == PhysicalFidelityStrategy.VENDOR_PARITY_BITMAP_PHYSICAL_DIAGNOSTICS || fidelityConfig.strategy == PhysicalFidelityStrategy.TRANSACTION_MODE_TINY_DIAGNOSTIC_TEST) {
+            val renderedTextForDispatch = if (fidelityConfig.strategy == PhysicalFidelityStrategy.BITMAP_SMOKE_TEST_MINIMAL_BLOCKS || fidelityConfig.strategy == PhysicalFidelityStrategy.VENDOR_PARITY_WOYOU_MINIMAL_TEST || fidelityConfig.strategy == PhysicalFidelityStrategy.VENDOR_PARITY_BITMAP_CUSTOM_COMPARE || fidelityConfig.strategy == PhysicalFidelityStrategy.VENDOR_PARITY_BITMAP_PHYSICAL_DIAGNOSTICS || fidelityConfig.strategy == PhysicalFidelityStrategy.TRANSACTION_MODE_TINY_DIAGNOSTIC_TEST || fidelityConfig.strategy == PhysicalFidelityStrategy.DIRECT_SELF_CHECK_THEN_MINIMAL_TEXT) {
                 Log.i(
                     TAG,
                     "native_print_smoke_test_render_bypass commandId=${job.commandId} orderId=${job.orderId ?: ""} sourceJobId=${job.sourceJobId ?: ""} strategy=${strategyName(fidelityConfig.strategy)} bypassRealPayloadRender=true",
@@ -325,6 +326,7 @@ class SunmiNativePrinterWorker(
             "line_by_line_text_with_explicit_linewrap_ascii" -> PhysicalFidelityStrategy.LINE_BY_LINE_TEXT_WITH_EXPLICIT_LINEWRAP_ASCII
             "line_by_line_ascii_explicit_linewrap_with_ticket_spacing" -> PhysicalFidelityStrategy.LINE_BY_LINE_ASCII_EXPLICIT_LINEWRAP_WITH_TICKET_SPACING
             "text_vendor_parity_unbuffered" -> PhysicalFidelityStrategy.TEXT_VENDOR_PARITY_UNBUFFERED
+            "direct_self_check_then_minimal_text" -> PhysicalFidelityStrategy.DIRECT_SELF_CHECK_THEN_MINIMAL_TEXT
             "text_vendor_parity_buffered" -> PhysicalFidelityStrategy.TEXT_VENDOR_PARITY_UNBUFFERED
             "grouped_small_blocks" -> PhysicalFidelityStrategy.GROUPED_SMALL_BLOCKS
             else -> DEFAULT_ACTIVE_STRATEGY
@@ -414,6 +416,7 @@ class SunmiNativePrinterWorker(
             PhysicalFidelityStrategy.VENDOR_PARITY_BITMAP_PHYSICAL_DIAGNOSTICS -> executeVendorParityBitmapPhysicalDiagnostics(service, job, fidelityConfig, callbackErrors, dispatchStartMs)
             PhysicalFidelityStrategy.TRANSACTION_MODE_TINY_DIAGNOSTIC_TEST -> executeTransactionModeTinyDiagnosticTest(service, job, fidelityConfig, callbackErrors, dispatchStartMs)
             PhysicalFidelityStrategy.TEXT_VENDOR_PARITY_UNBUFFERED -> executeTextVendorParityUnbuffered(service, job, sectionLines, fidelityConfig, callbackErrors, dispatchStartMs)
+            PhysicalFidelityStrategy.DIRECT_SELF_CHECK_THEN_MINIMAL_TEXT -> executeDirectSelfCheckThenMinimalText(service, job, fidelityConfig, callbackErrors, dispatchStartMs)
             PhysicalFidelityStrategy.TEXT_VENDOR_PARITY_BUFFERED -> executeTextVendorParityBuffered(service, job, sectionLines, fidelityConfig, callbackErrors, dispatchStartMs)
 
             else -> executeTextStrategies(service, job, sectionLines, fidelityConfig, callbackErrors, dispatchStartMs)
@@ -1154,6 +1157,49 @@ class SunmiNativePrinterWorker(
 
     private fun pxToLines(px: Int, lineHeightPx: Int): Int = max(1, px / max(1, lineHeightPx))
 
+    private fun executeDirectSelfCheckThenMinimalText(
+        service: IWoyouService,
+        job: NativePrintJobEntity,
+        config: PhysicalFidelityConfig,
+        callbackErrors: MutableList<String>,
+        dispatchStartMs: Long,
+    ): String {
+        Log.i(TAG, "native_print_direct_self_check_then_minimal_text_selected commandId=${job.commandId} orderId=${job.orderId ?: ""} strategy=direct_self_check_then_minimal_text")
+
+        Log.i(TAG, "native_print_direct_self_check_step commandId=${job.commandId} orderId=${job.orderId ?: ""} step=printerSelfChecking event=start")
+        callPrinterPrimitive(job, "printerSelfChecking", detail = "directSelfCheckThenMinimalText") {
+            service.printerSelfChecking(callbackFor(job, "directSelfCheck_printerSelfChecking", callbackErrors, dispatchStartMs))
+        }
+        Log.i(TAG, "native_print_direct_self_check_step commandId=${job.commandId} orderId=${job.orderId ?: ""} step=printerSelfChecking event=end")
+
+        if (config.dispatchDelayMs > 0) {
+            runCatching { Thread.sleep(minOf(120L, config.dispatchDelayMs)) }
+        }
+
+        callPrinterPrimitive(job, "printerInit", detail = "directSelfCheckThenMinimalText secondInit=true") {
+            service.printerInit(callbackFor(job, "directSelfCheck_printerInit_2", callbackErrors, dispatchStartMs))
+        }
+        callPrinterPrimitive(job, "setAlignment", detail = "directSelfCheckThenMinimalText value=1") {
+            service.setAlignment(1, callbackFor(job, "directSelfCheck_setAlignment_center", callbackErrors, dispatchStartMs))
+        }
+
+        Log.i(TAG, "native_print_direct_self_check_step commandId=${job.commandId} orderId=${job.orderId ?: ""} step=printText event=start payload=TEST-123")
+        callPrinterPrimitive(job, "printText", detail = "directSelfCheckThenMinimalText payloadLength=9") {
+            service.printText("TEST-123\n", callbackFor(job, "directSelfCheck_printText", callbackErrors, dispatchStartMs))
+        }
+        Log.i(TAG, "native_print_direct_self_check_step commandId=${job.commandId} orderId=${job.orderId ?: ""} step=printText event=end payload=TEST-123")
+
+        Log.i(TAG, "native_print_direct_self_check_step commandId=${job.commandId} orderId=${job.orderId ?: ""} step=lineWrap event=start lines=3")
+        callPrinterPrimitive(job, "lineWrap", detail = "directSelfCheckThenMinimalText lines=3") {
+            service.lineWrap(3, callbackFor(job, "directSelfCheck_lineWrap_3", callbackErrors, dispatchStartMs))
+        }
+        Log.i(TAG, "native_print_direct_self_check_step commandId=${job.commandId} orderId=${job.orderId ?: ""} step=lineWrap event=end lines=3")
+
+        val sequence = "printerInit->printerSelfChecking->printerInit->setAlignment(1)->printText(TEST-123\n)->lineWrap(3)"
+        Log.i(TAG, "native_print_direct_self_check_summary commandId=${job.commandId} orderId=${job.orderId ?: ""} primitiveSequence=$sequence")
+        return sequence
+    }
+
     private fun executeTextVendorParityUnbuffered(
         service: IWoyouService,
         job: NativePrintJobEntity,
@@ -1422,6 +1468,7 @@ class SunmiNativePrinterWorker(
             PhysicalFidelityStrategy.LINE_BY_LINE_TEXT_WITH_EXPLICIT_LINEWRAP_ASCII -> "line_by_line_text_with_explicit_linewrap_ascii"
             PhysicalFidelityStrategy.LINE_BY_LINE_ASCII_EXPLICIT_LINEWRAP_WITH_TICKET_SPACING -> "line_by_line_ascii_explicit_linewrap_with_ticket_spacing"
             PhysicalFidelityStrategy.TEXT_VENDOR_PARITY_UNBUFFERED -> "text_vendor_parity_unbuffered"
+            PhysicalFidelityStrategy.DIRECT_SELF_CHECK_THEN_MINIMAL_TEXT -> "direct_self_check_then_minimal_text"
             PhysicalFidelityStrategy.TEXT_VENDOR_PARITY_BUFFERED -> "text_vendor_parity_buffered"
             PhysicalFidelityStrategy.BITMAP_RECEIPT_SINGLE_IMAGE -> "bitmap_receipt_single_image"
             PhysicalFidelityStrategy.BITMAP_RECEIPT_SEGMENTED_BLOCKS -> "bitmap_receipt_segmented_blocks"
