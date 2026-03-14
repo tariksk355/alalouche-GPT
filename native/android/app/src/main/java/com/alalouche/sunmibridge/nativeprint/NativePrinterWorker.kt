@@ -23,6 +23,7 @@ private enum class PhysicalFidelityStrategy {
     LINE_BY_LINE_TEXT_WITH_EXPLICIT_LINEWRAP,
     LINE_BY_LINE_TEXT_WITH_EXPLICIT_LINEWRAP_ASCII,
     LINE_BY_LINE_ASCII_EXPLICIT_LINEWRAP_WITH_TICKET_SPACING,
+    TEXT_VENDOR_PARITY_UNBUFFERED,
     TEXT_VENDOR_PARITY_BUFFERED,
     BITMAP_RECEIPT_SINGLE_IMAGE,
     BITMAP_RECEIPT_SEGMENTED_BLOCKS,
@@ -323,7 +324,8 @@ class SunmiNativePrinterWorker(
             "line_by_line_text_with_explicit_linewrap" -> PhysicalFidelityStrategy.LINE_BY_LINE_TEXT_WITH_EXPLICIT_LINEWRAP
             "line_by_line_text_with_explicit_linewrap_ascii" -> PhysicalFidelityStrategy.LINE_BY_LINE_TEXT_WITH_EXPLICIT_LINEWRAP_ASCII
             "line_by_line_ascii_explicit_linewrap_with_ticket_spacing" -> PhysicalFidelityStrategy.LINE_BY_LINE_ASCII_EXPLICIT_LINEWRAP_WITH_TICKET_SPACING
-            "text_vendor_parity_buffered" -> PhysicalFidelityStrategy.TEXT_VENDOR_PARITY_BUFFERED
+            "text_vendor_parity_unbuffered" -> PhysicalFidelityStrategy.TEXT_VENDOR_PARITY_UNBUFFERED
+            "text_vendor_parity_buffered" -> PhysicalFidelityStrategy.TEXT_VENDOR_PARITY_UNBUFFERED
             "grouped_small_blocks" -> PhysicalFidelityStrategy.GROUPED_SMALL_BLOCKS
             else -> DEFAULT_ACTIVE_STRATEGY
         }
@@ -411,6 +413,7 @@ class SunmiNativePrinterWorker(
             PhysicalFidelityStrategy.VENDOR_PARITY_BITMAP_CUSTOM_COMPARE -> executeVendorParityBitmapCustomCompare(service, job, fidelityConfig, callbackErrors, dispatchStartMs)
             PhysicalFidelityStrategy.VENDOR_PARITY_BITMAP_PHYSICAL_DIAGNOSTICS -> executeVendorParityBitmapPhysicalDiagnostics(service, job, fidelityConfig, callbackErrors, dispatchStartMs)
             PhysicalFidelityStrategy.TRANSACTION_MODE_TINY_DIAGNOSTIC_TEST -> executeTransactionModeTinyDiagnosticTest(service, job, fidelityConfig, callbackErrors, dispatchStartMs)
+            PhysicalFidelityStrategy.TEXT_VENDOR_PARITY_UNBUFFERED -> executeTextVendorParityUnbuffered(service, job, sectionLines, fidelityConfig, callbackErrors, dispatchStartMs)
             PhysicalFidelityStrategy.TEXT_VENDOR_PARITY_BUFFERED -> executeTextVendorParityBuffered(service, job, sectionLines, fidelityConfig, callbackErrors, dispatchStartMs)
 
             else -> executeTextStrategies(service, job, sectionLines, fidelityConfig, callbackErrors, dispatchStartMs)
@@ -1151,6 +1154,45 @@ class SunmiNativePrinterWorker(
 
     private fun pxToLines(px: Int, lineHeightPx: Int): Int = max(1, px / max(1, lineHeightPx))
 
+    private fun executeTextVendorParityUnbuffered(
+        service: IWoyouService,
+        job: NativePrintJobEntity,
+        sectionLines: List<SectionLine>,
+        config: PhysicalFidelityConfig,
+        callbackErrors: MutableList<String>,
+        dispatchStartMs: Long,
+    ): String {
+        Log.i(TAG, "native_print_text_vendor_parity_unbuffered_selected commandId=${job.commandId} orderId=${job.orderId ?: ""} strategy=text_vendor_parity_unbuffered")
+        Log.i(TAG, "native_print_text_vendor_parity_unbuffered_service_info commandId=${job.commandId} orderId=${job.orderId ?: ""} selectedFamily=woyou_legacy_packaged packageName=woyou.aidlservice.jiuiv5 action=woyou.aidlservice.jiuiv5.IWoyouService")
+
+        var previousSection: SemanticSection? = null
+        sectionLines.forEachIndexed { idx, line ->
+            val normalized = if (config.asciiSafeMode) toSafeAscii(line.text).text else line.text
+            if (previousSection != null && previousSection != line.section && line.section !in setOf(SemanticSection.ARTICLE_LINE, SemanticSection.FOOTER_GAP)) {
+                callPrinterPrimitive(job, "lineWrap", detail = "textVendorParityUnbuffered sectionGap index=$idx lines=1") {
+                    service.lineWrap(1, callbackFor(job, "textVendorParityUnbuffered_gap_$idx", callbackErrors, dispatchStartMs))
+                }
+            }
+            val payload = normalized + "
+"
+            Log.i(TAG, "native_print_text_vendor_parity_unbuffered_print_before commandId=${job.commandId} orderId=${job.orderId ?: ""} lineIndex=$idx section=${line.section.name} payloadLength=${payload.length} text=${normalized}")
+            callPrinterPrimitive(job, "printText", detail = "textVendorParityUnbuffered lineIndex=$idx payloadLength=${payload.length}") {
+                service.printText(payload, callbackFor(job, "textVendorParityUnbuffered_printText_$idx", callbackErrors, dispatchStartMs))
+            }
+            Log.i(TAG, "native_print_text_vendor_parity_unbuffered_print_after commandId=${job.commandId} orderId=${job.orderId ?: ""} lineIndex=$idx section=${line.section.name}")
+            previousSection = line.section
+            sleepAfterDispatch(job, idx, config.dispatchDelayMs)
+        }
+
+        callPrinterPrimitive(job, "lineWrap", detail = "textVendorParityUnbuffered final lines=4") {
+            service.lineWrap(4, callbackFor(job, "textVendorParityUnbuffered_finalFeed", callbackErrors, dispatchStartMs))
+        }
+
+        val sequence = "printerInit->setAlignment->printText(line+\n)->lineWrap(section_gaps)->lineWrap(4)"
+        Log.i(TAG, "native_print_text_vendor_parity_unbuffered_summary commandId=${job.commandId} orderId=${job.orderId ?: ""} renderedLineCount=${sectionLines.size} finalFeedLines=4 primitiveSequence=$sequence")
+        return sequence
+    }
+
     private fun executeTextVendorParityBuffered(
         service: IWoyouService,
         job: NativePrintJobEntity,
@@ -1380,6 +1422,7 @@ class SunmiNativePrinterWorker(
             PhysicalFidelityStrategy.LINE_BY_LINE_TEXT_WITH_EXPLICIT_LINEWRAP -> "line_by_line_text_with_explicit_linewrap"
             PhysicalFidelityStrategy.LINE_BY_LINE_TEXT_WITH_EXPLICIT_LINEWRAP_ASCII -> "line_by_line_text_with_explicit_linewrap_ascii"
             PhysicalFidelityStrategy.LINE_BY_LINE_ASCII_EXPLICIT_LINEWRAP_WITH_TICKET_SPACING -> "line_by_line_ascii_explicit_linewrap_with_ticket_spacing"
+            PhysicalFidelityStrategy.TEXT_VENDOR_PARITY_UNBUFFERED -> "text_vendor_parity_unbuffered"
             PhysicalFidelityStrategy.TEXT_VENDOR_PARITY_BUFFERED -> "text_vendor_parity_buffered"
             PhysicalFidelityStrategy.BITMAP_RECEIPT_SINGLE_IMAGE -> "bitmap_receipt_single_image"
             PhysicalFidelityStrategy.BITMAP_RECEIPT_SEGMENTED_BLOCKS -> "bitmap_receipt_segmented_blocks"
@@ -1478,7 +1521,7 @@ class SunmiNativePrinterWorker(
 
     companion object {
         private const val TAG = "NativePrinterWorker"
-        private val DEFAULT_ACTIVE_STRATEGY = PhysicalFidelityStrategy.TEXT_VENDOR_PARITY_BUFFERED
+        private val DEFAULT_ACTIVE_STRATEGY = PhysicalFidelityStrategy.TEXT_VENDOR_PARITY_UNBUFFERED
         private const val DEFAULT_BITMAP_WIDTH_PX = 384
         private const val MAX_SINGLE_BITMAP_HEIGHT_PX = 2600
         private const val DEFAULT_LINE_DELAY_MS = 35L
