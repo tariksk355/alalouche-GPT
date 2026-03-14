@@ -1,10 +1,9 @@
 package com.alalouche.sunmibridge.nativeprint
 
 import android.content.Context
-import android.os.Build
 import android.os.RemoteException
 import android.util.Log
-import java.util.Locale
+import org.json.JSONObject
 import woyou.aidlservice.jiuiv5.ICallback
 import woyou.aidlservice.jiuiv5.IWoyouService
 
@@ -16,6 +15,13 @@ private class LowLevelStepException(
     val step: String,
     cause: Throwable,
 ) : RuntimeException(cause)
+
+private class RenderTextException(message: String) : RuntimeException(message)
+
+private data class RenderedPrintText(
+    val text: String,
+    val source: String,
+)
 
 class SunmiNativePrinterWorker(
     context: Context,
@@ -49,10 +55,15 @@ class SunmiNativePrinterWorker(
             Log.i(TAG, "native_print_dispatch_start commandId=${job.commandId} orderId=${job.orderId ?: ""} sourceJobId=${job.sourceJobId ?: ""}")
             Log.i(TAG, "native_print_dispatch_adapter_enter commandId=${job.commandId} orderId=${job.orderId ?: ""} sourceJobId=${job.sourceJobId ?: ""}")
             Log.i(TAG, "native_print_dispatch_adapter_selected commandId=${job.commandId} orderId=${job.orderId ?: ""} sourceJobId=${job.sourceJobId ?: ""} selectedFamily=${selectedFamily ?: ""}")
+
+            val rendered = renderPrintableText(job)
+            logRenderedText(job, rendered)
+
             val callbackErrors = mutableListOf<String>()
             val lowLevelSummary = executeRealLowLevelPrint(
                 service = session.service,
                 job = job,
+                renderedText = rendered.text,
                 callbackErrors = callbackErrors,
             )
 
@@ -74,9 +85,28 @@ class SunmiNativePrinterWorker(
             ).also {
                 Log.i(
                     TAG,
-                    "native_print_low_level_summary commandId=${job.commandId} orderId=${job.orderId ?: ""} sourceJobId=${job.sourceJobId ?: ""} attemptedRealPrint=true primitiveSequence=$lowLevelSummary callbackErrors=${callbackErrors.size}",
+                    "native_print_low_level_summary commandId=${job.commandId} orderId=${job.orderId ?: ""} sourceJobId=${job.sourceJobId ?: ""} attemptedRealPrint=true primitiveSequence=$lowLevelSummary",
                 )
             }
+        } catch (e: RenderTextException) {
+            Log.e(
+                TAG,
+                "native_print_low_level_exception commandId=${job.commandId} orderId=${job.orderId ?: ""} sourceJobId=${job.sourceJobId ?: ""} step=render_text reason=${e.message ?: "render_error"}",
+            )
+            NativeDispatchReport(
+                acceptedByNative = false,
+                dispatchStarted = true,
+                dispatchCompleted = false,
+                dispatchAdapterEntered = true,
+                nativeDispatchAttempted = false,
+                lowLevelSequenceStarted = false,
+                lowLevelSequenceCompleted = false,
+                selectedServiceFamily = selectedFamily,
+                physicalOutcome = PhysicalPrintOutcome.UNKNOWN,
+                retryable = false,
+                errorCode = "NATIVE_PRINT_RENDER_TEXT_FAILED",
+                errorMessage = e.message ?: "render_error",
+            )
         } catch (e: LowLevelStepException) {
             val cause = e.cause ?: e
             Log.e(
@@ -137,10 +167,9 @@ class SunmiNativePrinterWorker(
     private fun executeRealLowLevelPrint(
         service: IWoyouService,
         job: NativePrintJobEntity,
+        renderedText: String,
         callbackErrors: MutableList<String>,
     ): String {
-        val content = buildRealBaselinePayload(job)
-
         callPrinterPrimitive(job, "printerInit") {
             service.printerInit(callbackFor(job, "printerInit", callbackErrors))
         }
@@ -149,8 +178,8 @@ class SunmiNativePrinterWorker(
             service.setAlignment(0, callbackFor(job, "setAlignment", callbackErrors))
         }
 
-        callPrinterPrimitive(job, "printText", detail = "payloadLength=${content.length}") {
-            service.printText(content, callbackFor(job, "printText", callbackErrors))
+        callPrinterPrimitive(job, "printText", detail = "payloadLength=${renderedText.length}") {
+            service.printText(renderedText, callbackFor(job, "printText", callbackErrors))
         }
 
         callPrinterPrimitive(job, "lineWrap", detail = "lines=3") {
@@ -163,6 +192,99 @@ class SunmiNativePrinterWorker(
         }
 
         return "printerInit->setAlignment->printText->lineWrap->sendRAWData"
+    }
+
+    private fun renderPrintableText(job: NativePrintJobEntity): RenderedPrintText {
+        val payload = runCatching { JSONObject(job.payloadJson) }
+            .getOrElse { throw RenderTextException("invalid_json:${it.message ?: "malformed"}") }
+
+        val hints = payload.optJSONObject("formattingHints")
+        val useSynthetic = hints?.optBoolean("nativeSyntheticTest", false) == true
+        if (useSynthetic) {
+            return RenderedPrintText(
+                text = "NP TEST A\nNP TEST B\nNP TEST C\n",
+                source = "synthetic_test",
+            )
+        }
+
+        val lines = mutableListOf<String>()
+        lines += payload.optString("orderNumber").ifBlank {
+            payload.optString("order_number").ifBlank {
+                payload.optString("orderId").ifBlank { payload.optString("order_id") }
+            }
+        }.ifBlank { "ORDER" }
+
+        payload.optJSONObject("displayModel")
+            ?.optJSONArray("receiptLines")
+            ?.let { receiptLines ->
+                for (i in 0 until receiptLines.length()) {
+                    val line = receiptLines.optString(i).trimEnd()
+                    if (line.isNotBlank()) lines += line
+                }
+            }
+
+        if (lines.size <= 1) {
+            val items = payload.optJSONArray("lines") ?: payload.optJSONArray("items")
+            if (items != null) {
+                lines += "Articles:"
+                for (i in 0 until items.length()) {
+                    val item = items.optJSONObject(i) ?: continue
+                    val qty = item.optInt("quantity", 1)
+                    val name = item.optString("name").ifBlank {
+                        item.optString("title").ifBlank { "Article" }
+                    }
+                    val totalPrice = when {
+                        item.has("totalPrice") -> item.optDouble("totalPrice")
+                        item.has("total_price") -> item.optDouble("total_price")
+                        item.has("unitPrice") -> item.optDouble("unitPrice")
+                        else -> Double.NaN
+                    }
+                    val priceText = if (!totalPrice.isNaN()) "  ${"%.2f".format(totalPrice)}" else ""
+                    lines += "$qty x $name$priceText"
+                }
+            }
+
+            payload.optJSONObject("totals")?.let { totals ->
+                if (totals.has("total")) {
+                    val currency = totals.optString("currency").ifBlank { "CHF" }
+                    lines += "TOTAL: ${"%.2f".format(totals.optDouble("total"))} $currency"
+                }
+            }
+        }
+
+        val finalText = lines
+            .map { it.trimEnd() }
+            .filter { it.isNotBlank() }
+            .joinToString(separator = "\n", postfix = "\n")
+
+        if (finalText.isBlank() || finalText == "ORDER\n") {
+            throw RenderTextException("empty_rendered_text")
+        }
+
+        return RenderedPrintText(
+            text = finalText,
+            source = "real_order_payload",
+        )
+    }
+
+    private fun logRenderedText(job: NativePrintJobEntity, rendered: RenderedPrintText) {
+        val renderedLines = rendered.text.lines().filter { it.isNotBlank() }
+        val containsArticles = rendered.text.contains("article", ignoreCase = true) || rendered.text.contains("x ")
+        val containsTotal = rendered.text.contains("total", ignoreCase = true)
+
+        Log.i(
+            TAG,
+            "native_print_content_source commandId=${job.commandId} orderId=${job.orderId ?: ""} source=${rendered.source}",
+        )
+        Log.i(
+            TAG,
+            "native_print_rendered_text_meta commandId=${job.commandId} orderId=${job.orderId ?: ""} source=${rendered.source} renderedLineCount=${renderedLines.size} renderedCharLength=${rendered.text.length} containsArticles=$containsArticles containsTotal=$containsTotal",
+        )
+        Log.i(TAG, "native_print_rendered_text_start commandId=${job.commandId} orderId=${job.orderId ?: ""}")
+        renderedLines.forEachIndexed { idx, line ->
+            Log.i(TAG, "native_print_rendered_text_line commandId=${job.commandId} orderId=${job.orderId ?: ""} lineIndex=$idx text=$line")
+        }
+        Log.i(TAG, "native_print_rendered_text_end commandId=${job.commandId} orderId=${job.orderId ?: ""}")
     }
 
     private fun callPrinterPrimitive(
@@ -212,17 +334,6 @@ class SunmiNativePrinterWorker(
                 callbackErrors += "$step:onRaiseException:$code:${msg ?: "unknown"}"
             }
         }
-    }
-
-    private fun buildRealBaselinePayload(job: NativePrintJobEntity): String {
-        val isV2s = (Build.MODEL ?: "").lowercase(Locale.ROOT).contains("v2s")
-        if (isV2s) {
-            val shortCommandId = job.commandId.takeLast(8)
-            return "NP TEST A\nNP TEST B\nCMD $shortCommandId\n"
-        }
-
-        val order = job.orderId ?: "unknown"
-        return "NATIVE COMMAND DISPATCH\nCMD:${job.commandId}\nORDER:$order\n"
     }
 
     companion object {
