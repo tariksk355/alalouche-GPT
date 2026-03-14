@@ -93,6 +93,7 @@ private data class PhysicalFidelityConfig(
     val transactionDiagnosticFinalSpacingLines: Int,
     val transactionDiagnosticDispatchDelayMs: Int,
     val transactionDiagnosticFinalSettleMs: Int,
+    val requestedNativePrintStrategyRaw: String,
 )
 
 private data class SectionLine(
@@ -113,6 +114,14 @@ private data class BitmapRenderResult(
     val lineCount: Int,
     val firstLinePreview: String,
     val lastLinePreview: String,
+)
+
+private data class TransactionCallbackStats(
+    var anyCallbackFired: Boolean = false,
+    var onRunResultFired: Boolean = false,
+    var onReturnStringFired: Boolean = false,
+    var onRaiseExceptionFired: Boolean = false,
+    var onPrintResultFired: Boolean = false,
 )
 
 private class LowLevelStepException(
@@ -348,6 +357,7 @@ class SunmiNativePrinterWorker(
             transactionDiagnosticFinalSpacingLines = (hints?.optInt("transactionDiagnosticFinalSpacingLines", 4) ?: 4).coerceIn(1, 12),
             transactionDiagnosticDispatchDelayMs = (hints?.optInt("transactionDiagnosticDispatchDelayMs", 35) ?: 35).coerceIn(0, 400),
             transactionDiagnosticFinalSettleMs = (hints?.optInt("transactionDiagnosticFinalSettleMs", 200) ?: 200).coerceIn(0, 1200),
+            requestedNativePrintStrategyRaw = strategyRaw,
         )
     }
 
@@ -368,6 +378,10 @@ class SunmiNativePrinterWorker(
 
         val lines = renderedText.replace("\r\n", "\n").replace("\r", "\n").split("\n").map { it.trimEnd() }.filter { it.isNotBlank() }
         val sectionLines = lines.mapIndexed { idx, line -> SectionLine(inferSection(idx, line), "%02d %s".format(idx + 1, line)) }
+
+        if (fidelityConfig.requestedNativePrintStrategyRaw == "transaction_mode_tiny_diagnostic_test" && fidelityConfig.strategy != PhysicalFidelityStrategy.TRANSACTION_MODE_TINY_DIAGNOSTIC_TEST) {
+            Log.e(TAG, "native_print_transaction_strategy_misroute commandId=${job.commandId} orderId=${job.orderId ?: ""} requestedStrategy=${fidelityConfig.requestedNativePrintStrategyRaw} resolvedStrategy=${strategyName(fidelityConfig.strategy)}")
+        }
 
         return when (fidelityConfig.strategy) {
             PhysicalFidelityStrategy.BITMAP_RECEIPT_SINGLE_IMAGE,
@@ -519,8 +533,9 @@ class SunmiNativePrinterWorker(
     ): String {
         val strategy = "transaction_mode_tiny_diagnostic_test"
         val submode = config.transactionDiagnosticMode
+        val callbackStats = TransactionCallbackStats()
         Log.i(TAG, "native_print_transaction_diagnostic_selected commandId=${job.commandId} orderId=${job.orderId ?: ""} strategy=$strategy selectedFamily=woyou_legacy_packaged packageName=woyou.aidlservice.jiuiv5 action=woyou.aidlservice.jiuiv5.IWoyouService")
-        Log.i(TAG, "native_print_transaction_diagnostic_mode commandId=${job.commandId} orderId=${job.orderId ?: ""} submode=$submode finalSpacingLines=${config.transactionDiagnosticFinalSpacingLines} dispatchDelayMs=${config.transactionDiagnosticDispatchDelayMs} finalSettleMs=${config.transactionDiagnosticFinalSettleMs}")
+        Log.i(TAG, "native_print_transaction_mode commandId=${job.commandId} orderId=${job.orderId ?: ""} submode=$submode finalSpacingLines=${config.transactionDiagnosticFinalSpacingLines} dispatchDelayMs=${config.transactionDiagnosticDispatchDelayMs} finalSettleMs=${config.transactionDiagnosticFinalSettleMs}")
 
         Log.i(TAG, "native_print_transaction_buffer_enter commandId=${job.commandId} orderId=${job.orderId ?: ""} clean=true event=start")
         callPrinterPrimitive(job, "enterPrinterBuffer", detail = "transactionDiagnostic clean=true") {
@@ -529,7 +544,7 @@ class SunmiNativePrinterWorker(
         Log.i(TAG, "native_print_transaction_buffer_enter commandId=${job.commandId} orderId=${job.orderId ?: ""} clean=true event=end")
 
         callPrinterPrimitive(job, "setAlignment", detail = "transactionDiagnostic value=0") {
-            service.setAlignment(0, callbackForTransaction(job, strategy, submode, "setAlignment", callbackErrors, dispatchStartMs))
+            service.setAlignment(0, callbackForTransaction(job, strategy, submode, "setAlignment", callbackErrors, dispatchStartMs, callbackStats))
         }
 
         if (submode == "bitmap") {
@@ -538,7 +553,7 @@ class SunmiNativePrinterWorker(
                 Log.i(TAG, "native_print_transaction_payload commandId=${job.commandId} orderId=${job.orderId ?: ""} submode=bitmap payload=TX TEST B|0987654321")
                 Log.i(TAG, "native_print_transaction_bitmap_dimensions commandId=${job.commandId} orderId=${job.orderId ?: ""} widthPx=${render.widthPx} heightPx=${render.heightPx} lineCount=${render.lineCount}")
                 callPrinterPrimitive(job, "printBitmap", detail = "transactionDiagnostic submode=bitmap width=${render.widthPx} height=${render.heightPx}") {
-                    service.printBitmap(render.bitmap, callbackForTransaction(job, strategy, submode, "printBitmap", callbackErrors, dispatchStartMs))
+                    service.printBitmap(render.bitmap, callbackForTransaction(job, strategy, submode, "printBitmap", callbackErrors, dispatchStartMs, callbackStats))
                 }
             } finally {
                 render.bitmap.recycle()
@@ -546,19 +561,19 @@ class SunmiNativePrinterWorker(
         } else {
             Log.i(TAG, "native_print_transaction_payload commandId=${job.commandId} orderId=${job.orderId ?: ""} submode=text payload=TX TEST A|1234567890")
             callPrinterPrimitive(job, "printText", detail = "transactionDiagnostic submode=text line=TX TEST A") {
-                service.printText("TX TEST A", callbackForTransaction(job, strategy, submode, "printText_1", callbackErrors, dispatchStartMs))
+                service.printText("TX TEST A", callbackForTransaction(job, strategy, submode, "printText_1", callbackErrors, dispatchStartMs, callbackStats))
             }
             callPrinterPrimitive(job, "lineWrap", detail = "transactionDiagnostic submode=text lines=1") {
-                service.lineWrap(1, callbackForTransaction(job, strategy, submode, "lineWrap_1", callbackErrors, dispatchStartMs))
+                service.lineWrap(1, callbackForTransaction(job, strategy, submode, "lineWrap_1", callbackErrors, dispatchStartMs, callbackStats))
             }
             sleepAfterDispatch(job, 0, config.transactionDiagnosticDispatchDelayMs.toLong())
             callPrinterPrimitive(job, "printText", detail = "transactionDiagnostic submode=text line=1234567890") {
-                service.printText("1234567890", callbackForTransaction(job, strategy, submode, "printText_2", callbackErrors, dispatchStartMs))
+                service.printText("1234567890", callbackForTransaction(job, strategy, submode, "printText_2", callbackErrors, dispatchStartMs, callbackStats))
             }
         }
 
         callPrinterPrimitive(job, "lineWrap", detail = "transactionDiagnostic submode=$submode lines=${config.transactionDiagnosticFinalSpacingLines}") {
-            service.lineWrap(config.transactionDiagnosticFinalSpacingLines, callbackForTransaction(job, strategy, submode, "lineWrap_final", callbackErrors, dispatchStartMs))
+            service.lineWrap(config.transactionDiagnosticFinalSpacingLines, callbackForTransaction(job, strategy, submode, "lineWrap_final", callbackErrors, dispatchStartMs, callbackStats))
         }
 
         if (config.transactionDiagnosticFinalSettleMs > 0) {
@@ -568,7 +583,7 @@ class SunmiNativePrinterWorker(
         val flushMethod = "exitPrinterBufferWithCallback"
         Log.i(TAG, "native_print_transaction_buffer_exit commandId=${job.commandId} orderId=${job.orderId ?: ""} commit=true callback=true flushMethod=$flushMethod event=start")
         callPrinterPrimitive(job, "exitPrinterBufferWithCallback", detail = "transactionDiagnostic commit=true") {
-            service.exitPrinterBufferWithCallback(true, callbackForTransaction(job, strategy, submode, "exitPrinterBufferWithCallback", callbackErrors, dispatchStartMs))
+            service.exitPrinterBufferWithCallback(true, callbackForTransaction(job, strategy, submode, "exitPrinterBufferWithCallback", callbackErrors, dispatchStartMs, callbackStats))
         }
         Log.i(TAG, "native_print_transaction_buffer_exit commandId=${job.commandId} orderId=${job.orderId ?: ""} commit=true callback=true flushMethod=$flushMethod event=end")
         Log.i(TAG, "native_print_transaction_commit commandId=${job.commandId} orderId=${job.orderId ?: ""} called=false method=commitPrinterBufferWithCallback")
@@ -578,7 +593,7 @@ class SunmiNativePrinterWorker(
         } else {
             "printerInit->enterPrinterBuffer(true)->setAlignment->printText->lineWrap(1)->printText->lineWrap(final)->exitPrinterBufferWithCallback(true)"
         }
-        Log.i(TAG, "native_print_transaction_summary commandId=${job.commandId} orderId=${job.orderId ?: ""} selectedFamily=woyou_legacy_packaged packageName=woyou.aidlservice.jiuiv5 action=woyou.aidlservice.jiuiv5.IWoyouService submode=$submode bufferEntered=true flushMethod=$flushMethod primitiveSequence=$sequence")
+        Log.i(TAG, "native_print_transaction_summary commandId=${job.commandId} orderId=${job.orderId ?: ""} selectedFamily=woyou_legacy_packaged packageName=woyou.aidlservice.jiuiv5 action=woyou.aidlservice.jiuiv5.IWoyouService mode=$submode enteredBuffer=true flushMethod=$flushMethod callbacksFired=${callbackStats.anyCallbackFired} onRunResultFired=${callbackStats.onRunResultFired} onReturnStringFired=${callbackStats.onReturnStringFired} onRaiseExceptionFired=${callbackStats.onRaiseExceptionFired} onPrintResultFired=${callbackStats.onPrintResultFired} primitiveSequence=$sequence")
         return sequence
     }
 
@@ -589,26 +604,35 @@ class SunmiNativePrinterWorker(
         stage: String,
         callbackErrors: MutableList<String>,
         dispatchStartMs: Long,
+        callbackStats: TransactionCallbackStats,
     ): ICallback {
         return object : ICallback.Stub() {
             override fun onRunResult(isSuccess: Boolean) {
+                callbackStats.anyCallbackFired = true
+                callbackStats.onRunResultFired = true
                 val deltaMs = System.currentTimeMillis() - dispatchStartMs
                 Log.i(TAG, "native_print_transaction_callback commandId=${job.commandId} orderId=${job.orderId ?: ""} strategy=$strategy submode=$submode callback=onRunResult stage=$stage success=$isSuccess code=NA message=NA deltaMs=$deltaMs")
                 if (!isSuccess) callbackErrors += "$stage:onRunResult:false"
             }
 
             override fun onReturnString(result: String?) {
+                callbackStats.anyCallbackFired = true
+                callbackStats.onReturnStringFired = true
                 val deltaMs = System.currentTimeMillis() - dispatchStartMs
                 Log.i(TAG, "native_print_transaction_callback commandId=${job.commandId} orderId=${job.orderId ?: ""} strategy=$strategy submode=$submode callback=onReturnString stage=$stage success=true code=NA message=${result ?: ""} deltaMs=$deltaMs")
             }
 
             override fun onRaiseException(code: Int, msg: String?) {
+                callbackStats.anyCallbackFired = true
+                callbackStats.onRaiseExceptionFired = true
                 val deltaMs = System.currentTimeMillis() - dispatchStartMs
                 Log.i(TAG, "native_print_transaction_callback commandId=${job.commandId} orderId=${job.orderId ?: ""} strategy=$strategy submode=$submode callback=onRaiseException stage=$stage success=false code=$code message=${msg ?: "unknown"} deltaMs=$deltaMs")
                 callbackErrors += "$stage:onRaiseException:$code:${msg ?: "unknown"}"
             }
 
             override fun onPrintResult(code: Int, msg: String?) {
+                callbackStats.anyCallbackFired = true
+                callbackStats.onPrintResultFired = true
                 val deltaMs = System.currentTimeMillis() - dispatchStartMs
                 val success = code == 0
                 Log.i(TAG, "native_print_transaction_callback commandId=${job.commandId} orderId=${job.orderId ?: ""} strategy=$strategy submode=$submode callback=onPrintResult stage=$stage success=$success code=$code message=${msg ?: ""} deltaMs=$deltaMs")
@@ -1155,6 +1179,7 @@ class SunmiNativePrinterWorker(
             }
         }
     }
+
 
     companion object {
         private const val TAG = "NativePrinterWorker"
