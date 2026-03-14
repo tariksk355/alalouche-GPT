@@ -602,6 +602,37 @@ class SunmiPrinterManager(private val context: Context) {
                     officialParitySyntheticTextRequested || officialParitySyntheticBitmapRequested -> toStrictAsciiOnly(buildSyntheticAsciiTestText("text_test_3lines_rawfeed"))
                     else -> coreReceiptText
                 }
+                val parityLayerStatus = ParityLayerStatus()
+                if (OFFICIAL_PARITY_DISABLE_AFTER_BUFFER_CRASH_CONFIRMED && OFFICIAL_PARITY_BUFFER_CRASH_CONFIRMED.get()) {
+                    Log.w(TAG, "official_parity_sequence skipped=true reason=buffer_api_crash_already_confirmed")
+                    logV2sArchitectureAuditNote()
+                    val fallbackCallbackErrors = mutableListOf<String>()
+                    val fallbackCallback = buildAidlCallback(
+                        op = "official_parity_safe_fallback_nonbuffer",
+                        onError = { error -> fallbackCallbackErrors += error },
+                    )
+                    val fallbackDispatchError = runCatching {
+                        service.printerInit(fallbackCallback)
+                        service.setAlignment(0, fallbackCallback)
+                        service.printText(finalReceiptBlockForStrategy(parityTextPayload), fallbackCallback)
+                        val rawFeedCmd = byteArrayOf(0x1B, 0x64, OFFICIAL_PARITY_FINAL_FEED_LINES.coerceIn(0, 255).toByte())
+                        service.sendRAWData(rawFeedCmd, fallbackCallback)
+                    }.exceptionOrNull()
+                    return JSONObject().apply {
+                        put("ok", fallbackDispatchError == null)
+                        put("code", if (fallbackDispatchError == null) "PRINT_SENT" else "NONBUFFER_SAFE_FALLBACK_FAILED")
+                        put("message", if (fallbackDispatchError == null) "Parity buffer path skipped after confirmed buffer crash; non-buffer safe fallback dispatched." else "Parity buffer path skipped but non-buffer safe fallback failed.")
+                        put("strategyName", requestedOutputStrategy)
+                        put("sequencingMode", "safe_nonbuffer_after_confirmed_buffer_crash")
+                        put("acceptanceOnly", true)
+                        put("physicalPrintUnverified", true)
+                        put("bufferCrashPreviouslyConfirmed", true)
+                        put("fallbackDispatchError", fallbackDispatchError?.message ?: JSONObject.NULL)
+                        put("callbackErrors", JSONArray(fallbackCallbackErrors))
+                        appendV2sArchitectureStatus(this)
+                    }
+                }
+
                 val readiness = waitForPrinterReadyState(service, OFFICIAL_PARITY_READY_RETRIES, OFFICIAL_PARITY_READY_RETRY_DELAY_MS)
                 val stateIsDispatchable = readiness.lastState in OFFICIAL_PARITY_DISPATCHABLE_STATE_CODES
                 val continueDespiteNotReady = OFFICIAL_PARITY_ALLOW_DISPATCH_ON_NON_READY_STATE && stateIsDispatchable
@@ -614,8 +645,10 @@ class SunmiPrinterManager(private val context: Context) {
                     TAG,
                     "official_parity_readiness_decision rawState=${readiness.lastState} ready=${readiness.ready} stateIsDispatchable=$stateIsDispatchable continueDespiteNotReady=$continueDespiteNotReady reason=$readinessDecisionReason",
                 )
+                parityLayerStatus.readiness = if (readiness.ready || continueDespiteNotReady) "passed:$readinessDecisionReason" else "failed:$readinessDecisionReason"
                 if (!readiness.ready && !continueDespiteNotReady) {
                     Log.e(TAG, "official_parity_readiness failed=true lastState=${readiness.lastState} reason=$readinessDecisionReason")
+                    logV2sArchitectureAuditNote()
                     return fail("PRINTER_NOT_READY", "Official parity path aborted: $readinessDecisionReason.")
                 }
 
@@ -637,7 +670,9 @@ class SunmiPrinterManager(private val context: Context) {
                     Thread.sleep(OFFICIAL_PARITY_INIT_DELAY_MS)
 
                     Log.i(TAG, "official_parity_step before=enterPrinterBuffer clean=true")
+                    parityLayerStatus.bufferEnter = "attempted"
                     service.enterPrinterBuffer(true)
+                    parityLayerStatus.bufferEnter = "passed"
                     Log.i(TAG, "official_parity_step after=enterPrinterBuffer clean=true")
 
                     Log.i(TAG, "official_parity_step before=setAlignment alignment=0")
@@ -651,7 +686,9 @@ class SunmiPrinterManager(private val context: Context) {
                             Log.i(TAG, "official_parity_bitmap_payload_start\n$parityTextPayload\nofficial_parity_bitmap_payload_end")
                             Log.i(TAG, "official_parity_bitmap_diagnostics config=${parityBitmap.config?.name ?: "UNKNOWN"} monochrome=${isBitmapMonochrome(parityBitmap)} hasAlpha=${parityBitmap.hasAlpha()} blackPixelCount=${stats.blackPixelCount} whitePixelCount=${stats.whitePixelCount} otherPixelCount=${stats.otherPixelCount} width=${parityBitmap.width} height=${parityBitmap.height}")
                             Log.i(TAG, "official_parity_step before=dispatch printBitmap")
+                            parityLayerStatus.contentDispatch = "attempted:printBitmap"
                             service.printBitmap(parityBitmap, parityCallback)
+                            parityLayerStatus.contentDispatch = "passed:printBitmap"
                             Log.i(TAG, "official_parity_step after=dispatch printBitmap")
                         } finally {
                             parityBitmap.recycle()
@@ -659,7 +696,9 @@ class SunmiPrinterManager(private val context: Context) {
                     } else {
                         Log.i(TAG, "official_parity_text_payload_start\n$parityTextPayload\nofficial_parity_text_payload_end")
                         Log.i(TAG, "official_parity_step before=dispatch printText")
+                        parityLayerStatus.contentDispatch = "attempted:printText"
                         service.printText(finalReceiptBlockForStrategy(parityTextPayload), parityCallback)
+                        parityLayerStatus.contentDispatch = "passed:printText"
                         Log.i(TAG, "official_parity_step after=dispatch printText")
                     }
 
@@ -669,17 +708,48 @@ class SunmiPrinterManager(private val context: Context) {
                     Log.i(TAG, "official_parity_step after=sendRAWData esc=d")
 
                     Log.i(TAG, "official_parity_step before=commitPrinterBufferWithCallback")
+                    parityLayerStatus.commit = "attempted"
                     service.commitPrinterBufferWithCallback(parityCallback)
+                    parityLayerStatus.commit = "passed"
                     Log.i(TAG, "official_parity_step after=commitPrinterBufferWithCallback")
 
                     Log.i(TAG, "official_parity_step before=exitPrinterBufferWithCallback commit=true")
+                    parityLayerStatus.exit = "attempted"
                     service.exitPrinterBufferWithCallback(true, parityCallback)
+                    parityLayerStatus.exit = "passed"
                     Log.i(TAG, "official_parity_step after=exitPrinterBufferWithCallback commit=true")
 
                     Thread.sleep(OFFICIAL_PARITY_SETTLE_WAIT_MS)
                 }.onFailure { err ->
-                    Log.e(TAG, "official_parity_sequence failed=true reason=${err.message ?: "unknown"}")
-                    return fail("OFFICIAL_PARITY_FAILED", "Official parity sequence failed: ${err.message ?: "unknown"}")
+                    val reason = err.message ?: "unknown"
+                    val bufferCrashConfirmed = reason.contains("TransBean.l()", ignoreCase = true) || reason.contains("null object reference", ignoreCase = true)
+                    if (bufferCrashConfirmed) {
+                        OFFICIAL_PARITY_BUFFER_CRASH_CONFIRMED.set(true)
+                        if (parityLayerStatus.bufferEnter.startsWith("attempted")) {
+                            parityLayerStatus.bufferEnter = "failed:service_null_pointer"
+                        }
+                    }
+                    Log.e(TAG, "official_parity_sequence failed=true reason=$reason")
+                    Log.e(TAG, "official_parity_diagnostic_summary readiness=${parityLayerStatus.readiness} bufferEnter=${parityLayerStatus.bufferEnter} contentDispatch=${parityLayerStatus.contentDispatch} commit=${parityLayerStatus.commit} exit=${parityLayerStatus.exit}")
+                    logV2sArchitectureAuditNote()
+                    return JSONObject().apply {
+                        put("ok", false)
+                        put("code", "OFFICIAL_PARITY_FAILED")
+                        put("message", "Official parity sequence failed: $reason")
+                        put("strategyName", requestedOutputStrategy)
+                        put("acceptanceOnly", true)
+                        put("physicalPrintUnverified", true)
+                        put("parityFailureLayerSummary", JSONObject().apply {
+                            put("readiness", parityLayerStatus.readiness)
+                            put("bufferEnter", parityLayerStatus.bufferEnter)
+                            put("contentDispatch", parityLayerStatus.contentDispatch)
+                            put("commit", parityLayerStatus.commit)
+                            put("exit", parityLayerStatus.exit)
+                        })
+                        put("bufferCrashConfirmed", bufferCrashConfirmed)
+                        put("callbackErrors", JSONArray(parityCallbackErrors))
+                        appendV2sArchitectureStatus(this)
+                    }
                 }
 
                 val postReady = waitForPrinterReadyState(service, OFFICIAL_PARITY_READY_RETRIES, OFFICIAL_PARITY_READY_RETRY_DELAY_MS)
@@ -702,6 +772,8 @@ class SunmiPrinterManager(private val context: Context) {
                     put("mainContentPrimitive", if (officialParitySyntheticBitmapRequested) "printBitmap" else "printText")
                     put("sequencingMode", "official_equivalent_transactional")
                     put("feedPrimitive", "raw_esc_d")
+                    put("physicalPrintUnverified", true)
+                    appendV2sArchitectureStatus(this)
                 }
             }
 
@@ -846,6 +918,9 @@ class SunmiPrinterManager(private val context: Context) {
                         put("bitmapHeightPx", bitmapHeight)
                         put("finalTextLineCount", finalTextLineCount)
                         put("finalTextCharLength", finalTextCharLength)
+                        put("acceptanceOnly", true)
+                        put("physicalPrintUnverified", true)
+                        appendV2sArchitectureStatus(this)
                     }
                 }.onFailure { bitmapErr ->
                     if (bitmapTest3LinesChunkedMonoRequested || bitmapTest3LinesChunkedRequested || bitmapTest10LinesChunkedRequested) {
@@ -1057,6 +1132,9 @@ class SunmiPrinterManager(private val context: Context) {
                 put("successBoundary", completionBoundary)
                 put("settleWaitMs", settleWaitMs)
                 put("callbackErrors", JSONArray(callbackErrors))
+                put("acceptanceOnly", true)
+                put("physicalPrintUnverified", true)
+                appendV2sArchitectureStatus(this)
             }
         } catch (e: RemoteException) {
             Log.e(TAG, "printReceipt remote error", e)
@@ -1152,12 +1230,33 @@ class SunmiPrinterManager(private val context: Context) {
         return printerService != null
     }
 
+    private fun buildV2sCapabilityClassification(): JSONArray {
+        val flags = JSONArray()
+        flags.put(V2sCapabilityFlag.BUFFER_API_CRASHES.name)
+        flags.put(V2sCapabilityFlag.NONBUFFER_TEXT_UNRELIABLE.name)
+        flags.put(V2sCapabilityFlag.NONBUFFER_BITMAP_NO_PHYSICAL_OUTPUT.name)
+        return flags
+    }
+
+    private fun appendV2sArchitectureStatus(target: JSONObject) {
+        target.put("v2sCapabilityClassification", buildV2sCapabilityClassification())
+        target.put("architectureStatus", "bridge_aidl_unsuitable_for_v2s_if_repeated")
+    }
+
+    private fun logV2sArchitectureAuditNote() {
+        Log.w(
+            TAG,
+            "v2s_architecture_audit text_synth=unreliable bitmap_synth=no_physical_output official_parity_buffer_path=enterPrinterBuffer_null_pointer bridge_aidl_status=unsuitable_for_production_without_dedicated_native_path",
+        )
+    }
+
     private fun fail(code: String, message: String, details: String? = null): JSONObject {
         return JSONObject().apply {
             put("ok", false)
             put("code", code)
             put("message", message)
             if (!details.isNullOrBlank()) put("details", details)
+            appendV2sArchitectureStatus(this)
         }
     }
 
@@ -1397,6 +1496,20 @@ class SunmiPrinterManager(private val context: Context) {
 
     private data class PrinterReadiness(val ready: Boolean, val lastState: Int)
 
+    private enum class V2sCapabilityFlag {
+        BUFFER_API_CRASHES,
+        NONBUFFER_TEXT_UNRELIABLE,
+        NONBUFFER_BITMAP_NO_PHYSICAL_OUTPUT,
+    }
+
+    private data class ParityLayerStatus(
+        var readiness: String = "not_started",
+        var bufferEnter: String = "not_started",
+        var contentDispatch: String = "not_started",
+        var commit: String = "not_started",
+        var exit: String = "not_started",
+    )
+
     private data class ParsedStructuredNotes(
         val type: String,
         val phone: String,
@@ -1571,6 +1684,7 @@ class SunmiPrinterManager(private val context: Context) {
         private const val TAG = "SunmiPrinterManager"
         private val CALLBACK_OBSERVED_EVER = AtomicBoolean(false)
         private val PRINT_IN_PROGRESS = AtomicBoolean(false)
+        private val OFFICIAL_PARITY_BUFFER_CRASH_CONFIRMED = AtomicBoolean(false)
         private const val DEBUG_SINGLE_ATTEMPT_MODE = true
         private val DEFAULT_MAX_ATTEMPTS = if (DEBUG_SINGLE_ATTEMPT_MODE) 1 else 3
         private const val INIT_FIRST_EXPERIMENT_ENABLED = true
@@ -1598,6 +1712,12 @@ class SunmiPrinterManager(private val context: Context) {
         private val OFFICIAL_PARITY_READY_STATE_CODES = setOf(1, 2)
         private val OFFICIAL_PARITY_DISPATCHABLE_STATE_CODES = setOf(1, 2, 24)
         private const val OFFICIAL_PARITY_ALLOW_DISPATCH_ON_NON_READY_STATE = true
+        private const val OFFICIAL_PARITY_DISABLE_AFTER_BUFFER_CRASH_CONFIRMED = true
         private const val OFFICIAL_PARITY_FINAL_FEED_LINES = 6
+        // V2s audit summary:
+        // - synthetic printText was physically unreliable.
+        // - synthetic bitmap tests produced no reliable physical output.
+        // - official parity buffer flow can crash at enterPrinterBuffer on some V2s firmware.
+        // - if repeated, bridge/AIDL is unsuitable for production printing; prefer dedicated native path.
     }
 }
