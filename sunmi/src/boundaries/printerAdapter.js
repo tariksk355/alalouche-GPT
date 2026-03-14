@@ -114,11 +114,18 @@ function createNativeBridgePrinterAdapter(nativeBridge) {
     const methodName = resolvePrintMethod();
 
     if (methodName === 'submitPrintCommand') {
+      const strategyKeysPresent = [
+        forceOutputStrategy ? 'forceOutputStrategy' : '',
+        outputStrategyTopLevel ? 'outputStrategy' : '',
+        outputStrategy ? 'formattingHints.outputStrategy' : '',
+        nativePrintStrategy ? 'formattingHints.nativePrintStrategy' : '',
+      ].filter(Boolean);
       const submitPayloadTrace = {
         outputStrategyTopLevel: outputStrategyTopLevel || '',
         forceOutputStrategy: forceOutputStrategy || '',
         'formattingHints.outputStrategy': outputStrategy || '',
         'formattingHints.nativePrintStrategy': nativePrintStrategy || '',
+        strategyKeysPresent,
       };
       debugLog('submit_print_command_payload_trace_json', JSON.stringify(submitPayloadTrace));
       debugLog('submit_print_command_payload_final_json', payload);

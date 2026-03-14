@@ -75,19 +75,19 @@ function safeStringify(value) {
 function resolveForcedOutputStrategy() {
   const urlParams = new URLSearchParams(window.location.search || '');
   const fromQuery = (urlParams.get('printStrategy') || '').trim();
-  if (fromQuery) return fromQuery;
+  if (fromQuery) return { value: fromQuery, source: 'query.printStrategy' };
 
   const fromWindow = (window.__SUNMI_PRINT_STRATEGY_OVERRIDE__ || '').trim?.() || '';
-  if (fromWindow) return fromWindow;
+  if (fromWindow) return { value: fromWindow, source: 'window.__SUNMI_PRINT_STRATEGY_OVERRIDE__' };
 
   try {
     const fromStorage = (localStorage.getItem(PRINT_STRATEGY_OVERRIDE_STORAGE_KEY) || '').trim();
-    if (fromStorage) return fromStorage;
+    if (fromStorage) return { value: fromStorage, source: `localStorage.${PRINT_STRATEGY_OVERRIDE_STORAGE_KEY}` };
   } catch {
     // ignore
   }
 
-  return '';
+  return { value: '', source: '' };
 }
 
 function resolveOneOrderDiagnosticStrategy() {
@@ -96,18 +96,20 @@ function resolveOneOrderDiagnosticStrategy() {
   if (typeof candidate === 'string' && candidate.trim()) {
     const value = candidate.trim();
     window[key] = '';
-    return value;
+    return { value, source: `window.${key}(string_once)` };
   }
   if (candidate === true) {
     window[key] = false;
-    return 'direct_self_check_then_minimal_text';
+    return { value: 'direct_self_check_then_minimal_text', source: `window.${key}(boolean_once)` };
   }
-  return '';
+  return { value: '', source: '' };
 }
 
 function applyOutputStrategyOverride(printJob) {
-  const forcedOneOrder = resolveOneOrderDiagnosticStrategy();
-  const forcedGlobal = resolveForcedOutputStrategy();
+  const oneOrder = resolveOneOrderDiagnosticStrategy();
+  const global = resolveForcedOutputStrategy();
+  const forcedOneOrder = oneOrder.value;
+  const forcedGlobal = global.value;
   const forced = forcedOneOrder || forcedGlobal;
   if (!printJob || typeof printJob !== 'object') return { printJob, outputStrategy: '' };
 
@@ -120,7 +122,9 @@ function applyOutputStrategyOverride(printJob) {
   const outputStrategy = forced || currentForce || fromPayload || currentNativeHint || currentTopLevelOutput || currentTopLevelNative;
 
   debugLog('print_strategy_before_normalization_json', JSON.stringify({
+    forcedOneOrderSource: oneOrder.source,
     forcedOneOrder,
+    forcedGlobalSource: global.source,
     forcedGlobal,
     forcedEffective: forced,
     currentForce,
@@ -157,6 +161,12 @@ function applyOutputStrategyOverride(printJob) {
     forceOutputStrategy: nextPrintJob.forceOutputStrategy || '',
     'formattingHints.outputStrategy': nextPrintJob.formattingHints?.outputStrategy || '',
     'formattingHints.nativePrintStrategy': nextPrintJob.formattingHints?.nativePrintStrategy || '',
+    strategyCopiedIntoPayload: Boolean(
+      nextPrintJob.forceOutputStrategy
+      || nextPrintJob.outputStrategy
+      || nextPrintJob.formattingHints?.outputStrategy
+      || nextPrintJob.formattingHints?.nativePrintStrategy,
+    ),
   }));
 
   return {
@@ -955,12 +965,16 @@ async function printOrderTicket(order, options = {}) {
   });
   render();
 
-  const forcedStrategy = resolveForcedOutputStrategy();
+  const forcedStrategyMeta = resolveForcedOutputStrategy();
+  const debugOutputStrategy = outputStrategy || 'default(text_single_block_center_rawfeed)';
   debugLog('web_to_native_print_strategy_json', JSON.stringify({
     orderId: order.id,
     orderNumber: printJob.orderNumber || order.orderNumber || order.id || null,
-    outputStrategy: outputStrategy || 'default(text_single_block_center_rawfeed)',
-    forcedBy: forcedStrategy ? 'override' : 'payload_or_default',
+    outputStrategy: debugOutputStrategy,
+    actualPayloadOutputStrategy: outputStrategy || '',
+    forcedBy: forcedStrategyMeta.value ? 'override' : 'payload_or_default',
+    forcedGlobalSource: forcedStrategyMeta.source,
+    usedSyntheticDefaultForDebugOnly: !outputStrategy,
   }));
 
   debugLog('print_job_dispatch', {
