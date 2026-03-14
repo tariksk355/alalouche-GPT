@@ -95,21 +95,32 @@ function applyOutputStrategyOverride(printJob) {
   if (!printJob || typeof printJob !== 'object') return { printJob, outputStrategy: '' };
 
   const currentHints = (printJob.formattingHints && typeof printJob.formattingHints === 'object') ? printJob.formattingHints : {};
+  const currentNativeHint = typeof currentHints.nativePrintStrategy === 'string' ? currentHints.nativePrintStrategy.trim() : '';
   const fromPayload = typeof currentHints.outputStrategy === 'string' ? currentHints.outputStrategy.trim() : '';
-  const outputStrategy = forced || fromPayload;
+  const outputStrategy = forced || fromPayload || currentNativeHint;
 
   if (!outputStrategy) {
     return { printJob: { ...printJob, formattingHints: { ...currentHints } }, outputStrategy: '' };
   }
 
+  const nextHints = {
+    ...currentHints,
+    outputStrategy,
+    nativePrintStrategy: outputStrategy,
+  };
+
+  const nextPrintJob = {
+    ...printJob,
+    outputStrategy,
+    formattingHints: nextHints,
+  };
+
+  if (forced) {
+    nextPrintJob.forceOutputStrategy = outputStrategy;
+  }
+
   return {
-    printJob: {
-      ...printJob,
-      formattingHints: {
-        ...currentHints,
-        outputStrategy,
-      },
-    },
+    printJob: nextPrintJob,
     outputStrategy,
   };
 }

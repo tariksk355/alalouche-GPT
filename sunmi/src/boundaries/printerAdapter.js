@@ -96,8 +96,14 @@ function createNativeBridgePrinterAdapter(nativeBridge) {
 
   function invokePrint(printJob) {
     const outputStrategy = typeof printJob?.formattingHints?.outputStrategy === 'string' ? printJob.formattingHints.outputStrategy : '';
+    const nativePrintStrategy = typeof printJob?.formattingHints?.nativePrintStrategy === 'string' ? printJob.formattingHints.nativePrintStrategy : '';
+    const forceOutputStrategy = typeof printJob?.forceOutputStrategy === 'string' ? printJob.forceOutputStrategy : '';
+    const outputStrategyTopLevel = typeof printJob?.outputStrategy === 'string' ? printJob.outputStrategy : '';
     debugLog('js_bridge_print_strategy_json', JSON.stringify({
       outputStrategy: outputStrategy || 'default(text_single_block_center_rawfeed)',
+      outputStrategyTopLevel: outputStrategyTopLevel || '',
+      nativePrintStrategy: nativePrintStrategy || '',
+      forceOutputStrategy: forceOutputStrategy || '',
       hasFormattingHints: Boolean(printJob?.formattingHints),
       printJobId: printJob?.printJobId || null,
       orderId: printJob?.orderId || null,
@@ -105,6 +111,16 @@ function createNativeBridgePrinterAdapter(nativeBridge) {
 
     const payload = JSON.stringify(printJob);
     const methodName = resolvePrintMethod();
+
+    if (methodName === 'submitPrintCommand') {
+      debugLog('submit_print_command_payload_trace', {
+        forceOutputStrategy: forceOutputStrategy || '',
+        outputStrategyTopLevel: outputStrategyTopLevel || '',
+        formattingHintsOutputStrategy: outputStrategy || '',
+        formattingHintsNativePrintStrategy: nativePrintStrategy || '',
+        payload: printJob,
+      });
+    }
 
     if (!methodName) {
       return {
