@@ -444,34 +444,32 @@ class SunmiNativePrinterWorker(
         callbackErrors: MutableList<String>,
         dispatchStartMs: Long,
     ): String {
+        val localAidlHasPrintBitmap = true
+        val localAidlHasPrintBitmapCustom = false
         Log.i(TAG, "native_print_vendor_bitmap_compare_selected commandId=${job.commandId} orderId=${job.orderId ?: ""} strategy=vendor_parity_bitmap_custom_compare runAllModes=${config.vendorBitmapCompareRunAllModes} requestedMode=${config.vendorBitmapCompareMode}")
         Log.i(TAG, "native_print_vendor_bitmap_compare_service_info commandId=${job.commandId} orderId=${job.orderId ?: ""} selectedFamily=woyou_legacy_packaged packageName=woyou.aidlservice.jiuiv5 interfaceAction=woyou.aidlservice.jiuiv5.IWoyouService")
+        Log.i(TAG, "native_print_vendor_bitmap_capability printBitmapAvailable=$localAidlHasPrintBitmap printBitmapCustomAvailable=$localAidlHasPrintBitmapCustom")
+        Log.i(TAG, "native_print_vendor_capability_summary localAidlHasPrintBitmap=$localAidlHasPrintBitmap localAidlHasPrintBitmapCustom=$localAidlHasPrintBitmapCustom")
 
         val modes = if (config.vendorBitmapCompareRunAllModes) listOf("A", "B", "C", "D") else listOf(config.vendorBitmapCompareMode)
 
         modes.forEachIndexed { modeIndex, mode ->
-            val (label, primitive, customType) = when (mode) {
-                "A" -> Triple("MODE A printBitmap", "printBitmap", null)
-                "B" -> Triple("MODE B custom0", "printBitmapCustom", 0)
-                "C" -> Triple("MODE C custom1", "printBitmapCustom", 1)
-                else -> Triple("MODE D custom2", "printBitmapCustom", 2)
+            val (label, variant) = when (mode) {
+                "A" -> Pair("MODE A printBitmap baseline", "printBitmap")
+                "B" -> Pair("MODE B printBitmap compare-slot-0", "printBitmap")
+                "C" -> Pair("MODE C printBitmap compare-slot-1", "printBitmap")
+                else -> Pair("MODE D printBitmap compare-slot-2", "printBitmap")
             }
             val lines = listOf(label, "1234567890", "ABCDEFGHIJ")
             val render = renderVendorBitmapComparePayload(lines, config)
-            Log.i(TAG, "native_print_vendor_bitmap_compare_mode_start commandId=${job.commandId} orderId=${job.orderId ?: ""} modeLabel=$label primitiveUsed=$primitive customType=${customType ?: "null"} payloadPreview=${lines.joinToString(" | ")}")
-            Log.i(TAG, "native_print_vendor_bitmap_compare_bitmap_dimensions commandId=${job.commandId} orderId=${job.orderId ?: ""} modeLabel=$label primitiveUsed=$primitive customType=${customType ?: "null"} widthPx=${render.widthPx} heightPx=${render.heightPx} lineCount=${render.lineCount}")
+            Log.i(TAG, "native_print_vendor_bitmap_compare_mode_start commandId=${job.commandId} orderId=${job.orderId ?: ""} modeLabel=$label variant=$variant payloadPreview=${lines.joinToString(" | ")}")
+            Log.i(TAG, "native_print_vendor_bitmap_compare_bitmap_dimensions commandId=${job.commandId} orderId=${job.orderId ?: ""} modeLabel=$label variant=$variant widthPx=${render.widthPx} heightPx=${render.heightPx} lineCount=${render.lineCount}")
             try {
-                Log.i(TAG, "native_print_vendor_bitmap_compare_print_call commandId=${job.commandId} orderId=${job.orderId ?: ""} modeLabel=$label primitiveUsed=$primitive customType=${customType ?: "null"} event=start")
-                if (customType == null) {
-                    callPrinterPrimitive(job, "printBitmap", detail = "vendorCompare mode=$mode width=${render.widthPx} height=${render.heightPx}") {
-                        service.printBitmap(render.bitmap, callbackFor(job, "vendorCompare_${mode}_printBitmap", callbackErrors, dispatchStartMs))
-                    }
-                } else {
-                    callPrinterPrimitive(job, "printBitmapCustom", detail = "vendorCompare mode=$mode type=$customType width=${render.widthPx} height=${render.heightPx}") {
-                        service.printBitmapCustom(render.bitmap, customType, callbackFor(job, "vendorCompare_${mode}_printBitmapCustom_$customType", callbackErrors, dispatchStartMs))
-                    }
+                Log.i(TAG, "native_print_vendor_bitmap_compare_print_call commandId=${job.commandId} orderId=${job.orderId ?: ""} modeLabel=$label variant=$variant event=start")
+                callPrinterPrimitive(job, "printBitmap", detail = "vendorCompare mode=$mode variant=$variant width=${render.widthPx} height=${render.heightPx}") {
+                    service.printBitmap(render.bitmap, callbackFor(job, "vendorCompare_${mode}_printBitmap", callbackErrors, dispatchStartMs))
                 }
-                Log.i(TAG, "native_print_vendor_bitmap_compare_print_call commandId=${job.commandId} orderId=${job.orderId ?: ""} modeLabel=$label primitiveUsed=$primitive customType=${customType ?: "null"} event=end")
+                Log.i(TAG, "native_print_vendor_bitmap_compare_print_call commandId=${job.commandId} orderId=${job.orderId ?: ""} modeLabel=$label variant=$variant event=end")
             } finally {
                 render.bitmap.recycle()
             }
@@ -481,7 +479,7 @@ class SunmiNativePrinterWorker(
             callPrinterPrimitive(job, "lineWrap", detail = "vendorCompare mode=$mode lines=$spacing") {
                 service.lineWrap(spacing, callbackFor(job, "vendorCompare_${mode}_lineWrap", callbackErrors, dispatchStartMs))
             }
-            Log.i(TAG, "native_print_vendor_bitmap_compare_mode_summary commandId=${job.commandId} orderId=${job.orderId ?: ""} modeLabel=$label primitiveUsed=$primitive customType=${customType ?: "null"} spacingLinesAfterMode=$spacing")
+            Log.i(TAG, "native_print_vendor_bitmap_compare_mode_summary commandId=${job.commandId} orderId=${job.orderId ?: ""} modeLabel=$label variant=$variant spacingLinesAfterMode=$spacing")
             sleepAfterDispatch(job, modeIndex, config.vendorBitmapDispatchDelayMs.toLong())
         }
 
@@ -494,7 +492,7 @@ class SunmiNativePrinterWorker(
             service.sendRAWData(rawFeed, callbackFor(job, "vendorBitmapCompare_sendRaw", callbackErrors, dispatchStartMs))
         }
 
-        val sequence = "printerInit->setAlignment->printBitmap/printBitmapCustom(compare A/B/C/D)->lineWrap(spacing)->sendRAWData"
+        val sequence = "printerInit->setAlignment->printBitmap(compare A/B/C/D)->lineWrap(spacing)->sendRAWData"
         Log.i(TAG, "native_print_vendor_bitmap_compare_final_summary commandId=${job.commandId} orderId=${job.orderId ?: ""} modes=${modes.joinToString(",")} spacingLinesAfterEachMode=${config.vendorBitmapSpacingLinesAfterEachMode} finalSpacingLines=${config.vendorBitmapFinalSpacingLines} dispatchDelayMs=${config.vendorBitmapDispatchDelayMs} finalSettleMs=${config.vendorBitmapFinalSettleMs} primitiveSequence=$sequence")
         return sequence
     }
