@@ -99,6 +99,9 @@ private data class PhysicalFidelityConfig(
     val transactionDiagnosticFinalSettleMs: Int,
     val requestedNativePrintStrategyRaw: String,
     val requestedNativePrintStrategySource: String,
+    val requestedOutputStrategyRaw: String,
+    val normalizedRequestedStrategy: String,
+    val strategyFallbackApplied: Boolean,
 )
 
 private data class SectionLine(
@@ -179,7 +182,7 @@ class SunmiNativePrinterWorker(
             val fidelityConfig = parsePhysicalFidelityConfig(job)
             Log.i(
                 TAG,
-                "native_print_strategy_selected commandId=${job.commandId} orderId=${job.orderId ?: ""} sourceJobId=${job.sourceJobId ?: ""} strategy=${strategyName(fidelityConfig.strategy)} dispatchDelayMs=${fidelityConfig.dispatchDelayMs} finalSettleMs=${fidelityConfig.finalSettleMs} asciiSafeMode=${fidelityConfig.asciiSafeMode} perLineWrap=${fidelityConfig.perLineWrap} perSectionExtraWrap=${fidelityConfig.perSectionExtraWrap} finalTicketSpacingLines=${fidelityConfig.finalTicketSpacingLines} addEndDivider=${fidelityConfig.addEndDivider} bitmapSegmentedMode=${fidelityConfig.bitmapSegmentedMode} selectedFamily=${selectedFamily ?: ""} packageName=${selectedPackage ?: ""} action=${selectedAction ?: ""}",
+                "native_print_strategy_selected commandId=${job.commandId} orderId=${job.orderId ?: ""} sourceJobId=${job.sourceJobId ?: ""} strategy=${strategyName(fidelityConfig.strategy)} requestedOutputStrategyRaw=${fidelityConfig.requestedOutputStrategyRaw} normalizedStrategyName=${fidelityConfig.normalizedRequestedStrategy} strategySource=${fidelityConfig.requestedNativePrintStrategySource} fallbackApplied=${fidelityConfig.strategyFallbackApplied} dispatchDelayMs=${fidelityConfig.dispatchDelayMs} finalSettleMs=${fidelityConfig.finalSettleMs} asciiSafeMode=${fidelityConfig.asciiSafeMode} perLineWrap=${fidelityConfig.perLineWrap} perSectionExtraWrap=${fidelityConfig.perSectionExtraWrap} finalTicketSpacingLines=${fidelityConfig.finalTicketSpacingLines} addEndDivider=${fidelityConfig.addEndDivider} bitmapSegmentedMode=${fidelityConfig.bitmapSegmentedMode} selectedFamily=${selectedFamily ?: ""} packageName=${selectedPackage ?: ""} action=${selectedAction ?: ""}",
             )
 
             val renderedTextForDispatch = if (fidelityConfig.strategy == PhysicalFidelityStrategy.BITMAP_SMOKE_TEST_MINIMAL_BLOCKS || fidelityConfig.strategy == PhysicalFidelityStrategy.VENDOR_PARITY_WOYOU_MINIMAL_TEST || fidelityConfig.strategy == PhysicalFidelityStrategy.VENDOR_PARITY_BITMAP_CUSTOM_COMPARE || fidelityConfig.strategy == PhysicalFidelityStrategy.VENDOR_PARITY_BITMAP_PHYSICAL_DIAGNOSTICS || fidelityConfig.strategy == PhysicalFidelityStrategy.TRANSACTION_MODE_TINY_DIAGNOSTIC_TEST || fidelityConfig.strategy == PhysicalFidelityStrategy.DIRECT_SELF_CHECK_THEN_MINIMAL_TEXT) {
@@ -306,7 +309,13 @@ class SunmiNativePrinterWorker(
             strategyFromOutputHint.isNotBlank() -> strategyFromOutputHint
             else -> ""
         }
-        val strategyRaw = strategyRawCandidate.lowercase()
+        val normalizedStrategyRawCandidate = strategyRawCandidate.lowercase().trim()
+        val strategyRaw = when {
+            normalizedStrategyRawCandidate.contains("direct_self_check_then_minimal_text") -> "direct_self_check_then_minimal_text"
+            normalizedStrategyRawCandidate.contains("text_vendor_parity_unbuffered") -> "text_vendor_parity_unbuffered"
+            normalizedStrategyRawCandidate.contains("text_vendor_parity_buffered") -> "text_vendor_parity_buffered"
+            else -> normalizedStrategyRawCandidate
+        }
         val strategySource = when {
             strategyFromNativeHint.isNotBlank() -> "formattingHints.nativePrintStrategy"
             strategyFromOutputHint.isNotBlank() -> "formattingHints.outputStrategy"
@@ -331,6 +340,24 @@ class SunmiNativePrinterWorker(
             "grouped_small_blocks" -> PhysicalFidelityStrategy.GROUPED_SMALL_BLOCKS
             else -> DEFAULT_ACTIVE_STRATEGY
         }
+        val strategyFallbackApplied = strategyRaw.isBlank() || (strategy == DEFAULT_ACTIVE_STRATEGY && strategyRaw !in setOf(
+            "bitmap_receipt_single_image",
+            "bitmap_receipt_segmented_blocks",
+            "bitmap_smoke_test_minimal_blocks",
+            "vendor_parity_woyou_minimal_test",
+            "vendor_parity_bitmap_custom_compare",
+            "vendor_parity_bitmap_physical_diagnostics",
+            "transaction_mode_tiny_diagnostic_test",
+            "line_by_line_text_with_delay",
+            "line_by_line_text_with_explicit_linewrap",
+            "line_by_line_text_with_explicit_linewrap_ascii",
+            "line_by_line_ascii_explicit_linewrap_with_ticket_spacing",
+            "text_vendor_parity_unbuffered",
+            "direct_self_check_then_minimal_text",
+            "text_vendor_parity_buffered",
+            "grouped_small_blocks",
+        ))
+        Log.i(TAG, "native_print_strategy_parse commandId=${job.commandId} orderId=${job.orderId ?: ""} sourceJobId=${job.sourceJobId ?: ""} requestedOutputStrategyRaw=${strategyFromOutputHint} requestedNativePrintStrategyRaw=${strategyFromNativeHint} normalizedStrategyName=${strategyRaw} selectedStrategy=${strategyName(strategy)} strategySource=$strategySource fallbackApplied=$strategyFallbackApplied")
 
         return PhysicalFidelityConfig(
             strategy = strategy,
@@ -380,6 +407,9 @@ class SunmiNativePrinterWorker(
             transactionDiagnosticFinalSettleMs = (hints?.optInt("transactionDiagnosticFinalSettleMs", 200) ?: 200).coerceIn(0, 1200),
             requestedNativePrintStrategyRaw = strategyRaw,
             requestedNativePrintStrategySource = strategySource,
+            requestedOutputStrategyRaw = strategyFromOutputHint,
+            normalizedRequestedStrategy = strategyRaw,
+            strategyFallbackApplied = strategyFallbackApplied,
         )
     }
 
