@@ -28,6 +28,7 @@ private enum class PhysicalFidelityStrategy {
     BITMAP_SMOKE_TEST_MINIMAL_BLOCKS,
     VENDOR_PARITY_WOYOU_MINIMAL_TEST,
     VENDOR_PARITY_BITMAP_CUSTOM_COMPARE,
+    TRANSACTION_MODE_TINY_DIAGNOSTIC_TEST,
     GROUPED_SMALL_BLOCKS,
 }
 
@@ -88,6 +89,10 @@ private data class PhysicalFidelityConfig(
     val vendorBitmapFinalSpacingLines: Int,
     val vendorBitmapDispatchDelayMs: Int,
     val vendorBitmapFinalSettleMs: Int,
+    val transactionDiagnosticMode: String,
+    val transactionDiagnosticFinalSpacingLines: Int,
+    val transactionDiagnosticDispatchDelayMs: Int,
+    val transactionDiagnosticFinalSettleMs: Int,
 )
 
 private data class SectionLine(
@@ -163,7 +168,7 @@ class SunmiNativePrinterWorker(
                 "native_print_strategy_selected commandId=${job.commandId} orderId=${job.orderId ?: ""} sourceJobId=${job.sourceJobId ?: ""} strategy=${strategyName(fidelityConfig.strategy)} dispatchDelayMs=${fidelityConfig.dispatchDelayMs} finalSettleMs=${fidelityConfig.finalSettleMs} asciiSafeMode=${fidelityConfig.asciiSafeMode} perLineWrap=${fidelityConfig.perLineWrap} perSectionExtraWrap=${fidelityConfig.perSectionExtraWrap} finalTicketSpacingLines=${fidelityConfig.finalTicketSpacingLines} addEndDivider=${fidelityConfig.addEndDivider} bitmapSegmentedMode=${fidelityConfig.bitmapSegmentedMode} selectedFamily=${selectedFamily ?: ""} packageName=${selectedPackage ?: ""} action=${selectedAction ?: ""}",
             )
 
-            val renderedTextForDispatch = if (fidelityConfig.strategy == PhysicalFidelityStrategy.BITMAP_SMOKE_TEST_MINIMAL_BLOCKS || fidelityConfig.strategy == PhysicalFidelityStrategy.VENDOR_PARITY_WOYOU_MINIMAL_TEST || fidelityConfig.strategy == PhysicalFidelityStrategy.VENDOR_PARITY_BITMAP_CUSTOM_COMPARE) {
+            val renderedTextForDispatch = if (fidelityConfig.strategy == PhysicalFidelityStrategy.BITMAP_SMOKE_TEST_MINIMAL_BLOCKS || fidelityConfig.strategy == PhysicalFidelityStrategy.VENDOR_PARITY_WOYOU_MINIMAL_TEST || fidelityConfig.strategy == PhysicalFidelityStrategy.VENDOR_PARITY_BITMAP_CUSTOM_COMPARE || fidelityConfig.strategy == PhysicalFidelityStrategy.TRANSACTION_MODE_TINY_DIAGNOSTIC_TEST) {
                 Log.i(
                     TAG,
                     "native_print_smoke_test_render_bypass commandId=${job.commandId} orderId=${job.orderId ?: ""} sourceJobId=${job.sourceJobId ?: ""} strategy=${strategyName(fidelityConfig.strategy)} bypassRealPayloadRender=true",
@@ -288,6 +293,7 @@ class SunmiNativePrinterWorker(
             "bitmap_smoke_test_minimal_blocks" -> PhysicalFidelityStrategy.BITMAP_SMOKE_TEST_MINIMAL_BLOCKS
             "vendor_parity_woyou_minimal_test" -> PhysicalFidelityStrategy.VENDOR_PARITY_WOYOU_MINIMAL_TEST
             "vendor_parity_bitmap_custom_compare" -> PhysicalFidelityStrategy.VENDOR_PARITY_BITMAP_CUSTOM_COMPARE
+            "transaction_mode_tiny_diagnostic_test" -> PhysicalFidelityStrategy.TRANSACTION_MODE_TINY_DIAGNOSTIC_TEST
             "line_by_line_text_with_delay" -> PhysicalFidelityStrategy.LINE_BY_LINE_TEXT_WITH_DELAY
             "line_by_line_text_with_explicit_linewrap" -> PhysicalFidelityStrategy.LINE_BY_LINE_TEXT_WITH_EXPLICIT_LINEWRAP
             "line_by_line_text_with_explicit_linewrap_ascii" -> PhysicalFidelityStrategy.LINE_BY_LINE_TEXT_WITH_EXPLICIT_LINEWRAP_ASCII
@@ -338,6 +344,10 @@ class SunmiNativePrinterWorker(
             vendorBitmapFinalSpacingLines = (hints?.optInt("vendorBitmapFinalSpacingLines", 6) ?: 6).coerceIn(1, 14),
             vendorBitmapDispatchDelayMs = (hints?.optInt("vendorBitmapDispatchDelayMs", 35) ?: 35).coerceIn(0, 400),
             vendorBitmapFinalSettleMs = (hints?.optInt("vendorBitmapFinalSettleMs", 150) ?: 150).coerceIn(0, 1000),
+            transactionDiagnosticMode = hints?.optString("transactionDiagnosticMode", "text")?.lowercase()?.let { if (it == "bitmap") "bitmap" else "text" } ?: "text",
+            transactionDiagnosticFinalSpacingLines = (hints?.optInt("transactionDiagnosticFinalSpacingLines", 4) ?: 4).coerceIn(1, 12),
+            transactionDiagnosticDispatchDelayMs = (hints?.optInt("transactionDiagnosticDispatchDelayMs", 35) ?: 35).coerceIn(0, 400),
+            transactionDiagnosticFinalSettleMs = (hints?.optInt("transactionDiagnosticFinalSettleMs", 200) ?: 200).coerceIn(0, 1200),
         )
     }
 
@@ -366,6 +376,7 @@ class SunmiNativePrinterWorker(
             -> executeBitmapStrategies(service, job, sectionLines, fidelityConfig, callbackErrors, dispatchStartMs)
             PhysicalFidelityStrategy.VENDOR_PARITY_WOYOU_MINIMAL_TEST -> executeVendorParityWoyouMinimalTest(service, job, fidelityConfig, callbackErrors, dispatchStartMs)
             PhysicalFidelityStrategy.VENDOR_PARITY_BITMAP_CUSTOM_COMPARE -> executeVendorParityBitmapCustomCompare(service, job, fidelityConfig, callbackErrors, dispatchStartMs)
+            PhysicalFidelityStrategy.TRANSACTION_MODE_TINY_DIAGNOSTIC_TEST -> executeTransactionModeTinyDiagnosticTest(service, job, fidelityConfig, callbackErrors, dispatchStartMs)
 
             else -> executeTextStrategies(service, job, sectionLines, fidelityConfig, callbackErrors, dispatchStartMs)
         }
@@ -495,6 +506,115 @@ class SunmiNativePrinterWorker(
         val sequence = "printerInit->setAlignment->printBitmap(compare A/B/C/D)->lineWrap(spacing)->sendRAWData"
         Log.i(TAG, "native_print_vendor_bitmap_compare_final_summary commandId=${job.commandId} orderId=${job.orderId ?: ""} modes=${modes.joinToString(",")} spacingLinesAfterEachMode=${config.vendorBitmapSpacingLinesAfterEachMode} finalSpacingLines=${config.vendorBitmapFinalSpacingLines} dispatchDelayMs=${config.vendorBitmapDispatchDelayMs} finalSettleMs=${config.vendorBitmapFinalSettleMs} primitiveSequence=$sequence")
         return sequence
+    }
+
+
+
+    private fun executeTransactionModeTinyDiagnosticTest(
+        service: IWoyouService,
+        job: NativePrintJobEntity,
+        config: PhysicalFidelityConfig,
+        callbackErrors: MutableList<String>,
+        dispatchStartMs: Long,
+    ): String {
+        val strategy = "transaction_mode_tiny_diagnostic_test"
+        val submode = config.transactionDiagnosticMode
+        Log.i(TAG, "native_print_transaction_diagnostic_selected commandId=${job.commandId} orderId=${job.orderId ?: ""} strategy=$strategy selectedFamily=woyou_legacy_packaged packageName=woyou.aidlservice.jiuiv5 action=woyou.aidlservice.jiuiv5.IWoyouService")
+        Log.i(TAG, "native_print_transaction_diagnostic_mode commandId=${job.commandId} orderId=${job.orderId ?: ""} submode=$submode finalSpacingLines=${config.transactionDiagnosticFinalSpacingLines} dispatchDelayMs=${config.transactionDiagnosticDispatchDelayMs} finalSettleMs=${config.transactionDiagnosticFinalSettleMs}")
+
+        Log.i(TAG, "native_print_transaction_buffer_enter commandId=${job.commandId} orderId=${job.orderId ?: ""} clean=true event=start")
+        callPrinterPrimitive(job, "enterPrinterBuffer", detail = "transactionDiagnostic clean=true") {
+            service.enterPrinterBuffer(true)
+        }
+        Log.i(TAG, "native_print_transaction_buffer_enter commandId=${job.commandId} orderId=${job.orderId ?: ""} clean=true event=end")
+
+        callPrinterPrimitive(job, "setAlignment", detail = "transactionDiagnostic value=0") {
+            service.setAlignment(0, callbackForTransaction(job, strategy, submode, "setAlignment", callbackErrors, dispatchStartMs))
+        }
+
+        if (submode == "bitmap") {
+            val render = renderSmokeBitmapBlock(listOf("TX TEST B", "0987654321"), config)
+            try {
+                Log.i(TAG, "native_print_transaction_payload commandId=${job.commandId} orderId=${job.orderId ?: ""} submode=bitmap payload=TX TEST B|0987654321")
+                Log.i(TAG, "native_print_transaction_bitmap_dimensions commandId=${job.commandId} orderId=${job.orderId ?: ""} widthPx=${render.widthPx} heightPx=${render.heightPx} lineCount=${render.lineCount}")
+                callPrinterPrimitive(job, "printBitmap", detail = "transactionDiagnostic submode=bitmap width=${render.widthPx} height=${render.heightPx}") {
+                    service.printBitmap(render.bitmap, callbackForTransaction(job, strategy, submode, "printBitmap", callbackErrors, dispatchStartMs))
+                }
+            } finally {
+                render.bitmap.recycle()
+            }
+        } else {
+            Log.i(TAG, "native_print_transaction_payload commandId=${job.commandId} orderId=${job.orderId ?: ""} submode=text payload=TX TEST A|1234567890")
+            callPrinterPrimitive(job, "printText", detail = "transactionDiagnostic submode=text line=TX TEST A") {
+                service.printText("TX TEST A", callbackForTransaction(job, strategy, submode, "printText_1", callbackErrors, dispatchStartMs))
+            }
+            callPrinterPrimitive(job, "lineWrap", detail = "transactionDiagnostic submode=text lines=1") {
+                service.lineWrap(1, callbackForTransaction(job, strategy, submode, "lineWrap_1", callbackErrors, dispatchStartMs))
+            }
+            sleepAfterDispatch(job, 0, config.transactionDiagnosticDispatchDelayMs.toLong())
+            callPrinterPrimitive(job, "printText", detail = "transactionDiagnostic submode=text line=1234567890") {
+                service.printText("1234567890", callbackForTransaction(job, strategy, submode, "printText_2", callbackErrors, dispatchStartMs))
+            }
+        }
+
+        callPrinterPrimitive(job, "lineWrap", detail = "transactionDiagnostic submode=$submode lines=${config.transactionDiagnosticFinalSpacingLines}") {
+            service.lineWrap(config.transactionDiagnosticFinalSpacingLines, callbackForTransaction(job, strategy, submode, "lineWrap_final", callbackErrors, dispatchStartMs))
+        }
+
+        if (config.transactionDiagnosticFinalSettleMs > 0) {
+            runCatching { Thread.sleep(config.transactionDiagnosticFinalSettleMs.toLong()) }
+        }
+
+        val flushMethod = "exitPrinterBufferWithCallback"
+        Log.i(TAG, "native_print_transaction_buffer_exit commandId=${job.commandId} orderId=${job.orderId ?: ""} commit=true callback=true flushMethod=$flushMethod event=start")
+        callPrinterPrimitive(job, "exitPrinterBufferWithCallback", detail = "transactionDiagnostic commit=true") {
+            service.exitPrinterBufferWithCallback(true, callbackForTransaction(job, strategy, submode, "exitPrinterBufferWithCallback", callbackErrors, dispatchStartMs))
+        }
+        Log.i(TAG, "native_print_transaction_buffer_exit commandId=${job.commandId} orderId=${job.orderId ?: ""} commit=true callback=true flushMethod=$flushMethod event=end")
+        Log.i(TAG, "native_print_transaction_commit commandId=${job.commandId} orderId=${job.orderId ?: ""} called=false method=commitPrinterBufferWithCallback")
+
+        val sequence = if (submode == "bitmap") {
+            "printerInit->enterPrinterBuffer(true)->setAlignment->printBitmap(tiny)->lineWrap(final)->exitPrinterBufferWithCallback(true)"
+        } else {
+            "printerInit->enterPrinterBuffer(true)->setAlignment->printText->lineWrap(1)->printText->lineWrap(final)->exitPrinterBufferWithCallback(true)"
+        }
+        Log.i(TAG, "native_print_transaction_summary commandId=${job.commandId} orderId=${job.orderId ?: ""} selectedFamily=woyou_legacy_packaged packageName=woyou.aidlservice.jiuiv5 action=woyou.aidlservice.jiuiv5.IWoyouService submode=$submode bufferEntered=true flushMethod=$flushMethod primitiveSequence=$sequence")
+        return sequence
+    }
+
+    private fun callbackForTransaction(
+        job: NativePrintJobEntity,
+        strategy: String,
+        submode: String,
+        stage: String,
+        callbackErrors: MutableList<String>,
+        dispatchStartMs: Long,
+    ): ICallback {
+        return object : ICallback.Stub() {
+            override fun onRunResult(isSuccess: Boolean) {
+                val deltaMs = System.currentTimeMillis() - dispatchStartMs
+                Log.i(TAG, "native_print_transaction_callback commandId=${job.commandId} orderId=${job.orderId ?: ""} strategy=$strategy submode=$submode callback=onRunResult stage=$stage success=$isSuccess code=NA message=NA deltaMs=$deltaMs")
+                if (!isSuccess) callbackErrors += "$stage:onRunResult:false"
+            }
+
+            override fun onReturnString(result: String?) {
+                val deltaMs = System.currentTimeMillis() - dispatchStartMs
+                Log.i(TAG, "native_print_transaction_callback commandId=${job.commandId} orderId=${job.orderId ?: ""} strategy=$strategy submode=$submode callback=onReturnString stage=$stage success=true code=NA message=${result ?: ""} deltaMs=$deltaMs")
+            }
+
+            override fun onRaiseException(code: Int, msg: String?) {
+                val deltaMs = System.currentTimeMillis() - dispatchStartMs
+                Log.i(TAG, "native_print_transaction_callback commandId=${job.commandId} orderId=${job.orderId ?: ""} strategy=$strategy submode=$submode callback=onRaiseException stage=$stage success=false code=$code message=${msg ?: "unknown"} deltaMs=$deltaMs")
+                callbackErrors += "$stage:onRaiseException:$code:${msg ?: "unknown"}"
+            }
+
+            override fun onPrintResult(code: Int, msg: String?) {
+                val deltaMs = System.currentTimeMillis() - dispatchStartMs
+                val success = code == 0
+                Log.i(TAG, "native_print_transaction_callback commandId=${job.commandId} orderId=${job.orderId ?: ""} strategy=$strategy submode=$submode callback=onPrintResult stage=$stage success=$success code=$code message=${msg ?: ""} deltaMs=$deltaMs")
+                if (!success) callbackErrors += "$stage:onPrintResult:$code:${msg ?: "unknown"}"
+            }
+        }
     }
 
     private fun renderVendorBitmapComparePayload(
@@ -948,6 +1068,7 @@ class SunmiNativePrinterWorker(
             PhysicalFidelityStrategy.BITMAP_SMOKE_TEST_MINIMAL_BLOCKS -> "bitmap_smoke_test_minimal_blocks"
             PhysicalFidelityStrategy.VENDOR_PARITY_WOYOU_MINIMAL_TEST -> "vendor_parity_woyou_minimal_test"
             PhysicalFidelityStrategy.VENDOR_PARITY_BITMAP_CUSTOM_COMPARE -> "vendor_parity_bitmap_custom_compare"
+            PhysicalFidelityStrategy.TRANSACTION_MODE_TINY_DIAGNOSTIC_TEST -> "transaction_mode_tiny_diagnostic_test"
             PhysicalFidelityStrategy.GROUPED_SMALL_BLOCKS -> "grouped_small_blocks"
         }
     }
@@ -1025,6 +1146,12 @@ class SunmiNativePrinterWorker(
                 val deltaMs = System.currentTimeMillis() - dispatchStartMs
                 Log.i(TAG, "native_print_low_level_callback commandId=${job.commandId} orderId=${job.orderId ?: ""} step=$step callback=onRaiseException success=false code=$code message=${msg ?: "unknown"} deltaMs=$deltaMs")
                 callbackErrors += "$step:onRaiseException:$code:${msg ?: "unknown"}"
+            }
+            override fun onPrintResult(code: Int, msg: String?) {
+                val deltaMs = System.currentTimeMillis() - dispatchStartMs
+                val success = code == 0
+                Log.i(TAG, "native_print_low_level_callback commandId=${job.commandId} orderId=${job.orderId ?: ""} step=$step callback=onPrintResult success=$success code=$code message=${msg ?: ""} deltaMs=$deltaMs")
+                if (!success) callbackErrors += "$step:onPrintResult:$code:${msg ?: "unknown"}"
             }
         }
     }
