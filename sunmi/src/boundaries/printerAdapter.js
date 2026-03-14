@@ -109,17 +109,19 @@ function createNativeBridgePrinterAdapter(nativeBridge) {
       orderId: printJob?.orderId || null,
     }));
 
-    const payload = JSON.stringify(printJob);
+    const finalPayload = printJob;
+    const payload = JSON.stringify(finalPayload);
     const methodName = resolvePrintMethod();
 
     if (methodName === 'submitPrintCommand') {
-      debugLog('submit_print_command_payload_trace', {
-        forceOutputStrategy: forceOutputStrategy || '',
+      const submitPayloadTrace = {
         outputStrategyTopLevel: outputStrategyTopLevel || '',
-        formattingHintsOutputStrategy: outputStrategy || '',
-        formattingHintsNativePrintStrategy: nativePrintStrategy || '',
-        payload: printJob,
-      });
+        forceOutputStrategy: forceOutputStrategy || '',
+        'formattingHints.outputStrategy': outputStrategy || '',
+        'formattingHints.nativePrintStrategy': nativePrintStrategy || '',
+      };
+      debugLog('submit_print_command_payload_trace_json', JSON.stringify(submitPayloadTrace));
+      debugLog('submit_print_command_payload_final_json', payload);
     }
 
     if (!methodName) {
