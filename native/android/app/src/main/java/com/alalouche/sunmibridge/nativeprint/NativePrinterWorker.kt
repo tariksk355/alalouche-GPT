@@ -23,6 +23,7 @@ private enum class PhysicalFidelityStrategy {
     LINE_BY_LINE_TEXT_WITH_EXPLICIT_LINEWRAP,
     LINE_BY_LINE_TEXT_WITH_EXPLICIT_LINEWRAP_ASCII,
     LINE_BY_LINE_ASCII_EXPLICIT_LINEWRAP_WITH_TICKET_SPACING,
+    TEXT_VENDOR_PARITY_BUFFERED,
     BITMAP_RECEIPT_SINGLE_IMAGE,
     BITMAP_RECEIPT_SEGMENTED_BLOCKS,
     BITMAP_SMOKE_TEST_MINIMAL_BLOCKS,
@@ -322,6 +323,7 @@ class SunmiNativePrinterWorker(
             "line_by_line_text_with_explicit_linewrap" -> PhysicalFidelityStrategy.LINE_BY_LINE_TEXT_WITH_EXPLICIT_LINEWRAP
             "line_by_line_text_with_explicit_linewrap_ascii" -> PhysicalFidelityStrategy.LINE_BY_LINE_TEXT_WITH_EXPLICIT_LINEWRAP_ASCII
             "line_by_line_ascii_explicit_linewrap_with_ticket_spacing" -> PhysicalFidelityStrategy.LINE_BY_LINE_ASCII_EXPLICIT_LINEWRAP_WITH_TICKET_SPACING
+            "text_vendor_parity_buffered" -> PhysicalFidelityStrategy.TEXT_VENDOR_PARITY_BUFFERED
             "grouped_small_blocks" -> PhysicalFidelityStrategy.GROUPED_SMALL_BLOCKS
             else -> DEFAULT_ACTIVE_STRATEGY
         }
@@ -409,6 +411,7 @@ class SunmiNativePrinterWorker(
             PhysicalFidelityStrategy.VENDOR_PARITY_BITMAP_CUSTOM_COMPARE -> executeVendorParityBitmapCustomCompare(service, job, fidelityConfig, callbackErrors, dispatchStartMs)
             PhysicalFidelityStrategy.VENDOR_PARITY_BITMAP_PHYSICAL_DIAGNOSTICS -> executeVendorParityBitmapPhysicalDiagnostics(service, job, fidelityConfig, callbackErrors, dispatchStartMs)
             PhysicalFidelityStrategy.TRANSACTION_MODE_TINY_DIAGNOSTIC_TEST -> executeTransactionModeTinyDiagnosticTest(service, job, fidelityConfig, callbackErrors, dispatchStartMs)
+            PhysicalFidelityStrategy.TEXT_VENDOR_PARITY_BUFFERED -> executeTextVendorParityBuffered(service, job, sectionLines, fidelityConfig, callbackErrors, dispatchStartMs)
 
             else -> executeTextStrategies(service, job, sectionLines, fidelityConfig, callbackErrors, dispatchStartMs)
         }
@@ -1148,6 +1151,95 @@ class SunmiNativePrinterWorker(
 
     private fun pxToLines(px: Int, lineHeightPx: Int): Int = max(1, px / max(1, lineHeightPx))
 
+    private fun executeTextVendorParityBuffered(
+        service: IWoyouService,
+        job: NativePrintJobEntity,
+        sectionLines: List<SectionLine>,
+        config: PhysicalFidelityConfig,
+        callbackErrors: MutableList<String>,
+        dispatchStartMs: Long,
+    ): String {
+        Log.i(TAG, "native_print_text_vendor_parity_buffered_selected commandId=${job.commandId} orderId=${job.orderId ?: ""} strategy=text_vendor_parity_buffered")
+        Log.i(TAG, "native_print_text_vendor_parity_buffered_service_info commandId=${job.commandId} orderId=${job.orderId ?: ""} selectedFamily=woyou_legacy_packaged packageName=woyou.aidlservice.jiuiv5 action=woyou.aidlservice.jiuiv5.IWoyouService")
+
+        callPrinterPrimitive(job, "enterPrinterBuffer", detail = "textVendorParity clean=true") {
+            service.enterPrinterBuffer(true)
+        }
+
+        val headerLines = sectionLines.filter { it.section in setOf(SemanticSection.HEADER, SemanticSection.CUSTOMER, SemanticSection.ADDRESS, SemanticSection.PAYMENT, SemanticSection.TIMESTAMP, SemanticSection.HISTORY, SemanticSection.PREPARATION) }
+        val articleLines = sectionLines.filter { it.section == SemanticSection.ARTICLE_LINE }
+        val totalLines = sectionLines.filter { it.section == SemanticSection.TOTAL }
+        val otherLines = sectionLines.filter { it.section in setOf(SemanticSection.ARTICLES_HEADER, SemanticSection.DIVIDER, SemanticSection.FOOTER_GAP) }
+
+        headerLines.forEachIndexed { idx, line ->
+            callPrinterPrimitive(job, "printText", detail = "textVendorParity section=header index=$idx") {
+                service.printText(line.text, callbackFor(job, "textVendorParity_header_$idx", callbackErrors, dispatchStartMs))
+            }
+        }
+        callPrinterPrimitive(job, "lineWrap", detail = "textVendorParity sectionGap=header_to_articles lines=2") {
+            service.lineWrap(2, callbackFor(job, "textVendorParity_gap_header_articles", callbackErrors, dispatchStartMs))
+        }
+
+        otherLines.forEachIndexed { idx, line ->
+            callPrinterPrimitive(job, "printText", detail = "textVendorParity section=articlesHeader index=$idx") {
+                service.printText(line.text, callbackFor(job, "textVendorParity_articlesHeader_$idx", callbackErrors, dispatchStartMs))
+            }
+        }
+        if (otherLines.isNotEmpty()) {
+            callPrinterPrimitive(job, "lineWrap", detail = "textVendorParity sectionGap=articles_header_to_items lines=1") {
+                service.lineWrap(1, callbackFor(job, "textVendorParity_gap_articles_header_items", callbackErrors, dispatchStartMs))
+            }
+        }
+
+        articleLines.forEachIndexed { idx, line ->
+            val src = if (config.asciiSafeMode) toSafeAscii(line.text).text else line.text
+            val match = Regex("^(\\d+)\\s*x\\s+(.+)$", RegexOption.IGNORE_CASE).find(src)
+            val qty = match?.groupValues?.getOrNull(1) ?: "1"
+            val name = (match?.groupValues?.getOrNull(2) ?: src).take(24)
+            val colsText = arrayOf(qty, name)
+            val colsWidth = intArrayOf(6, 26)
+            val colsAlign = intArrayOf(0, 0)
+            callPrinterPrimitive(job, "printColumnsText", detail = "textVendorParity section=articles index=$idx qty=$qty") {
+                service.printColumnsText(colsText, colsWidth, colsAlign, callbackFor(job, "textVendorParity_articleCols_$idx", callbackErrors, dispatchStartMs))
+            }
+            callPrinterPrimitive(job, "lineWrap", detail = "textVendorParity section=articles rowSpacing lines=1") {
+                service.lineWrap(1, callbackFor(job, "textVendorParity_articleRowWrap_$idx", callbackErrors, dispatchStartMs))
+            }
+        }
+
+        if (totalLines.isNotEmpty()) {
+            callPrinterPrimitive(job, "lineWrap", detail = "textVendorParity sectionGap=items_to_total lines=2") {
+                service.lineWrap(2, callbackFor(job, "textVendorParity_gap_items_total", callbackErrors, dispatchStartMs))
+            }
+        }
+
+        totalLines.forEachIndexed { idx, line ->
+            val src = if (config.asciiSafeMode) toSafeAscii(line.text).text else line.text
+            val parts = src.split(":", limit = 2)
+            val left = parts.firstOrNull()?.trim()?.ifBlank { "TOTAL" } ?: "TOTAL"
+            val right = parts.getOrNull(1)?.trim().orEmpty().ifBlank { src.take(12) }
+            val colsText = arrayOf(left.take(20), right.take(12))
+            val colsWidth = intArrayOf(20, 12)
+            val colsAlign = intArrayOf(0, 2)
+            callPrinterPrimitive(job, "printColumnsText", detail = "textVendorParity section=total index=$idx") {
+                service.printColumnsText(colsText, colsWidth, colsAlign, callbackFor(job, "textVendorParity_totalCols_$idx", callbackErrors, dispatchStartMs))
+            }
+        }
+
+        callPrinterPrimitive(job, "commitPrinterBufferWithCallback", detail = "textVendorParity") {
+            service.commitPrinterBufferWithCallback(callbackFor(job, "textVendorParity_commitBuffer", callbackErrors, dispatchStartMs))
+        }
+
+        val ticketSpacingLines = max(6, config.finalTicketSpacingLines)
+        callPrinterPrimitive(job, "lineWrap", detail = "textVendorParity finalTicketFeed lines=$ticketSpacingLines") {
+            service.lineWrap(ticketSpacingLines, callbackFor(job, "textVendorParity_finalFeed", callbackErrors, dispatchStartMs))
+        }
+
+        val sequence = "printerInit->setAlignment->enterPrinterBuffer(true)->printText/printColumnsText(sections)->lineWrap(section_spacing)->commitPrinterBufferWithCallback->lineWrap(final_feed)"
+        Log.i(TAG, "native_print_text_vendor_parity_buffered_summary commandId=${job.commandId} orderId=${job.orderId ?: ""} headerLines=${headerLines.size} articleLines=${articleLines.size} totalLines=${totalLines.size} finalTicketFeedLines=$ticketSpacingLines primitiveSequence=$sequence")
+        return sequence
+    }
+
     private fun executeTextStrategies(
         service: IWoyouService,
         job: NativePrintJobEntity,
@@ -1288,6 +1380,7 @@ class SunmiNativePrinterWorker(
             PhysicalFidelityStrategy.LINE_BY_LINE_TEXT_WITH_EXPLICIT_LINEWRAP -> "line_by_line_text_with_explicit_linewrap"
             PhysicalFidelityStrategy.LINE_BY_LINE_TEXT_WITH_EXPLICIT_LINEWRAP_ASCII -> "line_by_line_text_with_explicit_linewrap_ascii"
             PhysicalFidelityStrategy.LINE_BY_LINE_ASCII_EXPLICIT_LINEWRAP_WITH_TICKET_SPACING -> "line_by_line_ascii_explicit_linewrap_with_ticket_spacing"
+            PhysicalFidelityStrategy.TEXT_VENDOR_PARITY_BUFFERED -> "text_vendor_parity_buffered"
             PhysicalFidelityStrategy.BITMAP_RECEIPT_SINGLE_IMAGE -> "bitmap_receipt_single_image"
             PhysicalFidelityStrategy.BITMAP_RECEIPT_SEGMENTED_BLOCKS -> "bitmap_receipt_segmented_blocks"
             PhysicalFidelityStrategy.BITMAP_SMOKE_TEST_MINIMAL_BLOCKS -> "bitmap_smoke_test_minimal_blocks"
@@ -1385,7 +1478,7 @@ class SunmiNativePrinterWorker(
 
     companion object {
         private const val TAG = "NativePrinterWorker"
-        private val DEFAULT_ACTIVE_STRATEGY = PhysicalFidelityStrategy.VENDOR_PARITY_BITMAP_CUSTOM_COMPARE
+        private val DEFAULT_ACTIVE_STRATEGY = PhysicalFidelityStrategy.TEXT_VENDOR_PARITY_BUFFERED
         private const val DEFAULT_BITMAP_WIDTH_PX = 384
         private const val MAX_SINGLE_BITMAP_HEIGHT_PX = 2600
         private const val DEFAULT_LINE_DELAY_MS = 35L
