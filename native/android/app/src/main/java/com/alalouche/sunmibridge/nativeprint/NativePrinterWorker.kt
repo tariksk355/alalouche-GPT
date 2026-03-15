@@ -445,7 +445,7 @@ class SunmiNativePrinterWorker(
             PhysicalFidelityStrategy.VENDOR_PARITY_BITMAP_CUSTOM_COMPARE -> executeVendorParityBitmapCustomCompare(service, job, fidelityConfig, callbackErrors, dispatchStartMs)
             PhysicalFidelityStrategy.VENDOR_PARITY_BITMAP_PHYSICAL_DIAGNOSTICS -> executeVendorParityBitmapPhysicalDiagnostics(service, job, fidelityConfig, callbackErrors, dispatchStartMs)
             PhysicalFidelityStrategy.TRANSACTION_MODE_TINY_DIAGNOSTIC_TEST -> executeTransactionModeTinyDiagnosticTest(service, job, fidelityConfig, callbackErrors, dispatchStartMs)
-            PhysicalFidelityStrategy.TEXT_VENDOR_PARITY_UNBUFFERED -> executeTextVendorParityUnbuffered(service, job, sectionLines, fidelityConfig, callbackErrors, dispatchStartMs)
+            PhysicalFidelityStrategy.TEXT_VENDOR_PARITY_UNBUFFERED -> executeTextVendorParityRobust(service, job, sectionLines, fidelityConfig, callbackErrors, dispatchStartMs)
             PhysicalFidelityStrategy.DIRECT_SELF_CHECK_THEN_MINIMAL_TEXT -> executeDirectSelfCheckThenMinimalText(service, job, fidelityConfig, callbackErrors, dispatchStartMs)
             PhysicalFidelityStrategy.TEXT_VENDOR_PARITY_BUFFERED -> executeTextVendorParityBuffered(service, job, sectionLines, fidelityConfig, callbackErrors, dispatchStartMs)
 
@@ -1266,6 +1266,70 @@ class SunmiNativePrinterWorker(
         val sequence = "printerInit->setAlignment->printText(line+\n)->lineWrap(section_gaps)->lineWrap(4)"
         Log.i(TAG, "native_print_text_vendor_parity_unbuffered_summary commandId=${job.commandId} orderId=${job.orderId ?: ""} renderedLineCount=${sectionLines.size} finalFeedLines=4 primitiveSequence=$sequence")
         return sequence
+    }
+
+    private fun executeTextVendorParityRobust(
+        service: IWoyouService,
+        job: NativePrintJobEntity,
+        sectionLines: List<SectionLine>,
+        config: PhysicalFidelityConfig,
+        callbackErrors: MutableList<String>,
+        dispatchStartMs: Long,
+    ): String {
+        val fullTextPayload = sectionLines.joinToString("\n") {
+            if (config.asciiSafeMode) toSafeAscii(it.text).text else it.text
+        } + "\n"
+
+        Log.i(
+            TAG,
+            "native_print_text_vendor_parity_robust_selected commandId=${job.commandId} orderId=${job.orderId ?: ""} requestedStrategy=${config.requestedNativePrintStrategyRaw} fallbackOrder=single_block_text->buffered_transactional->bitmap_segmented renderedLineCount=${sectionLines.size} payloadLength=${fullTextPayload.length}",
+        )
+
+        val singleBlockCallbackErrorStart = callbackErrors.size
+        val singleBlockResult = runCatching {
+            Log.i(TAG, "native_print_text_vendor_parity_robust_attempt commandId=${job.commandId} orderId=${job.orderId ?: ""} mode=single_block_text fragmented=false renderedLineCount=${sectionLines.size} payloadLength=${fullTextPayload.length}")
+            callPrinterPrimitive(job, "printText", detail = "robustSingleBlock payloadLength=${fullTextPayload.length}") {
+                service.printText(fullTextPayload, callbackFor(job, "robustSingleBlock_printText", callbackErrors, dispatchStartMs))
+            }
+            val finalFeedLines = max(4, config.finalTicketSpacingLines)
+            callPrinterPrimitive(job, "lineWrap", detail = "robustSingleBlock finalFeed lines=$finalFeedLines") {
+                service.lineWrap(finalFeedLines, callbackFor(job, "robustSingleBlock_finalFeed", callbackErrors, dispatchStartMs))
+            }
+            val rawFeed = byteArrayOf(0x1B, 0x64, 0x03)
+            callPrinterPrimitive(job, "sendRAWData", detail = "robustSingleBlock bytes=${rawFeed.size} flush=true") {
+                service.sendRAWData(rawFeed, callbackFor(job, "robustSingleBlock_sendRAWData", callbackErrors, dispatchStartMs))
+            }
+            "printerInit->setAlignment->printText(full_ticket_single_block)->lineWrap(final_feed)->sendRAWData"
+        }
+
+        val singleBlockHadCallbackError = callbackErrors.size > singleBlockCallbackErrorStart
+        if (singleBlockResult.isSuccess && !singleBlockHadCallbackError) {
+            Log.i(TAG, "native_print_text_vendor_parity_robust_attempt_result commandId=${job.commandId} orderId=${job.orderId ?: ""} mode=single_block_text success=true callbackErrorsAdded=0")
+            return singleBlockResult.getOrThrow()
+        }
+        Log.w(
+            TAG,
+            "native_print_text_vendor_parity_robust_attempt_result commandId=${job.commandId} orderId=${job.orderId ?: ""} mode=single_block_text success=false callbackErrorsAdded=${callbackErrors.size - singleBlockCallbackErrorStart} reason=${singleBlockResult.exceptionOrNull()?.message ?: "callback_error"}",
+        )
+
+        val bufferedCallbackErrorStart = callbackErrors.size
+        val bufferedResult = runCatching {
+            Log.i(TAG, "native_print_text_vendor_parity_robust_attempt commandId=${job.commandId} orderId=${job.orderId ?: ""} mode=buffered_transactional fragmented=true renderedLineCount=${sectionLines.size} payloadLength=${fullTextPayload.length}")
+            executeTextVendorParityBuffered(service, job, sectionLines, config, callbackErrors, dispatchStartMs)
+        }
+        val bufferedHadCallbackError = callbackErrors.size > bufferedCallbackErrorStart
+        if (bufferedResult.isSuccess && !bufferedHadCallbackError) {
+            Log.i(TAG, "native_print_text_vendor_parity_robust_attempt_result commandId=${job.commandId} orderId=${job.orderId ?: ""} mode=buffered_transactional success=true callbackErrorsAdded=0 commitCall=commitPrinterBufferWithCallback")
+            return bufferedResult.getOrThrow()
+        }
+        Log.w(
+            TAG,
+            "native_print_text_vendor_parity_robust_attempt_result commandId=${job.commandId} orderId=${job.orderId ?: ""} mode=buffered_transactional success=false callbackErrorsAdded=${callbackErrors.size - bufferedCallbackErrorStart} reason=${bufferedResult.exceptionOrNull()?.message ?: "callback_error"}",
+        )
+
+        Log.w(TAG, "native_print_text_vendor_parity_robust_fallback commandId=${job.commandId} orderId=${job.orderId ?: ""} mode=bitmap_segmented finalFallback=true")
+        val bitmapConfig = config.copy(strategy = PhysicalFidelityStrategy.BITMAP_RECEIPT_SEGMENTED_BLOCKS)
+        return executeBitmapStrategies(service, job, sectionLines, bitmapConfig, callbackErrors, dispatchStartMs)
     }
 
     private fun executeTextVendorParityBuffered(
