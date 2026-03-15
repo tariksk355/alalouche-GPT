@@ -23,6 +23,11 @@ private enum class OfficialProbeMode {
     OFFICIAL_PROBE_BITMAP_ONLY_PRINTBITMAPCUSTOM,
 }
 
+private enum class OfficialProductionBitmapPrimitive {
+    PRINT_BITMAP,
+    PRINT_BITMAP_CUSTOM,
+}
+
 class OfficialLibraryPrinterProbe(
     private val context: Context,
 ) {
@@ -34,6 +39,7 @@ class OfficialLibraryPrinterProbe(
 
         Log.i(TAG, "native_print_official_probe_start commandId=${job.commandId} orderId=${job.orderId ?: ""} path=OFFICIAL_LIBRARY_PATH")
         Log.i(TAG, "official_probe_mode commandId=${job.commandId} orderId=${job.orderId ?: ""} official_probe_mode=${probeMode.name}")
+        Log.i(TAG, "official_production_bitmap_primitive_default commandId=${job.commandId} orderId=${job.orderId ?: ""} primitive=${DEFAULT_PRODUCTION_BITMAP_PRIMITIVE.name}")
         Log.i(TAG, "official_library_bind_start commandId=${job.commandId} orderId=${job.orderId ?: ""} activePrinterPath=OFFICIAL_LIBRARY_PATH")
         Log.i(TAG, "official_library_resolved_symbols managerClass=${InnerPrinterManager::class.java.name} bindCallbackBase=${InnerPrinterCallback::class.java.name} resultCallbackBase=${InnerResultCallback::class.java.name} serviceClass=${SunmiPrinterService::class.java.name}")
         val bindCallback = object : InnerPrinterCallback() {
@@ -213,6 +219,24 @@ class OfficialLibraryPrinterProbe(
         return OfficialProbeMode.entries.firstOrNull { it.name == normalized } ?: DEFAULT_OFFICIAL_PROBE_MODE
     }
 
+    private fun dispatchBitmapByProductionPrimitive(
+        service: SunmiPrinterService,
+        bitmap: Bitmap,
+        job: NativePrintJobEntity,
+        callbackErrors: MutableList<String>,
+    ) {
+        when (DEFAULT_PRODUCTION_BITMAP_PRIMITIVE) {
+            OfficialProductionBitmapPrimitive.PRINT_BITMAP -> {
+                Log.i(TAG, "official_production_bitmap_dispatch commandId=${job.commandId} orderId=${job.orderId ?: ""} primitive=PRINT_BITMAP")
+                service.printBitmap(bitmap, callbackForOfficial(job, "production_printBitmap", callbackErrors))
+            }
+            OfficialProductionBitmapPrimitive.PRINT_BITMAP_CUSTOM -> {
+                Log.i(TAG, "official_production_bitmap_dispatch commandId=${job.commandId} orderId=${job.orderId ?: ""} primitive=PRINT_BITMAP_CUSTOM type=1")
+                service.printBitmapCustom(bitmap, 1, callbackForOfficial(job, "production_printBitmapCustom_type_1", callbackErrors))
+            }
+        }
+    }
+
     private fun renderDeterministicBitmap(): Bitmap {
         val widthPx = 384
         val lines = listOf("TEST", "HELLO", "123", "END")
@@ -242,7 +266,9 @@ class OfficialLibraryPrinterProbe(
         private const val TAG = "OfficialLibraryProbe"
         private const val CALLBACK_TIMEOUT_MS = 1800L
         private const val BIND_TIMEOUT_MS = 3500L
-        private val DEFAULT_OFFICIAL_PROBE_MODE = OfficialProbeMode.OFFICIAL_PROBE_BITMAP_ONLY_PRINTBITMAP
-        private const val ACTIVE_OFFICIAL_PROBE_MODE = "OFFICIAL_PROBE_BITMAP_ONLY_PRINTBITMAP" // OFFICIAL_PROBE_TEXT_ONLY | OFFICIAL_PROBE_BITMAP_ONLY_PRINTBITMAP | OFFICIAL_PROBE_BITMAP_ONLY_PRINTBITMAPCUSTOM
+        private val DEFAULT_OFFICIAL_PROBE_MODE = OfficialProbeMode.OFFICIAL_PROBE_BITMAP_ONLY_PRINTBITMAPCUSTOM
+        private const val ACTIVE_OFFICIAL_PROBE_MODE = "OFFICIAL_PROBE_BITMAP_ONLY_PRINTBITMAPCUSTOM" // OFFICIAL_PROBE_TEXT_ONLY | OFFICIAL_PROBE_BITMAP_ONLY_PRINTBITMAP | OFFICIAL_PROBE_BITMAP_ONLY_PRINTBITMAPCUSTOM
+        // Production rollout switch-point: keep PRINT_BITMAP as preferred default receipt primitive unless PRINT_BITMAP_CUSTOM is proven reliable.
+        private val DEFAULT_PRODUCTION_BITMAP_PRIMITIVE = OfficialProductionBitmapPrimitive.PRINT_BITMAP // PRINT_BITMAP or PRINT_BITMAP_CUSTOM
     }
 }
