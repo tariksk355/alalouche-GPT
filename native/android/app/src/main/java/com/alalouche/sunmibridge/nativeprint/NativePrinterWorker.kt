@@ -133,6 +133,7 @@ private data class TransactionCallbackStats(
     var onReturnStringFired: Boolean = false,
     var onRaiseExceptionFired: Boolean = false,
     var onPrintResultFired: Boolean = false,
+    var lastPrintResultCode: Int? = null,
 )
 
 private class LowLevelStepException(
@@ -160,6 +161,7 @@ private enum class RobustPrintTestMode(
     MODE_G(strategyMode = "line_by_line_text_explicit", usePrinterInit = true),
     MODE_H(strategyMode = "line_by_line_text_paced", usePrinterInit = true),
     MODE_I(strategyMode = "text_only_single_call", usePrinterInit = true),
+    MODE_K(strategyMode = "strict_bitmap_transaction_single_image", usePrinterInit = true),
     BUFFER_PROBE_ONLY(strategyMode = "buffer_probe_only", usePrinterInit = false),
     SINGLE_BLOCK_TEXT_CALLBACK_GATED(strategyMode = "single_block_text_callback_gated", usePrinterInit = false),
 }
@@ -475,9 +477,10 @@ class SunmiNativePrinterWorker(
             } else {
                 Log.i(TAG, "native_print_printer_init_skipped commandId=${job.commandId} orderId=${job.orderId ?: ""} selectedTestMode=${telemetry.selectedTestMode}")
             }
-            val shouldSkipAlignment = testMode == RobustPrintTestMode.MODE_I
+            val shouldSkipAlignment = testMode == RobustPrintTestMode.MODE_I || testMode == RobustPrintTestMode.MODE_K
             if (shouldSkipAlignment) {
-                Log.i(TAG, "native_print_mode_i_skip_primitive commandId=${job.commandId} orderId=${job.orderId ?: ""} primitive=setAlignment reason=text_only_minimal_mode")
+                val reason = if (testMode == RobustPrintTestMode.MODE_K) "strict_bitmap_transaction_mode_k" else "text_only_minimal_mode"
+                Log.i(TAG, "native_print_strict_mode_skip_primitive commandId=${job.commandId} orderId=${job.orderId ?: ""} selectedTestMode=${testMode?.name ?: "LEGACY_DEFAULT"} primitive=setAlignment reason=$reason")
             } else {
                 callPrinterPrimitive(job, "setAlignment", detail = "value=0") {
                     service.setAlignment(0, callbackFor(job, "setAlignment", callbackErrors, dispatchStartMs))
@@ -939,12 +942,46 @@ class SunmiNativePrinterWorker(
             override fun onPrintResult(code: Int, msg: String?) {
                 callbackStats.anyCallbackFired = true
                 callbackStats.onPrintResultFired = true
+                callbackStats.lastPrintResultCode = code
                 val deltaMs = System.currentTimeMillis() - dispatchStartMs
                 val success = code == 0
                 Log.i(TAG, "native_print_transaction_callback commandId=${job.commandId} orderId=${job.orderId ?: ""} strategy=$strategy submode=$submode callback=onPrintResult stage=$stage success=$success code=$code message=${msg ?: ""} deltaMs=$deltaMs")
                 if (!success) callbackErrors += "$stage:onPrintResult:$code:${msg ?: "unknown"}"
             }
         }
+    }
+
+    private fun renderModeKBitmap(lines: List<String>): BitmapRenderResult {
+        val widthPx = 384
+        val horizontalPaddingPx = 24
+        val topPaddingPx = 28
+        val bottomPaddingPx = 28
+        val lineHeightPx = 52
+        val heightPx = max(220, topPaddingPx + bottomPaddingPx + (lines.size * lineHeightPx))
+
+        val bmp = Bitmap.createBitmap(widthPx, heightPx, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bmp)
+        canvas.drawColor(Color.WHITE)
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.BLACK
+            textSize = 36f
+            typeface = Typeface.MONOSPACE
+        }
+
+        var y = topPaddingPx + lineHeightPx
+        lines.forEach { line ->
+            canvas.drawText(line, horizontalPaddingPx.toFloat(), y.toFloat(), paint)
+            y += lineHeightPx
+        }
+
+        return BitmapRenderResult(
+            bitmap = bmp,
+            widthPx = widthPx,
+            heightPx = heightPx,
+            lineCount = lines.size,
+            firstLinePreview = lines.firstOrNull().orEmpty(),
+            lastLinePreview = lines.lastOrNull().orEmpty(),
+        )
     }
 
     private fun renderVendorBitmapComparePayload(
@@ -1373,11 +1410,66 @@ class SunmiNativePrinterWorker(
             -> executeLineByLineTextModeH(service, job, callbackErrors, dispatchStartMs)
             RobustPrintTestMode.MODE_I,
             -> executeTextOnlySingleCallModeI(service, job, callbackErrors, dispatchStartMs)
+            RobustPrintTestMode.MODE_K,
+            -> executeStrictBitmapTransactionModeK(service, job, callbackErrors, dispatchStartMs)
             RobustPrintTestMode.BUFFER_PROBE_ONLY,
             -> executeBufferProbeOnly(service, job, callbackErrors, dispatchStartMs)
             RobustPrintTestMode.SINGLE_BLOCK_TEXT_CALLBACK_GATED,
             -> executeSingleBlockTextCallbackGated(service, job, callbackErrors, dispatchStartMs)
         }
+    }
+
+    private fun executeStrictBitmapTransactionModeK(
+        service: IWoyouService,
+        job: NativePrintJobEntity,
+        callbackErrors: MutableList<String>,
+        dispatchStartMs: Long,
+    ): String {
+        val callbackStats = TransactionCallbackStats()
+        var commandAccepted = true
+        var transactionSubmitted = false
+
+        Log.i(TAG, "native_print_mode_k_selected commandId=${job.commandId} orderId=${job.orderId ?: ""} selectedTestMode=MODE_K fallbackUsed=false strictNoFallback=true")
+        Log.i(TAG, "native_print_mode_k_service_info commandId=${job.commandId} orderId=${job.orderId ?: ""} selectedFamily=woyou_legacy_packaged packageName=woyou.aidlservice.jiuiv5 action=woyou.aidlservice.jiuiv5.IWoyouService")
+
+        Log.i(TAG, "native_print_mode_k_sleep commandId=${job.commandId} orderId=${job.orderId ?: ""} stage=post_printer_init durationMs=300")
+        runCatching { Thread.sleep(300L) }
+
+        callPrinterPrimitive(job, "enterPrinterBuffer", detail = "modeK clean=true") {
+            service.enterPrinterBuffer(true)
+        }
+
+        val render = renderModeKBitmap(listOf("TEST", "HELLO", "123", "END"))
+        try {
+            Log.i(TAG, "native_print_mode_k_bitmap_dimensions commandId=${job.commandId} orderId=${job.orderId ?: ""} widthPx=${render.widthPx} heightPx=${render.heightPx} lineCount=${render.lineCount}")
+            callPrinterPrimitive(job, "printBitmap", detail = "modeK width=${render.widthPx} height=${render.heightPx}") {
+                service.printBitmap(render.bitmap, callbackForTransaction(job, "strict_bitmap_transaction_single_image", "mode_k", "printBitmap", callbackErrors, dispatchStartMs, callbackStats))
+            }
+
+            val commitCallback = callbackForTransaction(job, "strict_bitmap_transaction_single_image", "mode_k", "commitPrinterBufferWithCallback", callbackErrors, dispatchStartMs, callbackStats)
+            Log.i(TAG, "native_print_mode_k_callback_impl commandId=${job.commandId} orderId=${job.orderId ?: ""} callbackCreated=true callbackType=${commitCallback::class.java.name} callbackStubBased=${commitCallback is ICallback.Stub}")
+            callPrinterPrimitive(job, "commitPrinterBufferWithCallback", detail = "modeK") {
+                service.commitPrinterBufferWithCallback(commitCallback)
+            }
+            transactionSubmitted = true
+        } catch (t: Throwable) {
+            commandAccepted = false
+            throw t
+        } finally {
+            render.bitmap.recycle()
+        }
+
+        Log.i(TAG, "native_print_mode_k_sleep commandId=${job.commandId} orderId=${job.orderId ?: ""} stage=final_settle durationMs=1000")
+        runCatching { Thread.sleep(1000L) }
+
+        val onPrintResultCode = callbackStats.lastPrintResultCode?.toString() ?: "NA"
+        val physicalOutcome = if (callbackStats.onPrintResultFired) "OBSERVED_VIA_CALLBACK_ONLY" else "UNKNOWN"
+        Log.i(
+            TAG,
+            "native_print_mode_k_summary commandId=${job.commandId} orderId=${job.orderId ?: ""} selectedTestMode=MODE_K fallbackUsed=false commandAccepted=$commandAccepted transactionSubmitted=$transactionSubmitted onPrintResultObserved=${callbackStats.onPrintResultFired} onPrintResultCode=$onPrintResultCode physicalOutcome=$physicalOutcome callbacksFired=${callbackStats.anyCallbackFired} onRunResultFired=${callbackStats.onRunResultFired} onRaiseExceptionFired=${callbackStats.onRaiseExceptionFired}",
+        )
+
+        return "printerInit->sleep(300ms)->enterPrinterBuffer(true)->printBitmap(single_384px)->commitPrinterBufferWithCallback(callback)->sleep(1000ms)"
     }
 
     private fun executeBufferProbeOnly(
@@ -2044,8 +2136,8 @@ class SunmiNativePrinterWorker(
         private const val TAG = "NativePrinterWorker"
         private val DEFAULT_ACTIVE_STRATEGY = PhysicalFidelityStrategy.TEXT_VENDOR_PARITY_UNBUFFERED
         // Controlled test matrix switch for robust vendor parity path.
-        private val DEFAULT_ROBUST_TEST_MODE = RobustPrintTestMode.MODE_I
-        private const val ROBUST_TEST_MODE = "MODE_I" // MODE_A..MODE_I, LEGACY
+        private val DEFAULT_ROBUST_TEST_MODE = RobustPrintTestMode.MODE_K
+        private const val ROBUST_TEST_MODE = "MODE_K" // MODE_A..MODE_K, LEGACY
         private const val ENABLE_PRINTER_INIT_BEFORE_DISPATCH = false // Used only when ROBUST_TEST_MODE=LEGACY
         private const val FINALIZE_POLICY_MODE = "finalize_linewrap_plus_raw" // finalize_none, finalize_linewrap_only, finalize_linewrap_plus_raw, finalize_extra_feed_then_sleep
         private const val CALLBACK_TIMEOUT_MS = 1800L
