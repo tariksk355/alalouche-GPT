@@ -144,6 +144,25 @@ private data class RenderedPrintText(
     val source: String,
 )
 
+private enum class RobustPrintTestMode(
+    val strategyMode: String,
+    val usePrinterInit: Boolean,
+) {
+    MODE_A(strategyMode = "buffered_transactional_text", usePrinterInit = true),
+    MODE_B(strategyMode = "buffered_transactional_text", usePrinterInit = false),
+    MODE_C(strategyMode = "single_block_text", usePrinterInit = false),
+    MODE_D(strategyMode = "single_block_text", usePrinterInit = true),
+    MODE_E(strategyMode = "bitmap_segmented", usePrinterInit = false),
+    MODE_F(strategyMode = "bitmap_segmented", usePrinterInit = true),
+}
+
+private enum class FinalizePolicy {
+    FINALIZE_NONE,
+    FINALIZE_LINEWRAP_ONLY,
+    FINALIZE_LINEWRAP_PLUS_RAW,
+    FINALIZE_EXTRA_FEED_THEN_SLEEP,
+}
+
 class SunmiNativePrinterWorker(
     context: Context,
 ) : NativePrinterWorker {
@@ -421,14 +440,17 @@ class SunmiNativePrinterWorker(
         callbackErrors: MutableList<String>,
         dispatchStartMs: Long,
     ): String {
-        val usePrinterInit = ENABLE_PRINTER_INIT_BEFORE_DISPATCH
-        Log.i(TAG, "native_print_printer_init_policy commandId=${job.commandId} orderId=${job.orderId ?: ""} usePrinterInit=$usePrinterInit")
+        val testMode = resolveRobustTestMode()
+        val usePrinterInit = testMode?.usePrinterInit ?: ENABLE_PRINTER_INIT_BEFORE_DISPATCH
+        val finalizePolicy = resolveFinalizePolicy()
+        Log.i(TAG, "native_print_test_matrix_selection commandId=${job.commandId} orderId=${job.orderId ?: ""} selectedTestMode=${testMode?.name ?: "LEGACY_DEFAULT"} selectedFamily=woyou_legacy_packaged strategyHint=${testMode?.strategyMode ?: "legacy"} usePrinterInit=$usePrinterInit finalizeMode=${finalizePolicy.name.lowercase()} defaultRecommendation=$DEFAULT_ROBUST_TEST_MODE")
+        Log.i(TAG, "native_print_printer_init_policy commandId=${job.commandId} orderId=${job.orderId ?: ""} usePrinterInit=$usePrinterInit selectedTestMode=${testMode?.name ?: "LEGACY_DEFAULT"}")
         if (usePrinterInit) {
             callPrinterPrimitive(job, "printerInit") {
                 service.printerInit(callbackFor(job, "printerInit", callbackErrors, dispatchStartMs))
             }
         } else {
-            Log.i(TAG, "native_print_printer_init_skipped commandId=${job.commandId} orderId=${job.orderId ?: ""}")
+            Log.i(TAG, "native_print_printer_init_skipped commandId=${job.commandId} orderId=${job.orderId ?: ""} selectedTestMode=${testMode?.name ?: "LEGACY_DEFAULT"}")
         }
         callPrinterPrimitive(job, "setAlignment", detail = "value=0") {
             service.setAlignment(0, callbackFor(job, "setAlignment", callbackErrors, dispatchStartMs))
@@ -446,14 +468,14 @@ class SunmiNativePrinterWorker(
             PhysicalFidelityStrategy.BITMAP_RECEIPT_SINGLE_IMAGE,
             PhysicalFidelityStrategy.BITMAP_RECEIPT_SEGMENTED_BLOCKS,
             PhysicalFidelityStrategy.BITMAP_SMOKE_TEST_MINIMAL_BLOCKS,
-            -> executeBitmapStrategies(service, job, sectionLines, fidelityConfig, callbackErrors, dispatchStartMs)
+            -> executeBitmapStrategies(service, job, sectionLines, fidelityConfig, callbackErrors, dispatchStartMs, finalizePolicy, testMode)
             PhysicalFidelityStrategy.VENDOR_PARITY_WOYOU_MINIMAL_TEST -> executeVendorParityWoyouMinimalTest(service, job, fidelityConfig, callbackErrors, dispatchStartMs)
             PhysicalFidelityStrategy.VENDOR_PARITY_BITMAP_CUSTOM_COMPARE -> executeVendorParityBitmapCustomCompare(service, job, fidelityConfig, callbackErrors, dispatchStartMs)
             PhysicalFidelityStrategy.VENDOR_PARITY_BITMAP_PHYSICAL_DIAGNOSTICS -> executeVendorParityBitmapPhysicalDiagnostics(service, job, fidelityConfig, callbackErrors, dispatchStartMs)
             PhysicalFidelityStrategy.TRANSACTION_MODE_TINY_DIAGNOSTIC_TEST -> executeTransactionModeTinyDiagnosticTest(service, job, fidelityConfig, callbackErrors, dispatchStartMs)
-            PhysicalFidelityStrategy.TEXT_VENDOR_PARITY_UNBUFFERED -> executeTextVendorParityRobust(service, job, sectionLines, fidelityConfig, callbackErrors, dispatchStartMs)
+            PhysicalFidelityStrategy.TEXT_VENDOR_PARITY_UNBUFFERED -> executeTextVendorParityRobust(service, job, sectionLines, fidelityConfig, callbackErrors, dispatchStartMs, finalizePolicy, testMode)
             PhysicalFidelityStrategy.DIRECT_SELF_CHECK_THEN_MINIMAL_TEXT -> executeDirectSelfCheckThenMinimalText(service, job, fidelityConfig, callbackErrors, dispatchStartMs)
-            PhysicalFidelityStrategy.TEXT_VENDOR_PARITY_BUFFERED -> executeTextVendorParityBuffered(service, job, sectionLines, fidelityConfig, callbackErrors, dispatchStartMs)
+            PhysicalFidelityStrategy.TEXT_VENDOR_PARITY_BUFFERED -> executeTextVendorParityBuffered(service, job, sectionLines, fidelityConfig, callbackErrors, dispatchStartMs, finalizePolicy, testMode)
 
             else -> executeTextStrategies(service, job, sectionLines, fidelityConfig, callbackErrors, dispatchStartMs)
         }
@@ -926,6 +948,8 @@ class SunmiNativePrinterWorker(
         config: PhysicalFidelityConfig,
         callbackErrors: MutableList<String>,
         dispatchStartMs: Long,
+        finalizePolicy: FinalizePolicy,
+        testMode: RobustPrintTestMode?,
     ): String {
         if (config.strategy == PhysicalFidelityStrategy.BITMAP_SMOKE_TEST_MINIMAL_BLOCKS) {
             return executeBitmapSmokeTestMinimalBlocks(service, job, config, callbackErrors, dispatchStartMs)
@@ -1000,23 +1024,16 @@ class SunmiNativePrinterWorker(
         }
 
         val bitmapFeedLines = max(6, config.finalTicketSpacingLines)
-        Log.i(TAG, "native_print_bitmap_finalize_policy commandId=${job.commandId} orderId=${job.orderId ?: ""} finalizeMode=$BITMAP_FINALIZE_MODE finalFeedLines=$bitmapFeedLines blocksPrinted=$blockIndex")
-        when (BITMAP_FINALIZE_MODE) {
-            "linewrap_only" -> {
-                callPrinterPrimitive(job, "lineWrap", detail = "bitmapFinalize linewrap_only lines=$bitmapFeedLines") {
-                    service.lineWrap(bitmapFeedLines, callbackFor(job, "bitmapFinalize_lineWrap", callbackErrors, dispatchStartMs))
-                }
-            }
-            else -> {
-                callPrinterPrimitive(job, "lineWrap", detail = "bitmapFinalize linewrap_plus_raw lines=$bitmapFeedLines") {
-                    service.lineWrap(bitmapFeedLines, callbackFor(job, "bitmapFinalize_lineWrap", callbackErrors, dispatchStartMs))
-                }
-                val rawFeed = byteArrayOf(0x1B, 0x64, 0x03)
-                callPrinterPrimitive(job, "sendRAWData", detail = "bitmapFinalize bytes=${rawFeed.size} mode=$BITMAP_FINALIZE_MODE") {
-                    service.sendRAWData(rawFeed, callbackFor(job, "bitmapFinalize_sendRAWData", callbackErrors, dispatchStartMs))
-                }
-            }
-        }
+        applyFinalizePolicy(
+            service = service,
+            job = job,
+            callbackErrors = callbackErrors,
+            dispatchStartMs = dispatchStartMs,
+            finalizePolicy = finalizePolicy,
+            feedLines = bitmapFeedLines,
+            settleMs = config.finalSettleMs,
+            contextTag = "bitmap",
+        )
 
         if (config.finalSettleMs > 0) {
             Log.i(TAG, "native_print_final_settle_sleep commandId=${job.commandId} orderId=${job.orderId ?: ""} settleMs=${config.finalSettleMs}")
@@ -1024,9 +1041,9 @@ class SunmiNativePrinterWorker(
         }
 
         val sequence = if (effectiveStrategy == PhysicalFidelityStrategy.BITMAP_RECEIPT_SINGLE_IMAGE) {
-            "printerInit?->setAlignment->printBitmap(single)->bitmapFinalize($BITMAP_FINALIZE_MODE)"
+            "printerInit?->setAlignment->printBitmap(single)->bitmapFinalize(${finalizePolicy.name.lowercase()})"
         } else {
-            "printerInit?->setAlignment->printBitmap(segmented_blocks)->bitmapFinalize($BITMAP_FINALIZE_MODE)"
+            "printerInit?->setAlignment->printBitmap(segmented_blocks)->bitmapFinalize(${finalizePolicy.name.lowercase()})"
         }
 
         Log.i(
@@ -1035,7 +1052,7 @@ class SunmiNativePrinterWorker(
         )
         Log.i(
             TAG,
-            "native_print_bitmap_summary commandId=${job.commandId} orderId=${job.orderId ?: ""} strategy=${strategyName(effectiveStrategy)} asciiSafeMode=${config.asciiSafeMode} renderedLineCount=${sectionLines.size} segmentCount=$blockIndex bitmapModeUsed=true finalizeMode=$BITMAP_FINALIZE_MODE finalSpacingAppliedLines=$bitmapFeedLines primitiveSequence=$sequence",
+            "native_print_bitmap_summary commandId=${job.commandId} orderId=${job.orderId ?: ""} selectedTestMode=${testMode?.name ?: "LEGACY_DEFAULT"} strategy=${strategyName(effectiveStrategy)} asciiSafeMode=${config.asciiSafeMode} renderedLineCount=${sectionLines.size} segmentCount=$blockIndex bitmapModeUsed=true transactionalBufferedModeUsed=false finalizeMode=${finalizePolicy.name.lowercase()} finalSpacingAppliedLines=$bitmapFeedLines primitiveSequence=$sequence",
         )
         return sequence
     }
@@ -1291,78 +1308,136 @@ class SunmiNativePrinterWorker(
         config: PhysicalFidelityConfig,
         callbackErrors: MutableList<String>,
         dispatchStartMs: Long,
+        finalizePolicy: FinalizePolicy,
+        testMode: RobustPrintTestMode?,
     ): String {
         val fullTextPayload = sectionLines.joinToString("\n") {
             if (config.asciiSafeMode) toSafeAscii(it.text).text else it.text
         } + "\n"
 
+        val selectedMode = testMode ?: DEFAULT_ROBUST_TEST_MODE
         Log.i(
             TAG,
-            "native_print_text_vendor_parity_robust_selected commandId=${job.commandId} orderId=${job.orderId ?: ""} requestedStrategy=${config.requestedNativePrintStrategyRaw} forcedStrategy=$FORCE_PRIMARY_ROBUST_MODE fallbackOrder=bitmap_segmented->buffered_transactional->single_block_text renderedLineCount=${sectionLines.size} payloadLength=${fullTextPayload.length}",
+            "native_print_text_vendor_parity_robust_selected commandId=${job.commandId} orderId=${job.orderId ?: ""} selectedTestMode=${selectedMode.name} requestedStrategy=${config.requestedNativePrintStrategyRaw} defaultTestMode=$DEFAULT_ROBUST_TEST_MODE robustPrimary=buffered_transactional_text fallbackOrder=buffered_transactional_text->single_block_text->bitmap_segmented renderedLineCount=${sectionLines.size} payloadLength=${fullTextPayload.length}",
         )
 
-        val runBitmapFirst = FORCE_PRIMARY_ROBUST_MODE == "bitmap_segmented" || FORCE_PRIMARY_ROBUST_MODE.isBlank()
-        if (runBitmapFirst) {
-            val bitmapCallbackErrorStart = callbackErrors.size
-            val bitmapResult = runCatching {
-                Log.i(TAG, "native_print_text_vendor_parity_robust_attempt commandId=${job.commandId} orderId=${job.orderId ?: ""} mode=bitmap_segmented fragmented=true bitmapModeUsed=true renderedLineCount=${sectionLines.size}")
-                val bitmapConfig = config.copy(strategy = PhysicalFidelityStrategy.BITMAP_RECEIPT_SEGMENTED_BLOCKS)
-                executeBitmapStrategies(service, job, sectionLines, bitmapConfig, callbackErrors, dispatchStartMs)
+        val requestedPrimaryMode = selectedMode.strategyMode
+        val candidateOrder = linkedSetOf(requestedPrimaryMode, "buffered_transactional_text", "single_block_text", "bitmap_segmented")
+        for (candidateMode in candidateOrder) {
+            val callbackErrorStart = callbackErrors.size
+            val attemptResult = runCatching {
+                when (candidateMode) {
+                    "buffered_transactional_text" -> {
+                        Log.i(TAG, "native_print_text_vendor_parity_robust_attempt commandId=${job.commandId} orderId=${job.orderId ?: ""} selectedTestMode=${selectedMode.name} mode=buffered_transactional_text strategy=buffered_transactional_text printerInitUsed=${selectedMode.usePrinterInit} bitmapModeUsed=false transactionalBufferedModeUsed=true lineCount=${sectionLines.size} finalizeMode=${finalizePolicy.name.lowercase()}")
+                        executeTextVendorParityBuffered(service, job, sectionLines, config, callbackErrors, dispatchStartMs, finalizePolicy, selectedMode)
+                    }
+                    "single_block_text" -> {
+                        Log.i(TAG, "native_print_text_vendor_parity_robust_attempt commandId=${job.commandId} orderId=${job.orderId ?: ""} selectedTestMode=${selectedMode.name} mode=single_block_text strategy=single_block_text printerInitUsed=${selectedMode.usePrinterInit} bitmapModeUsed=false transactionalBufferedModeUsed=false lineCount=${sectionLines.size} finalizeMode=${finalizePolicy.name.lowercase()}")
+                        executeSingleBlockText(service, job, fullTextPayload, config, callbackErrors, dispatchStartMs, finalizePolicy, selectedMode)
+                    }
+                    else -> {
+                        Log.i(TAG, "native_print_text_vendor_parity_robust_attempt commandId=${job.commandId} orderId=${job.orderId ?: ""} selectedTestMode=${selectedMode.name} mode=bitmap_segmented strategy=bitmap_segmented printerInitUsed=${selectedMode.usePrinterInit} bitmapModeUsed=true transactionalBufferedModeUsed=false lineCount=${sectionLines.size} finalizeMode=${finalizePolicy.name.lowercase()}")
+                        val bitmapConfig = config.copy(strategy = PhysicalFidelityStrategy.BITMAP_RECEIPT_SEGMENTED_BLOCKS)
+                        executeBitmapStrategies(service, job, sectionLines, bitmapConfig, callbackErrors, dispatchStartMs, finalizePolicy, selectedMode)
+                    }
+                }
             }
-            val bitmapHadCallbackError = callbackErrors.size > bitmapCallbackErrorStart
-            if (bitmapResult.isSuccess && !bitmapHadCallbackError) {
-                Log.i(TAG, "native_print_text_vendor_parity_robust_attempt_result commandId=${job.commandId} orderId=${job.orderId ?: ""} mode=bitmap_segmented success=true callbackErrorsAdded=0")
-                return bitmapResult.getOrThrow()
+            val hadCallbackError = callbackErrors.size > callbackErrorStart
+            if (attemptResult.isSuccess && !hadCallbackError) {
+                Log.i(TAG, "native_print_text_vendor_parity_robust_attempt_result commandId=${job.commandId} orderId=${job.orderId ?: ""} selectedTestMode=${selectedMode.name} mode=$candidateMode success=true callbackErrorsAdded=0")
+                return attemptResult.getOrThrow()
             }
-            Log.w(
-                TAG,
-                "native_print_text_vendor_parity_robust_attempt_result commandId=${job.commandId} orderId=${job.orderId ?: ""} mode=bitmap_segmented success=false callbackErrorsAdded=${callbackErrors.size - bitmapCallbackErrorStart} reason=${bitmapResult.exceptionOrNull()?.message ?: "callback_error"}",
-            )
+            Log.w(TAG, "native_print_text_vendor_parity_robust_attempt_result commandId=${job.commandId} orderId=${job.orderId ?: ""} selectedTestMode=${selectedMode.name} mode=$candidateMode success=false callbackErrorsAdded=${callbackErrors.size - callbackErrorStart} reason=${attemptResult.exceptionOrNull()?.message ?: "callback_error"}")
         }
 
-        val bufferedCallbackErrorStart = callbackErrors.size
-        val bufferedResult = runCatching {
-            Log.i(TAG, "native_print_text_vendor_parity_robust_attempt commandId=${job.commandId} orderId=${job.orderId ?: ""} mode=buffered_transactional fragmented=true renderedLineCount=${sectionLines.size} payloadLength=${fullTextPayload.length}")
-            executeTextVendorParityBuffered(service, job, sectionLines, config, callbackErrors, dispatchStartMs)
+        throw LowLevelStepException("robust_strategy_all_attempts_failed", IllegalStateException("buffered_transactional_text, single_block_text and bitmap_segmented all failed"))
+    }
+
+    private fun executeSingleBlockText(
+        service: IWoyouService,
+        job: NativePrintJobEntity,
+        fullTextPayload: String,
+        config: PhysicalFidelityConfig,
+        callbackErrors: MutableList<String>,
+        dispatchStartMs: Long,
+        finalizePolicy: FinalizePolicy,
+        testMode: RobustPrintTestMode?,
+    ): String {
+        callPrinterPrimitive(job, "printText", detail = "robustSingleBlock payloadLength=${fullTextPayload.length}") {
+            service.printText(fullTextPayload, callbackFor(job, "robustSingleBlock_printText", callbackErrors, dispatchStartMs))
         }
-        val bufferedHadCallbackError = callbackErrors.size > bufferedCallbackErrorStart
-        if (bufferedResult.isSuccess && !bufferedHadCallbackError) {
-            Log.i(TAG, "native_print_text_vendor_parity_robust_attempt_result commandId=${job.commandId} orderId=${job.orderId ?: ""} mode=buffered_transactional success=true callbackErrorsAdded=0 commitCall=commitPrinterBufferWithCallback")
-            return bufferedResult.getOrThrow()
-        }
-        Log.w(
-            TAG,
-            "native_print_text_vendor_parity_robust_attempt_result commandId=${job.commandId} orderId=${job.orderId ?: ""} mode=buffered_transactional success=false callbackErrorsAdded=${callbackErrors.size - bufferedCallbackErrorStart} reason=${bufferedResult.exceptionOrNull()?.message ?: "callback_error"}",
+        val finalFeedLines = max(4, config.finalTicketSpacingLines)
+        applyFinalizePolicy(
+            service = service,
+            job = job,
+            callbackErrors = callbackErrors,
+            dispatchStartMs = dispatchStartMs,
+            finalizePolicy = finalizePolicy,
+            feedLines = finalFeedLines,
+            settleMs = config.finalSettleMs,
+            contextTag = "single_block_text",
         )
 
-        val singleBlockCallbackErrorStart = callbackErrors.size
-        val singleBlockResult = runCatching {
-            Log.i(TAG, "native_print_text_vendor_parity_robust_attempt commandId=${job.commandId} orderId=${job.orderId ?: ""} mode=single_block_text fragmented=false renderedLineCount=${sectionLines.size} payloadLength=${fullTextPayload.length}")
-            callPrinterPrimitive(job, "printText", detail = "robustSingleBlock payloadLength=${fullTextPayload.length}") {
-                service.printText(fullTextPayload, callbackFor(job, "robustSingleBlock_printText", callbackErrors, dispatchStartMs))
-            }
-            val finalFeedLines = max(4, config.finalTicketSpacingLines)
-            callPrinterPrimitive(job, "lineWrap", detail = "robustSingleBlock finalFeed lines=$finalFeedLines") {
-                service.lineWrap(finalFeedLines, callbackFor(job, "robustSingleBlock_finalFeed", callbackErrors, dispatchStartMs))
-            }
-            val rawFeed = byteArrayOf(0x1B, 0x64, 0x03)
-            callPrinterPrimitive(job, "sendRAWData", detail = "robustSingleBlock bytes=${rawFeed.size} flush=true") {
-                service.sendRAWData(rawFeed, callbackFor(job, "robustSingleBlock_sendRAWData", callbackErrors, dispatchStartMs))
-            }
-            "printerInit?->setAlignment->printText(full_ticket_single_block)->lineWrap(final_feed)->sendRAWData"
-        }
+        val sequence = "printerInit?->setAlignment->printText(full_ticket_single_block)->finalize(${finalizePolicy.name.lowercase()})"
+        Log.i(TAG, "native_print_single_block_summary commandId=${job.commandId} orderId=${job.orderId ?: ""} selectedTestMode=${testMode?.name ?: "LEGACY_DEFAULT"} strategy=single_block_text printerInitUsed=${testMode?.usePrinterInit ?: ENABLE_PRINTER_INIT_BEFORE_DISPATCH} bitmapModeUsed=false transactionalBufferedModeUsed=false lineCount=${fullTextPayload.lines().size} segmentCount=1 finalizeMode=${finalizePolicy.name.lowercase()} primitiveSequence=$sequence")
+        return sequence
+    }
 
-        val singleBlockHadCallbackError = callbackErrors.size > singleBlockCallbackErrorStart
-        if (singleBlockResult.isSuccess && !singleBlockHadCallbackError) {
-            Log.i(TAG, "native_print_text_vendor_parity_robust_attempt_result commandId=${job.commandId} orderId=${job.orderId ?: ""} mode=single_block_text success=true callbackErrorsAdded=0")
-            return singleBlockResult.getOrThrow()
+    private fun applyFinalizePolicy(
+        service: IWoyouService,
+        job: NativePrintJobEntity,
+        callbackErrors: MutableList<String>,
+        dispatchStartMs: Long,
+        finalizePolicy: FinalizePolicy,
+        feedLines: Int,
+        settleMs: Long,
+        contextTag: String,
+    ) {
+        Log.i(TAG, "native_print_finalize_policy commandId=${job.commandId} orderId=${job.orderId ?: ""} context=$contextTag finalizeMode=${finalizePolicy.name.lowercase()} feedLines=$feedLines settleMs=$settleMs")
+        when (finalizePolicy) {
+            FinalizePolicy.FINALIZE_NONE -> {
+                Log.i(TAG, "native_print_finalize_skipped commandId=${job.commandId} orderId=${job.orderId ?: ""} context=$contextTag reason=finalize_none")
+            }
+            FinalizePolicy.FINALIZE_LINEWRAP_ONLY -> {
+                callPrinterPrimitive(job, "lineWrap", detail = "$contextTag finalize_linewrap_only lines=$feedLines") {
+                    service.lineWrap(feedLines, callbackFor(job, "${contextTag}_finalize_lineWrap", callbackErrors, dispatchStartMs))
+                }
+            }
+            FinalizePolicy.FINALIZE_LINEWRAP_PLUS_RAW -> {
+                callPrinterPrimitive(job, "lineWrap", detail = "$contextTag finalize_linewrap_plus_raw lines=$feedLines") {
+                    service.lineWrap(feedLines, callbackFor(job, "${contextTag}_finalize_lineWrap", callbackErrors, dispatchStartMs))
+                }
+                val rawFeed = byteArrayOf(0x1B, 0x64, 0x03)
+                callPrinterPrimitive(job, "sendRAWData", detail = "$contextTag finalize_linewrap_plus_raw bytes=${rawFeed.size}") {
+                    service.sendRAWData(rawFeed, callbackFor(job, "${contextTag}_finalize_sendRAWData", callbackErrors, dispatchStartMs))
+                }
+            }
+            FinalizePolicy.FINALIZE_EXTRA_FEED_THEN_SLEEP -> {
+                val extraFeedLines = feedLines + 2
+                callPrinterPrimitive(job, "lineWrap", detail = "$contextTag finalize_extra_feed_then_sleep lines=$extraFeedLines") {
+                    service.lineWrap(extraFeedLines, callbackFor(job, "${contextTag}_finalize_extra_feed", callbackErrors, dispatchStartMs))
+                }
+                val extraSleepMs = max(200L, settleMs)
+                Log.i(TAG, "native_print_finalize_sleep commandId=${job.commandId} orderId=${job.orderId ?: ""} context=$contextTag sleepMs=$extraSleepMs")
+                runCatching { Thread.sleep(extraSleepMs) }
+            }
         }
-        Log.w(
-            TAG,
-            "native_print_text_vendor_parity_robust_attempt_result commandId=${job.commandId} orderId=${job.orderId ?: ""} mode=single_block_text success=false callbackErrorsAdded=${callbackErrors.size - singleBlockCallbackErrorStart} reason=${singleBlockResult.exceptionOrNull()?.message ?: "callback_error"}",
-        )
+    }
 
-        throw LowLevelStepException("robust_strategy_all_attempts_failed", IllegalStateException("bitmap_segmented, buffered_transactional and single_block_text all failed"))
+    private fun resolveRobustTestMode(): RobustPrintTestMode? {
+        val normalized = ROBUST_TEST_MODE.trim().uppercase()
+        if (normalized.isBlank() || normalized == "LEGACY") return null
+        return RobustPrintTestMode.entries.firstOrNull { it.name == normalized } ?: DEFAULT_ROBUST_TEST_MODE
+    }
+
+    private fun resolveFinalizePolicy(): FinalizePolicy {
+        val normalized = FINALIZE_POLICY_MODE.trim().lowercase()
+        return when (normalized) {
+            "finalize_none" -> FinalizePolicy.FINALIZE_NONE
+            "finalize_linewrap_plus_raw" -> FinalizePolicy.FINALIZE_LINEWRAP_PLUS_RAW
+            "finalize_extra_feed_then_sleep" -> FinalizePolicy.FINALIZE_EXTRA_FEED_THEN_SLEEP
+            else -> FinalizePolicy.FINALIZE_LINEWRAP_ONLY
+        }
     }
 
     private fun executeTextVendorParityBuffered(
@@ -1372,6 +1447,8 @@ class SunmiNativePrinterWorker(
         config: PhysicalFidelityConfig,
         callbackErrors: MutableList<String>,
         dispatchStartMs: Long,
+        finalizePolicy: FinalizePolicy,
+        testMode: RobustPrintTestMode?,
     ): String {
         Log.i(TAG, "native_print_text_vendor_parity_buffered_selected commandId=${job.commandId} orderId=${job.orderId ?: ""} strategy=text_vendor_parity_buffered")
         Log.i(TAG, "native_print_text_vendor_parity_buffered_service_info commandId=${job.commandId} orderId=${job.orderId ?: ""} selectedFamily=woyou_legacy_packaged packageName=woyou.aidlservice.jiuiv5 action=woyou.aidlservice.jiuiv5.IWoyouService")
@@ -1445,12 +1522,19 @@ class SunmiNativePrinterWorker(
         }
 
         val ticketSpacingLines = max(6, config.finalTicketSpacingLines)
-        callPrinterPrimitive(job, "lineWrap", detail = "textVendorParity finalTicketFeed lines=$ticketSpacingLines") {
-            service.lineWrap(ticketSpacingLines, callbackFor(job, "textVendorParity_finalFeed", callbackErrors, dispatchStartMs))
-        }
+        applyFinalizePolicy(
+            service = service,
+            job = job,
+            callbackErrors = callbackErrors,
+            dispatchStartMs = dispatchStartMs,
+            finalizePolicy = finalizePolicy,
+            feedLines = ticketSpacingLines,
+            settleMs = config.finalSettleMs,
+            contextTag = "buffered_text",
+        )
 
-        val sequence = "printerInit->setAlignment->enterPrinterBuffer(true)->printText/printColumnsText(sections)->lineWrap(section_spacing)->commitPrinterBufferWithCallback->lineWrap(final_feed)"
-        Log.i(TAG, "native_print_text_vendor_parity_buffered_summary commandId=${job.commandId} orderId=${job.orderId ?: ""} headerLines=${headerLines.size} articleLines=${articleLines.size} totalLines=${totalLines.size} finalTicketFeedLines=$ticketSpacingLines primitiveSequence=$sequence")
+        val sequence = "printerInit?->setAlignment->enterPrinterBuffer(true)->printText/printColumnsText(sections)->lineWrap(section_spacing)->finalize(${finalizePolicy.name.lowercase()})"
+        Log.i(TAG, "native_print_text_vendor_parity_buffered_summary commandId=${job.commandId} orderId=${job.orderId ?: ""} selectedTestMode=${testMode?.name ?: "LEGACY_DEFAULT"} strategy=buffered_transactional_text printerInitUsed=${testMode?.usePrinterInit ?: ENABLE_PRINTER_INIT_BEFORE_DISPATCH} bitmapModeUsed=false transactionalBufferedModeUsed=true lineCount=${sectionLines.size} segmentCount=0 headerLines=${headerLines.size} articleLines=${articleLines.size} totalLines=${totalLines.size} finalizeMode=${finalizePolicy.name.lowercase()} primitiveSequence=$sequence")
         return sequence
     }
 
@@ -1695,10 +1779,11 @@ class SunmiNativePrinterWorker(
     companion object {
         private const val TAG = "NativePrinterWorker"
         private val DEFAULT_ACTIVE_STRATEGY = PhysicalFidelityStrategy.TEXT_VENDOR_PARITY_UNBUFFERED
-        // TEMP debug switches for physical ticket truncation diagnostics.
-        private const val FORCE_PRIMARY_ROBUST_MODE = "bitmap_segmented" // "", "bitmap_segmented", "buffered_transactional", "single_block_text"
-        private const val ENABLE_PRINTER_INIT_BEFORE_DISPATCH = true
-        private const val BITMAP_FINALIZE_MODE = "linewrap_only" // "linewrap_only" or "linewrap_plus_raw"
+        // Controlled test matrix switch for robust vendor parity path.
+        private val DEFAULT_ROBUST_TEST_MODE = RobustPrintTestMode.MODE_B
+        private const val ROBUST_TEST_MODE = "MODE_B" // MODE_A..MODE_F, LEGACY
+        private const val ENABLE_PRINTER_INIT_BEFORE_DISPATCH = false // Used only when ROBUST_TEST_MODE=LEGACY
+        private const val FINALIZE_POLICY_MODE = "finalize_linewrap_only" // finalize_none, finalize_linewrap_only, finalize_linewrap_plus_raw, finalize_extra_feed_then_sleep
         private const val DEFAULT_BITMAP_WIDTH_PX = 384
         private const val MAX_SINGLE_BITMAP_HEIGHT_PX = 2600
         private const val DEFAULT_LINE_DELAY_MS = 35L
