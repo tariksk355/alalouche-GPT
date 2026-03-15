@@ -31,6 +31,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 
 class SunmiPrinterManager(private val context: Context) {
 
@@ -1207,6 +1208,92 @@ class SunmiPrinterManager(private val context: Context) {
             fail("CASH_DRAWER_REMOTE_ERROR", "Cash drawer command failed in remote service.", e.message)
         } catch (t: Throwable) {
             fail("CASH_DRAWER_UNSUPPORTED", "Cash drawer operation unsupported or failed.", t.message)
+        }
+    }
+
+    fun runNativePrinterDebugTest(): JSONObject {
+        val serviceBound = ensureServiceBound(1200)
+        val service = printerService
+
+        if (!serviceBound || service == null) {
+            return fail("SUNMI_SERVICE_UNAVAILABLE", "Sunmi printer service is unavailable or not bound.")
+        }
+
+        val callbackSuccessCount = AtomicInteger(0)
+        val callbackFailureCount = AtomicInteger(0)
+        val callbackEvents = JSONArray()
+
+        fun callbackForStep(step: String): ICallback {
+            return object : ICallback.Stub() {
+                override fun onRunResult(isSuccess: Boolean) {
+                    if (isSuccess) callbackSuccessCount.incrementAndGet() else callbackFailureCount.incrementAndGet()
+                    val event = "manual_test_callback step=$step event=onRunResult success=$isSuccess"
+                    callbackEvents.put(event)
+                    Log.i(TAG, event)
+                }
+
+                override fun onReturnString(result: String?) {
+                    val event = "manual_test_callback step=$step event=onReturnString result=${result ?: ""}"
+                    callbackEvents.put(event)
+                    Log.i(TAG, event)
+                }
+
+                override fun onRaiseException(code: Int, msg: String?) {
+                    callbackFailureCount.incrementAndGet()
+                    val event = "manual_test_callback step=$step event=onRaiseException code=$code msg=${msg ?: ""}"
+                    callbackEvents.put(event)
+                    Log.e(TAG, event)
+                }
+
+                override fun onPrintResult(code: Int, msg: String?) {
+                    if (code == 0) callbackSuccessCount.incrementAndGet() else callbackFailureCount.incrementAndGet()
+                    val event = "manual_test_callback step=$step event=onPrintResult code=$code msg=${msg ?: ""}"
+                    callbackEvents.put(event)
+                    Log.i(TAG, event)
+                }
+            }
+        }
+
+        fun invokeStep(step: String, block: () -> Unit) {
+            Log.i(TAG, "manual_test_method_start step=$step")
+            try {
+                block()
+                Log.i(TAG, "manual_test_method_end step=$step")
+            } catch (e: RemoteException) {
+                Log.e(TAG, "manual_test_method_exception step=$step type=RemoteException", e)
+                throw e
+            } catch (t: Throwable) {
+                Log.e(TAG, "manual_test_method_exception step=$step type=${t::class.java.simpleName}", t)
+                throw t
+            }
+        }
+
+        return try {
+            Log.i(TAG, "manual_test_sequence_start sequence=1 flow=printerInit->printText(TEST_1)->lineWrap(3)")
+            invokeStep("seq1_printerInit") { service.printerInit(callbackForStep("seq1_printerInit")) }
+            invokeStep("seq1_printText_TEST_1") { service.printText("TEST 1", callbackForStep("seq1_printText_TEST_1")) }
+            invokeStep("seq1_lineWrap_3") { service.lineWrap(3, callbackForStep("seq1_lineWrap_3")) }
+            Log.i(TAG, "manual_test_sequence_end sequence=1")
+
+            Log.i(TAG, "manual_test_sequence_start sequence=2 flow=printerInit->setAlignment(1)->printText(CENTER_TEST)->lineWrap(3)")
+            invokeStep("seq2_printerInit") { service.printerInit(callbackForStep("seq2_printerInit")) }
+            invokeStep("seq2_setAlignment_1") { service.setAlignment(1, callbackForStep("seq2_setAlignment_1")) }
+            invokeStep("seq2_printText_CENTER_TEST") { service.printText("CENTER TEST", callbackForStep("seq2_printText_CENTER_TEST")) }
+            invokeStep("seq2_lineWrap_3") { service.lineWrap(3, callbackForStep("seq2_lineWrap_3")) }
+            Log.i(TAG, "manual_test_sequence_end sequence=2")
+
+            JSONObject().apply {
+                put("ok", true)
+                put("code", "NATIVE_PRINTER_DEBUG_TEST_SENT")
+                put("message", "Native printer debug test commands sent.")
+                put("callbackSuccessCount", callbackSuccessCount.get())
+                put("callbackFailureCount", callbackFailureCount.get())
+                put("callbackEvents", callbackEvents)
+            }
+        } catch (e: RemoteException) {
+            fail("NATIVE_PRINTER_DEBUG_TEST_REMOTE_ERROR", "Native printer debug test failed in remote service.", e.message)
+        } catch (t: Throwable) {
+            fail("NATIVE_PRINTER_DEBUG_TEST_FAILED", "Native printer debug test failed.", t.message)
         }
     }
 

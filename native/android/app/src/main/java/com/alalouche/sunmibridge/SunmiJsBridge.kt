@@ -137,6 +137,13 @@ class SunmiJsBridge(context: Context) {
         }
     }
 
+    @JavascriptInterface
+    fun runNativePrinterTest(requestJson: String?): String {
+        return safeResponse("runNativePrinterTest") {
+            printerManager.runNativePrinterDebugTest()
+        }
+    }
+
     fun release() {
         printerManager.release()
         nativePrintServiceManager.release()
