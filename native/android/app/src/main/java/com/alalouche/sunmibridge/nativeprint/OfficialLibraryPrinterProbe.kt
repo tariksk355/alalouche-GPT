@@ -10,7 +10,7 @@ import android.os.Build
 import android.util.Log
 import com.sunmi.peripheral.printer.InnerPrinterCallback
 import com.sunmi.peripheral.printer.InnerPrinterManager
-import com.sunmi.peripheral.printer.InnerResultCallbcak
+import com.sunmi.peripheral.printer.InnerResultCallback
 import com.sunmi.peripheral.printer.SunmiPrinterService
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
@@ -139,7 +139,7 @@ class OfficialLibraryPrinterProbe(
         job: NativePrintJobEntity,
         step: String,
         callbackErrors: MutableList<String>,
-    ): InnerResultCallbcak {
+    ): InnerResultCallback {
         val resolved = AtomicBoolean(false)
         Thread {
             runCatching { Thread.sleep(CALLBACK_TIMEOUT_MS) }
@@ -147,7 +147,7 @@ class OfficialLibraryPrinterProbe(
                 Log.w(TAG, "native_print_official_callback commandId=${job.commandId} orderId=${job.orderId ?: ""} op=$step phase=callback_timeout timeoutMs=$CALLBACK_TIMEOUT_MS")
             }
         }.start()
-        return object : InnerResultCallbcak() {
+        val callbackImpl = object : InnerResultCallback() {
             override fun onRunResult(isSuccess: Boolean) {
                 resolved.set(true)
                 Log.i(TAG, "native_print_official_callback commandId=${job.commandId} orderId=${job.orderId ?: ""} op=$step callback=onRunResult success=$isSuccess")
@@ -172,6 +172,8 @@ class OfficialLibraryPrinterProbe(
                 if (!success) callbackErrors += "$step:onPrintResult:$code:${msg ?: "unknown"}"
             }
         }
+        Log.i(TAG, "native_print_official_callback_impl commandId=${job.commandId} orderId=${job.orderId ?: ""} op=$step callbackClass=${callbackImpl::class.java.name} callbackBase=InnerResultCallback")
+        return callbackImpl
     }
 
     private fun renderDeterministicBitmap(): Bitmap {
