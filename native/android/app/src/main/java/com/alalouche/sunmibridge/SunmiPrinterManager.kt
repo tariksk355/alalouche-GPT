@@ -1804,6 +1804,14 @@ class SunmiPrinterManager(private val context: Context) {
                 onError(err)
                 Log.e(TAG, "low_level_callback $err")
             }
+
+            override fun onPrintResult(code: Int, msg: String?) {
+                onObserved()
+                Log.i(TAG, "low_level_callback op=$op onPrintResult code=$code msg=${msg ?: ""}")
+                if (code != 0) {
+                    onError("op=$op event=onPrintResult code=$code msg=${msg ?: ""}")
+                }
+            }
         }
     }
 
