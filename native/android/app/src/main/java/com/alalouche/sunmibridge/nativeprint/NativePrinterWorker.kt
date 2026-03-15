@@ -1941,7 +1941,7 @@ class SunmiNativePrinterWorker(
         private val DEFAULT_ROBUST_TEST_MODE = RobustPrintTestMode.MODE_D
         private const val ROBUST_TEST_MODE = "MODE_D" // MODE_A..MODE_F, LEGACY
         private const val ENABLE_PRINTER_INIT_BEFORE_DISPATCH = false // Used only when ROBUST_TEST_MODE=LEGACY
-        private const val FINALIZE_POLICY_MODE = "finalize_linewrap_only" // finalize_none, finalize_linewrap_only, finalize_linewrap_plus_raw, finalize_extra_feed_then_sleep
+        private const val FINALIZE_POLICY_MODE = "finalize_linewrap_plus_raw" // finalize_none, finalize_linewrap_only, finalize_linewrap_plus_raw, finalize_extra_feed_then_sleep
         private const val CALLBACK_TIMEOUT_MS = 1800L
         private val activeTelemetry = ThreadLocal<LowLevelExecutionTelemetry>()
         private const val DEFAULT_BITMAP_WIDTH_PX = 384
