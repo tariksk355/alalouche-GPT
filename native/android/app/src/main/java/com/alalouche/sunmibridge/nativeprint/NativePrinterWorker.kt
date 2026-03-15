@@ -10,6 +10,9 @@ import android.os.RemoteException
 import android.util.Log
 import org.json.JSONObject
 import java.text.Normalizer
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.max
 import woyou.aidlservice.jiuiv5.ICallback
 import woyou.aidlservice.jiuiv5.IWoyouService
@@ -154,6 +157,8 @@ private enum class RobustPrintTestMode(
     MODE_D(strategyMode = "single_block_text", usePrinterInit = true),
     MODE_E(strategyMode = "bitmap_segmented", usePrinterInit = false),
     MODE_F(strategyMode = "bitmap_segmented", usePrinterInit = true),
+    BUFFER_PROBE_ONLY(strategyMode = "buffer_probe_only", usePrinterInit = false),
+    SINGLE_BLOCK_TEXT_CALLBACK_GATED(strategyMode = "single_block_text_callback_gated", usePrinterInit = false),
 }
 
 private enum class FinalizePolicy {
@@ -162,6 +167,18 @@ private enum class FinalizePolicy {
     FINALIZE_LINEWRAP_PLUS_RAW,
     FINALIZE_EXTRA_FEED_THEN_SLEEP,
 }
+
+private data class LowLevelExecutionTelemetry(
+    var selectedTestMode: String = "LEGACY_DEFAULT",
+    var fallbackUsed: Boolean = false,
+    var binderAccepted: Boolean = true,
+    var callbackObserved: Boolean = false,
+    var callbackSuccess: Boolean = false,
+    var exceptionObserved: Boolean = false,
+    var exceptionOriginOp: String = "none",
+    var exceptionClass: String = "none",
+    var exceptionMessage: String = "",
+)
 
 class SunmiNativePrinterWorker(
     context: Context,
@@ -266,7 +283,7 @@ class SunmiNativePrinterWorker(
             )
         } catch (e: LowLevelStepException) {
             val cause = e.cause ?: e
-            Log.e(TAG, "native_print_low_level_exception commandId=${job.commandId} orderId=${job.orderId ?: ""} sourceJobId=${job.sourceJobId ?: ""} step=${e.step} reason=${cause.message ?: "unknown"}")
+            Log.e(TAG, "native_print_low_level_exception commandId=${job.commandId} orderId=${job.orderId ?: ""} sourceJobId=${job.sourceJobId ?: ""} step=${e.step} reason=${cause.message ?: "unknown"} exceptionClass=${cause::class.java.name} exceptionOriginOp=${e.step} exceptionMessage=${cause.message ?: "unknown"} modeCompatibilityHint=${modeCompatibilityHint(e.step, cause)}")
             NativeDispatchReport(
                 acceptedByNative = false,
                 dispatchStarted = true,
@@ -443,41 +460,54 @@ class SunmiNativePrinterWorker(
         val testMode = resolveRobustTestMode()
         val usePrinterInit = testMode?.usePrinterInit ?: ENABLE_PRINTER_INIT_BEFORE_DISPATCH
         val finalizePolicy = resolveFinalizePolicy()
-        Log.i(TAG, "native_print_test_matrix_selection commandId=${job.commandId} orderId=${job.orderId ?: ""} selectedTestMode=${testMode?.name ?: "LEGACY_DEFAULT"} selectedFamily=woyou_legacy_packaged strategyHint=${testMode?.strategyMode ?: "legacy"} usePrinterInit=$usePrinterInit finalizeMode=${finalizePolicy.name.lowercase()} defaultRecommendation=$DEFAULT_ROBUST_TEST_MODE")
-        Log.i(TAG, "native_print_printer_init_policy commandId=${job.commandId} orderId=${job.orderId ?: ""} usePrinterInit=$usePrinterInit selectedTestMode=${testMode?.name ?: "LEGACY_DEFAULT"}")
-        if (usePrinterInit) {
-            callPrinterPrimitive(job, "printerInit") {
-                service.printerInit(callbackFor(job, "printerInit", callbackErrors, dispatchStartMs))
+        val telemetry = LowLevelExecutionTelemetry(selectedTestMode = testMode?.name ?: "LEGACY_DEFAULT")
+        activeTelemetry.set(telemetry)
+        Log.i(TAG, "native_print_test_matrix_selection commandId=${job.commandId} orderId=${job.orderId ?: ""} selectedTestMode=${telemetry.selectedTestMode} selectedFamily=woyou_legacy_packaged strategyHint=${testMode?.strategyMode ?: "legacy"} usePrinterInit=$usePrinterInit finalizeMode=${finalizePolicy.name.lowercase()} defaultRecommendation=$DEFAULT_ROBUST_TEST_MODE")
+        try {
+            Log.i(TAG, "native_print_printer_init_policy commandId=${job.commandId} orderId=${job.orderId ?: ""} usePrinterInit=$usePrinterInit selectedTestMode=${telemetry.selectedTestMode}")
+            if (usePrinterInit) {
+                callPrinterPrimitive(job, "printerInit") {
+                    service.printerInit(callbackFor(job, "printerInit", callbackErrors, dispatchStartMs))
+                }
+            } else {
+                Log.i(TAG, "native_print_printer_init_skipped commandId=${job.commandId} orderId=${job.orderId ?: ""} selectedTestMode=${telemetry.selectedTestMode}")
             }
-        } else {
-            Log.i(TAG, "native_print_printer_init_skipped commandId=${job.commandId} orderId=${job.orderId ?: ""} selectedTestMode=${testMode?.name ?: "LEGACY_DEFAULT"}")
-        }
-        callPrinterPrimitive(job, "setAlignment", detail = "value=0") {
-            service.setAlignment(0, callbackFor(job, "setAlignment", callbackErrors, dispatchStartMs))
-        }
+            callPrinterPrimitive(job, "setAlignment", detail = "value=0") {
+                service.setAlignment(0, callbackFor(job, "setAlignment", callbackErrors, dispatchStartMs))
+            }
 
-        val lines = renderedText.replace("\r\n", "\n").replace("\r", "\n").split("\n").map { it.trimEnd() }.filter { it.isNotBlank() }
-        val sectionLines = lines.mapIndexed { idx, line -> SectionLine(inferSection(idx, line), "%02d %s".format(idx + 1, line)) }
+            val lines = renderedText.replace("\r\n", "\n").replace("\r", "\n").split("\n").map { it.trimEnd() }.filter { it.isNotBlank() }
+            val sectionLines = lines.mapIndexed { idx, line -> SectionLine(inferSection(idx, line), "%02d %s".format(idx + 1, line)) }
 
-        if (fidelityConfig.requestedNativePrintStrategyRaw == "transaction_mode_tiny_diagnostic_test" && fidelityConfig.strategy != PhysicalFidelityStrategy.TRANSACTION_MODE_TINY_DIAGNOSTIC_TEST) {
-            Log.e(TAG, "native_print_transaction_strategy_misroute commandId=${job.commandId} orderId=${job.orderId ?: ""} sourceJobId=${job.sourceJobId ?: ""} requestedStrategy=${fidelityConfig.requestedNativePrintStrategyRaw} selectedStrategy=${strategyName(fidelityConfig.strategy)} strategySource=${fidelityConfig.requestedNativePrintStrategySource}")
-            throw LowLevelStepException("strategy_resolution", IllegalStateException("transaction_mode_tiny_diagnostic_test requested but resolved to ${strategyName(fidelityConfig.strategy)}"))
-        }
+            if (fidelityConfig.requestedNativePrintStrategyRaw == "transaction_mode_tiny_diagnostic_test" && fidelityConfig.strategy != PhysicalFidelityStrategy.TRANSACTION_MODE_TINY_DIAGNOSTIC_TEST) {
+                Log.e(TAG, "native_print_transaction_strategy_misroute commandId=${job.commandId} orderId=${job.orderId ?: ""} sourceJobId=${job.sourceJobId ?: ""} requestedStrategy=${fidelityConfig.requestedNativePrintStrategyRaw} selectedStrategy=${strategyName(fidelityConfig.strategy)} strategySource=${fidelityConfig.requestedNativePrintStrategySource}")
+                throw LowLevelStepException("strategy_resolution", IllegalStateException("transaction_mode_tiny_diagnostic_test requested but resolved to ${strategyName(fidelityConfig.strategy)}"))
+            }
 
-        return when (fidelityConfig.strategy) {
-            PhysicalFidelityStrategy.BITMAP_RECEIPT_SINGLE_IMAGE,
-            PhysicalFidelityStrategy.BITMAP_RECEIPT_SEGMENTED_BLOCKS,
-            PhysicalFidelityStrategy.BITMAP_SMOKE_TEST_MINIMAL_BLOCKS,
-            -> executeBitmapStrategies(service, job, sectionLines, fidelityConfig, callbackErrors, dispatchStartMs, finalizePolicy, testMode)
-            PhysicalFidelityStrategy.VENDOR_PARITY_WOYOU_MINIMAL_TEST -> executeVendorParityWoyouMinimalTest(service, job, fidelityConfig, callbackErrors, dispatchStartMs)
-            PhysicalFidelityStrategy.VENDOR_PARITY_BITMAP_CUSTOM_COMPARE -> executeVendorParityBitmapCustomCompare(service, job, fidelityConfig, callbackErrors, dispatchStartMs)
-            PhysicalFidelityStrategy.VENDOR_PARITY_BITMAP_PHYSICAL_DIAGNOSTICS -> executeVendorParityBitmapPhysicalDiagnostics(service, job, fidelityConfig, callbackErrors, dispatchStartMs)
-            PhysicalFidelityStrategy.TRANSACTION_MODE_TINY_DIAGNOSTIC_TEST -> executeTransactionModeTinyDiagnosticTest(service, job, fidelityConfig, callbackErrors, dispatchStartMs)
-            PhysicalFidelityStrategy.TEXT_VENDOR_PARITY_UNBUFFERED -> executeTextVendorParityRobust(service, job, sectionLines, fidelityConfig, callbackErrors, dispatchStartMs, finalizePolicy, testMode)
-            PhysicalFidelityStrategy.DIRECT_SELF_CHECK_THEN_MINIMAL_TEXT -> executeDirectSelfCheckThenMinimalText(service, job, fidelityConfig, callbackErrors, dispatchStartMs)
-            PhysicalFidelityStrategy.TEXT_VENDOR_PARITY_BUFFERED -> executeTextVendorParityBuffered(service, job, sectionLines, fidelityConfig, callbackErrors, dispatchStartMs, finalizePolicy, testMode)
+            val lowLevelSummary = if (testMode != null) {
+                telemetry.fallbackUsed = false
+                executeStrictExperimentMode(service, job, sectionLines, fidelityConfig, callbackErrors, dispatchStartMs, finalizePolicy, testMode)
+            } else {
+                when (fidelityConfig.strategy) {
+                    PhysicalFidelityStrategy.BITMAP_RECEIPT_SINGLE_IMAGE,
+                    PhysicalFidelityStrategy.BITMAP_RECEIPT_SEGMENTED_BLOCKS,
+                    PhysicalFidelityStrategy.BITMAP_SMOKE_TEST_MINIMAL_BLOCKS,
+                    -> executeBitmapStrategies(service, job, sectionLines, fidelityConfig, callbackErrors, dispatchStartMs, finalizePolicy, null)
+                    PhysicalFidelityStrategy.VENDOR_PARITY_WOYOU_MINIMAL_TEST -> executeVendorParityWoyouMinimalTest(service, job, fidelityConfig, callbackErrors, dispatchStartMs)
+                    PhysicalFidelityStrategy.VENDOR_PARITY_BITMAP_CUSTOM_COMPARE -> executeVendorParityBitmapCustomCompare(service, job, fidelityConfig, callbackErrors, dispatchStartMs)
+                    PhysicalFidelityStrategy.VENDOR_PARITY_BITMAP_PHYSICAL_DIAGNOSTICS -> executeVendorParityBitmapPhysicalDiagnostics(service, job, fidelityConfig, callbackErrors, dispatchStartMs)
+                    PhysicalFidelityStrategy.TRANSACTION_MODE_TINY_DIAGNOSTIC_TEST -> executeTransactionModeTinyDiagnosticTest(service, job, fidelityConfig, callbackErrors, dispatchStartMs)
+                    PhysicalFidelityStrategy.TEXT_VENDOR_PARITY_UNBUFFERED -> executeTextVendorParityRobust(service, job, sectionLines, fidelityConfig, callbackErrors, dispatchStartMs, finalizePolicy)
+                    PhysicalFidelityStrategy.DIRECT_SELF_CHECK_THEN_MINIMAL_TEXT -> executeDirectSelfCheckThenMinimalText(service, job, fidelityConfig, callbackErrors, dispatchStartMs)
+                    PhysicalFidelityStrategy.TEXT_VENDOR_PARITY_BUFFERED -> executeTextVendorParityBuffered(service, job, sectionLines, fidelityConfig, callbackErrors, dispatchStartMs, finalizePolicy, null)
+                    else -> executeTextStrategies(service, job, sectionLines, fidelityConfig, callbackErrors, dispatchStartMs)
+                }
+            }
 
-            else -> executeTextStrategies(service, job, sectionLines, fidelityConfig, callbackErrors, dispatchStartMs)
+            Log.i(TAG, "native_print_experiment_result commandId=${job.commandId} orderId=${job.orderId ?: ""} selectedTestMode=${telemetry.selectedTestMode} fallbackUsed=${telemetry.fallbackUsed} exceptionOriginOp=${telemetry.exceptionOriginOp} primitiveSequence=$lowLevelSummary binderAccepted=${telemetry.binderAccepted} callbackObserved=${telemetry.callbackObserved} callbackSuccess=${telemetry.callbackSuccess} exceptionObserved=${telemetry.exceptionObserved} physicalOutcome=UNKNOWN")
+            return lowLevelSummary
+        } finally {
+            activeTelemetry.remove()
         }
     }
 
@@ -1301,6 +1331,85 @@ class SunmiNativePrinterWorker(
         return sequence
     }
 
+    private fun executeStrictExperimentMode(
+        service: IWoyouService,
+        job: NativePrintJobEntity,
+        sectionLines: List<SectionLine>,
+        config: PhysicalFidelityConfig,
+        callbackErrors: MutableList<String>,
+        dispatchStartMs: Long,
+        finalizePolicy: FinalizePolicy,
+        testMode: RobustPrintTestMode,
+    ): String {
+        val shortPayload = "TEST\nHELLO\n123\nEND\n"
+        Log.i(TAG, "native_print_experiment_strict_mode commandId=${job.commandId} orderId=${job.orderId ?: ""} selectedTestMode=${testMode.name} fallbackUsed=false")
+        return when (testMode) {
+            RobustPrintTestMode.MODE_A,
+            RobustPrintTestMode.MODE_B,
+            -> {
+                val payloadLines = shortPayload.trim().split("\n").mapIndexed { idx, line -> SectionLine(inferSection(idx, line), line) }
+                executeTextVendorParityBuffered(service, job, payloadLines, config, callbackErrors, dispatchStartMs, finalizePolicy, testMode)
+            }
+            RobustPrintTestMode.MODE_C,
+            RobustPrintTestMode.MODE_D,
+            -> executeSingleBlockText(service, job, shortPayload, config, callbackErrors, dispatchStartMs, finalizePolicy, testMode)
+            RobustPrintTestMode.MODE_E,
+            RobustPrintTestMode.MODE_F,
+            -> {
+                val bitmapConfig = config.copy(strategy = PhysicalFidelityStrategy.BITMAP_RECEIPT_SEGMENTED_BLOCKS)
+                executeBitmapStrategies(service, job, sectionLines, bitmapConfig, callbackErrors, dispatchStartMs, finalizePolicy, testMode)
+            }
+            RobustPrintTestMode.BUFFER_PROBE_ONLY,
+            -> executeBufferProbeOnly(service, job, callbackErrors, dispatchStartMs)
+            RobustPrintTestMode.SINGLE_BLOCK_TEXT_CALLBACK_GATED,
+            -> executeSingleBlockTextCallbackGated(service, job, callbackErrors, dispatchStartMs)
+        }
+    }
+
+    private fun executeBufferProbeOnly(
+        service: IWoyouService,
+        job: NativePrintJobEntity,
+        callbackErrors: MutableList<String>,
+        dispatchStartMs: Long,
+    ): String {
+        callPrinterPrimitive(job, "enterPrinterBuffer", detail = "bufferProbe clean=true") {
+            service.enterPrinterBuffer(true)
+        }
+        callPrinterPrimitive(job, "commitPrinterBuffer", detail = "bufferProbe") {
+            service.commitPrinterBuffer()
+        }
+        callPrinterPrimitive(job, "exitPrinterBuffer", detail = "bufferProbe commit=true") {
+            service.exitPrinterBuffer(true)
+        }
+        val sequence = "printerInit?->setAlignment->enterPrinterBuffer(true)->commitPrinterBuffer()->exitPrinterBuffer(true)"
+        Log.i(TAG, "native_print_buffer_probe_summary commandId=${job.commandId} orderId=${job.orderId ?: ""} selectedTestMode=BUFFER_PROBE_ONLY fallbackUsed=false primitiveSequence=$sequence")
+        return sequence
+    }
+
+    private fun executeSingleBlockTextCallbackGated(
+        service: IWoyouService,
+        job: NativePrintJobEntity,
+        callbackErrors: MutableList<String>,
+        dispatchStartMs: Long,
+    ): String {
+        val payload = "TEST\nHELLO\n123\nEND\n"
+        val gateLatch = CountDownLatch(1)
+        val gateSeen = AtomicBoolean(false)
+        callPrinterPrimitive(job, "printText", detail = "callbackGated payloadLength=${payload.length}") {
+            service.printText(payload, callbackFor(job, "callbackGated_printText", callbackErrors, dispatchStartMs, gateLatch, gateSeen))
+        }
+        val callbackArrived = gateLatch.await(CALLBACK_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+        if (!callbackArrived) {
+            Log.w(TAG, "native_print_low_level_phase commandId=${job.commandId} orderId=${job.orderId ?: ""} op=callbackGated_printText phase=callback_timeout timeoutMs=$CALLBACK_TIMEOUT_MS")
+        }
+        callPrinterPrimitive(job, "lineWrap", detail = "callbackGated lines=4 callbackArrived=$callbackArrived") {
+            service.lineWrap(4, callbackFor(job, "callbackGated_lineWrap", callbackErrors, dispatchStartMs))
+        }
+        val sequence = "printerInit?->setAlignment->printText(short_fixed)->waitCallbackOrTimeout->lineWrap(4)"
+        Log.i(TAG, "native_print_callback_gated_summary commandId=${job.commandId} orderId=${job.orderId ?: ""} selectedTestMode=SINGLE_BLOCK_TEXT_CALLBACK_GATED fallbackUsed=false callbackObserved=$callbackArrived primitiveSequence=$sequence")
+        return sequence
+    }
+
     private fun executeTextVendorParityRobust(
         service: IWoyouService,
         job: NativePrintJobEntity,
@@ -1309,51 +1418,40 @@ class SunmiNativePrinterWorker(
         callbackErrors: MutableList<String>,
         dispatchStartMs: Long,
         finalizePolicy: FinalizePolicy,
-        testMode: RobustPrintTestMode?,
     ): String {
         val fullTextPayload = sectionLines.joinToString("\n") {
             if (config.asciiSafeMode) toSafeAscii(it.text).text else it.text
         } + "\n"
 
-        val selectedMode = testMode ?: DEFAULT_ROBUST_TEST_MODE
+
         Log.i(
             TAG,
-            "native_print_text_vendor_parity_robust_selected commandId=${job.commandId} orderId=${job.orderId ?: ""} selectedTestMode=${selectedMode.name} requestedStrategy=${config.requestedNativePrintStrategyRaw} defaultTestMode=$DEFAULT_ROBUST_TEST_MODE robustPrimary=buffered_transactional_text fallbackOrder=buffered_transactional_text->single_block_text->bitmap_segmented renderedLineCount=${sectionLines.size} payloadLength=${fullTextPayload.length}",
+            "native_print_text_vendor_parity_robust_selected commandId=${job.commandId} orderId=${job.orderId ?: ""} selectedTestMode=LEGACY_DEFAULT requestedStrategy=${config.requestedNativePrintStrategyRaw} robustPrimary=buffered_transactional_text fallbackOrder=buffered_transactional_text->single_block_text->bitmap_segmented",
         )
 
-        val requestedPrimaryMode = selectedMode.strategyMode
-        val candidateOrder = linkedSetOf(requestedPrimaryMode, "buffered_transactional_text", "single_block_text", "bitmap_segmented")
-        for (candidateMode in candidateOrder) {
+        val candidates = listOf("buffered_transactional_text", "single_block_text", "bitmap_segmented")
+        candidates.forEach { candidateMode ->
             val callbackErrorStart = callbackErrors.size
             val attemptResult = runCatching {
                 when (candidateMode) {
-                    "buffered_transactional_text" -> {
-                        Log.i(TAG, "native_print_text_vendor_parity_robust_attempt commandId=${job.commandId} orderId=${job.orderId ?: ""} selectedTestMode=${selectedMode.name} mode=buffered_transactional_text strategy=buffered_transactional_text printerInitUsed=${selectedMode.usePrinterInit} bitmapModeUsed=false transactionalBufferedModeUsed=true lineCount=${sectionLines.size} finalizeMode=${finalizePolicy.name.lowercase()}")
-                        executeTextVendorParityBuffered(service, job, sectionLines, config, callbackErrors, dispatchStartMs, finalizePolicy, selectedMode)
-                    }
-                    "single_block_text" -> {
-                        Log.i(TAG, "native_print_text_vendor_parity_robust_attempt commandId=${job.commandId} orderId=${job.orderId ?: ""} selectedTestMode=${selectedMode.name} mode=single_block_text strategy=single_block_text printerInitUsed=${selectedMode.usePrinterInit} bitmapModeUsed=false transactionalBufferedModeUsed=false lineCount=${sectionLines.size} finalizeMode=${finalizePolicy.name.lowercase()}")
-                        executeSingleBlockText(service, job, fullTextPayload, config, callbackErrors, dispatchStartMs, finalizePolicy, selectedMode)
-                    }
+                    "buffered_transactional_text" -> executeTextVendorParityBuffered(service, job, sectionLines, config, callbackErrors, dispatchStartMs, finalizePolicy, null)
+                    "single_block_text" -> executeSingleBlockText(service, job, fullTextPayload, config, callbackErrors, dispatchStartMs, finalizePolicy, null)
                     else -> {
-                        Log.i(TAG, "native_print_text_vendor_parity_robust_attempt commandId=${job.commandId} orderId=${job.orderId ?: ""} selectedTestMode=${selectedMode.name} mode=bitmap_segmented strategy=bitmap_segmented printerInitUsed=${selectedMode.usePrinterInit} bitmapModeUsed=true transactionalBufferedModeUsed=false lineCount=${sectionLines.size} finalizeMode=${finalizePolicy.name.lowercase()}")
                         val bitmapConfig = config.copy(strategy = PhysicalFidelityStrategy.BITMAP_RECEIPT_SEGMENTED_BLOCKS)
-                        executeBitmapStrategies(service, job, sectionLines, bitmapConfig, callbackErrors, dispatchStartMs, finalizePolicy, selectedMode)
+                        executeBitmapStrategies(service, job, sectionLines, bitmapConfig, callbackErrors, dispatchStartMs, finalizePolicy, null)
                     }
                 }
             }
             val hadCallbackError = callbackErrors.size > callbackErrorStart
-            if (attemptResult.isSuccess && !hadCallbackError) {
-                Log.i(TAG, "native_print_text_vendor_parity_robust_attempt_result commandId=${job.commandId} orderId=${job.orderId ?: ""} selectedTestMode=${selectedMode.name} mode=$candidateMode success=true callbackErrorsAdded=0")
-                return attemptResult.getOrThrow()
-            }
-            Log.w(TAG, "native_print_text_vendor_parity_robust_attempt_result commandId=${job.commandId} orderId=${job.orderId ?: ""} selectedTestMode=${selectedMode.name} mode=$candidateMode success=false callbackErrorsAdded=${callbackErrors.size - callbackErrorStart} reason=${attemptResult.exceptionOrNull()?.message ?: "callback_error"}")
+            if (attemptResult.isSuccess && !hadCallbackError) return attemptResult.getOrThrow()
+            Log.w(TAG, "native_print_text_vendor_parity_robust_attempt_result commandId=${job.commandId} orderId=${job.orderId ?: ""} selectedTestMode=LEGACY_DEFAULT mode=$candidateMode success=false callbackErrorsAdded=${callbackErrors.size - callbackErrorStart} reason=${attemptResult.exceptionOrNull()?.message ?: "callback_error"}")
         }
 
         throw LowLevelStepException("robust_strategy_all_attempts_failed", IllegalStateException("buffered_transactional_text, single_block_text and bitmap_segmented all failed"))
     }
 
     private fun executeSingleBlockText(
+
         service: IWoyouService,
         job: NativePrintJobEntity,
         fullTextPayload: String,
@@ -1421,6 +1519,15 @@ class SunmiNativePrinterWorker(
                 Log.i(TAG, "native_print_finalize_sleep commandId=${job.commandId} orderId=${job.orderId ?: ""} context=$contextTag sleepMs=$extraSleepMs")
                 runCatching { Thread.sleep(extraSleepMs) }
             }
+        }
+    }
+
+    private fun modeCompatibilityHint(op: String, throwable: Throwable): String {
+        val message = throwable.message.orEmpty()
+        return when {
+            op == "enterPrinterBuffer" && throwable is NullPointerException -> "NPE_ON_ENTER_PRINTER_BUFFER"
+            op.contains("PrinterBuffer", ignoreCase = true) && message.contains("TransBean", ignoreCase = true) -> "BUFFER_API_INCOMPATIBLE"
+            else -> "GENERIC_LOW_LEVEL_EXCEPTION"
         }
     }
 
@@ -1741,35 +1848,86 @@ class SunmiNativePrinterWorker(
 
     private fun callPrinterPrimitive(job: NativePrintJobEntity, step: String, detail: String? = null, call: () -> Unit) {
         val suffix = if (detail.isNullOrBlank()) "" else " $detail"
-        Log.i(TAG, "native_print_low_level_call $step start commandId=${job.commandId} orderId=${job.orderId ?: ""} sourceJobId=${job.sourceJobId ?: ""}$suffix")
+        Log.i(TAG, "native_print_low_level_phase commandId=${job.commandId} orderId=${job.orderId ?: ""} op=$step phase=begin sourceJobId=${job.sourceJobId ?: ""}$suffix")
         try {
             call()
-            Log.i(TAG, "native_print_low_level_call $step end commandId=${job.commandId} orderId=${job.orderId ?: ""} sourceJobId=${job.sourceJobId ?: ""}$suffix")
+            Log.i(TAG, "native_print_low_level_phase commandId=${job.commandId} orderId=${job.orderId ?: ""} op=$step phase=binder_return sourceJobId=${job.sourceJobId ?: ""}$suffix")
         } catch (t: Throwable) {
+            activeTelemetry.get()?.let {
+                it.binderAccepted = false
+                it.exceptionObserved = true
+                it.exceptionOriginOp = step
+                it.exceptionClass = t::class.java.simpleName
+                it.exceptionMessage = t.message ?: "unknown"
+            }
+            Log.e(TAG, "native_print_low_level_phase commandId=${job.commandId} orderId=${job.orderId ?: ""} op=$step phase=exception exceptionClass=${t::class.java.name} exceptionOriginOp=$step exceptionMessage=${t.message ?: "unknown"} modeCompatibilityHint=${modeCompatibilityHint(step, t)}")
             throw LowLevelStepException(step, t)
         }
     }
 
-    private fun callbackFor(job: NativePrintJobEntity, step: String, callbackErrors: MutableList<String>, dispatchStartMs: Long): ICallback {
+    private fun callbackFor(
+        job: NativePrintJobEntity,
+        step: String,
+        callbackErrors: MutableList<String>,
+        dispatchStartMs: Long,
+        gateLatch: CountDownLatch? = null,
+        gateSeen: AtomicBoolean? = null,
+    ): ICallback {
+        val callbackResolved = AtomicBoolean(false)
+        Thread {
+            runCatching { Thread.sleep(CALLBACK_TIMEOUT_MS) }
+            if (!callbackResolved.get()) {
+                Log.w(TAG, "native_print_low_level_phase commandId=${job.commandId} orderId=${job.orderId ?: ""} op=$step phase=callback_timeout timeoutMs=$CALLBACK_TIMEOUT_MS")
+            }
+        }.start()
+
         return object : ICallback.Stub() {
             override fun onRunResult(isSuccess: Boolean) {
+                callbackResolved.set(true)
+                gateSeen?.set(true)
+                gateLatch?.countDown()
                 val deltaMs = System.currentTimeMillis() - dispatchStartMs
-                Log.i(TAG, "native_print_low_level_callback commandId=${job.commandId} orderId=${job.orderId ?: ""} step=$step callback=onRunResult success=$isSuccess code=NA message=NA deltaMs=$deltaMs")
+                activeTelemetry.get()?.let {
+                    it.callbackObserved = true
+                    if (isSuccess) it.callbackSuccess = true
+                }
+                Log.i(TAG, "native_print_low_level_phase commandId=${job.commandId} orderId=${job.orderId ?: ""} op=$step phase=callback_received callback=onRunResult success=$isSuccess code=NA message=NA deltaMs=$deltaMs")
                 if (!isSuccess) callbackErrors += "$step:onRunResult:false"
             }
             override fun onReturnString(result: String?) {
+                callbackResolved.set(true)
+                gateSeen?.set(true)
+                gateLatch?.countDown()
                 val deltaMs = System.currentTimeMillis() - dispatchStartMs
-                Log.i(TAG, "native_print_low_level_callback commandId=${job.commandId} orderId=${job.orderId ?: ""} step=$step callback=onReturnString success=true code=NA message=${result ?: ""} deltaMs=$deltaMs")
+                activeTelemetry.get()?.callbackObserved = true
+                Log.i(TAG, "native_print_low_level_phase commandId=${job.commandId} orderId=${job.orderId ?: ""} op=$step phase=callback_received callback=onReturnString success=true code=NA message=${result ?: ""} deltaMs=$deltaMs")
             }
             override fun onRaiseException(code: Int, msg: String?) {
+                callbackResolved.set(true)
+                gateSeen?.set(true)
+                gateLatch?.countDown()
                 val deltaMs = System.currentTimeMillis() - dispatchStartMs
-                Log.i(TAG, "native_print_low_level_callback commandId=${job.commandId} orderId=${job.orderId ?: ""} step=$step callback=onRaiseException success=false code=$code message=${msg ?: "unknown"} deltaMs=$deltaMs")
+                activeTelemetry.get()?.let {
+                    it.callbackObserved = true
+                    it.exceptionObserved = true
+                    it.exceptionOriginOp = step
+                    it.exceptionClass = "CallbackException"
+                    it.exceptionMessage = msg ?: "unknown"
+                }
+                Log.i(TAG, "native_print_low_level_phase commandId=${job.commandId} orderId=${job.orderId ?: ""} op=$step phase=callback_received callback=onRaiseException success=false code=$code message=${msg ?: "unknown"} deltaMs=$deltaMs")
                 callbackErrors += "$step:onRaiseException:$code:${msg ?: "unknown"}"
             }
             override fun onPrintResult(code: Int, msg: String?) {
+                callbackResolved.set(true)
+                gateSeen?.set(true)
+                gateLatch?.countDown()
                 val deltaMs = System.currentTimeMillis() - dispatchStartMs
                 val success = code == 0
-                Log.i(TAG, "native_print_low_level_callback commandId=${job.commandId} orderId=${job.orderId ?: ""} step=$step callback=onPrintResult success=$success code=$code message=${msg ?: ""} deltaMs=$deltaMs")
+                activeTelemetry.get()?.let {
+                    it.callbackObserved = true
+                    if (success) it.callbackSuccess = true
+                }
+                Log.i(TAG, "native_print_low_level_phase commandId=${job.commandId} orderId=${job.orderId ?: ""} op=$step phase=callback_received callback=onPrintResult success=$success code=$code message=${msg ?: ""} deltaMs=$deltaMs")
                 if (!success) callbackErrors += "$step:onPrintResult:$code:${msg ?: "unknown"}"
             }
         }
@@ -1780,10 +1938,12 @@ class SunmiNativePrinterWorker(
         private const val TAG = "NativePrinterWorker"
         private val DEFAULT_ACTIVE_STRATEGY = PhysicalFidelityStrategy.TEXT_VENDOR_PARITY_UNBUFFERED
         // Controlled test matrix switch for robust vendor parity path.
-        private val DEFAULT_ROBUST_TEST_MODE = RobustPrintTestMode.MODE_B
-        private const val ROBUST_TEST_MODE = "MODE_B" // MODE_A..MODE_F, LEGACY
+        private val DEFAULT_ROBUST_TEST_MODE = RobustPrintTestMode.MODE_C
+        private const val ROBUST_TEST_MODE = "MODE_C" // MODE_A..MODE_F, LEGACY
         private const val ENABLE_PRINTER_INIT_BEFORE_DISPATCH = false // Used only when ROBUST_TEST_MODE=LEGACY
         private const val FINALIZE_POLICY_MODE = "finalize_linewrap_only" // finalize_none, finalize_linewrap_only, finalize_linewrap_plus_raw, finalize_extra_feed_then_sleep
+        private const val CALLBACK_TIMEOUT_MS = 1800L
+        private val activeTelemetry = ThreadLocal<LowLevelExecutionTelemetry>()
         private const val DEFAULT_BITMAP_WIDTH_PX = 384
         private const val MAX_SINGLE_BITMAP_HEIGHT_PX = 2600
         private const val DEFAULT_LINE_DELAY_MS = 35L
