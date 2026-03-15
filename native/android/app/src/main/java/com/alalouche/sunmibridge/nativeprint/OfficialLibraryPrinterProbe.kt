@@ -28,10 +28,14 @@ class OfficialLibraryPrinterProbe(
         var service: SunmiPrinterService? = null
 
         Log.i(TAG, "native_print_official_probe_start commandId=${job.commandId} orderId=${job.orderId ?: ""} path=OFFICIAL_LIBRARY_PATH")
+        Log.i(TAG, "official_library_bind_start commandId=${job.commandId} orderId=${job.orderId ?: ""} activePrinterPath=OFFICIAL_LIBRARY_PATH")
+        Log.i(TAG, "official_library_resolved_symbols managerClass=${InnerPrinterManager::class.java.name} bindCallbackBase=${InnerPrinterCallback::class.java.name} resultCallbackBase=${InnerResultCallback::class.java.name} serviceClass=${SunmiPrinterService::class.java.name}")
         val bindCallback = object : InnerPrinterCallback() {
             override fun onConnected(svc: SunmiPrinterService?) {
                 service = svc
                 Log.i(TAG, "native_print_official_bind_result commandId=${job.commandId} orderId=${job.orderId ?: ""} bindSucceeded=${svc != null} serviceClass=${svc?.javaClass?.name ?: "null"}")
+                Log.i(TAG, "official_library_on_connected commandId=${job.commandId} orderId=${job.orderId ?: ""} serviceClass=${svc?.javaClass?.name ?: "null"}")
+                Log.i(TAG, "official_library_bind_success commandId=${job.commandId} orderId=${job.orderId ?: ""} bindSucceeded=${svc != null}")
                 bindLatch.countDown()
             }
 
@@ -45,11 +49,13 @@ class OfficialLibraryPrinterProbe(
                 InnerPrinterManager.getInstance().bindService(context, bindCallback)
             }.onFailure {
                 Log.e(TAG, "native_print_official_bind_error commandId=${job.commandId} orderId=${job.orderId ?: ""} reason=${it.message ?: "bind_error"}")
+                Log.e(TAG, "official_library_bind_failure commandId=${job.commandId} orderId=${job.orderId ?: ""} reason=${it.message ?: "bind_error"}")
             }.isSuccess
 
             val bindArrived = if (bindInvoked) bindLatch.await(BIND_TIMEOUT_MS, TimeUnit.MILLISECONDS) else false
             if (!bindArrived || service == null) {
                 Log.e(TAG, "native_print_official_bind_timeout commandId=${job.commandId} orderId=${job.orderId ?: ""} bindArrived=$bindArrived bindInvoked=$bindInvoked")
+                Log.e(TAG, "official_library_bind_failure commandId=${job.commandId} orderId=${job.orderId ?: ""} reason=bind_timeout_or_null_service")
                 return NativeDispatchReport(
                     acceptedByNative = false,
                     dispatchStarted = true,
@@ -79,6 +85,7 @@ class OfficialLibraryPrinterProbe(
 
             Thread.sleep(300L)
 
+            Log.i(TAG, "official_library_print_text_probe_start commandId=${job.commandId} orderId=${job.orderId ?: ""} payload=TEST\n")
             svc.printText("TEST\n", callbackForOfficial(job, "printText_TEST", callbackErrors))
             dispatchedText.set(true)
             Log.i(TAG, "native_print_official_probe_dispatched commandId=${job.commandId} orderId=${job.orderId ?: ""} step=printText payload=TEST\\n")
@@ -89,6 +96,7 @@ class OfficialLibraryPrinterProbe(
             val bitmap = renderDeterministicBitmap()
             try {
                 Log.i(TAG, "native_print_official_bitmap_dimensions commandId=${job.commandId} orderId=${job.orderId ?: ""} widthPx=${bitmap.width} heightPx=${bitmap.height}")
+                Log.i(TAG, "official_library_print_bitmap_probe_start commandId=${job.commandId} orderId=${job.orderId ?: ""} type=1 widthPx=${bitmap.width} heightPx=${bitmap.height}")
                 svc.printBitmapCustom(bitmap, 1, callbackForOfficial(job, "printBitmapCustom_type_1", callbackErrors))
                 dispatchedBitmapCustom.set(true)
                 Log.i(TAG, "native_print_official_probe_dispatched commandId=${job.commandId} orderId=${job.orderId ?: ""} step=printBitmapCustom type=1")
@@ -151,17 +159,20 @@ class OfficialLibraryPrinterProbe(
             override fun onRunResult(isSuccess: Boolean) {
                 resolved.set(true)
                 Log.i(TAG, "native_print_official_callback commandId=${job.commandId} orderId=${job.orderId ?: ""} op=$step callback=onRunResult success=$isSuccess")
+                Log.i(TAG, "official_library_callback_onRunResult commandId=${job.commandId} orderId=${job.orderId ?: ""} op=$step success=$isSuccess")
                 if (!isSuccess) callbackErrors += "$step:onRunResult:false"
             }
 
             override fun onReturnString(result: String?) {
                 resolved.set(true)
                 Log.i(TAG, "native_print_official_callback commandId=${job.commandId} orderId=${job.orderId ?: ""} op=$step callback=onReturnString message=${result ?: ""}")
+                Log.i(TAG, "official_library_callback_onReturnString commandId=${job.commandId} orderId=${job.orderId ?: ""} op=$step message=${result ?: ""}")
             }
 
             override fun onRaiseException(code: Int, msg: String?) {
                 resolved.set(true)
                 Log.i(TAG, "native_print_official_callback commandId=${job.commandId} orderId=${job.orderId ?: ""} op=$step callback=onRaiseException code=$code message=${msg ?: "unknown"}")
+                Log.i(TAG, "official_library_callback_onRaiseException commandId=${job.commandId} orderId=${job.orderId ?: ""} op=$step code=$code message=${msg ?: "unknown"}")
                 callbackErrors += "$step:onRaiseException:$code:${msg ?: "unknown"}"
             }
 
@@ -169,6 +180,7 @@ class OfficialLibraryPrinterProbe(
                 resolved.set(true)
                 val success = code == 0
                 Log.i(TAG, "native_print_official_callback commandId=${job.commandId} orderId=${job.orderId ?: ""} op=$step callback=onPrintResult success=$success code=$code message=${msg ?: ""}")
+                Log.i(TAG, "official_library_callback_onPrintResult commandId=${job.commandId} orderId=${job.orderId ?: ""} op=$step success=$success code=$code message=${msg ?: ""}")
                 if (!success) callbackErrors += "$step:onPrintResult:$code:${msg ?: "unknown"}"
             }
         }

@@ -203,7 +203,7 @@ class SunmiNativePrinterWorker(
 
     override fun dispatch(job: NativePrintJobEntity): NativeDispatchReport {
         val selectedPath = resolvePrinterPathSelection()
-        Log.i(TAG, "native_print_path_selection commandId=${job.commandId} orderId=${job.orderId ?: ""} selectedPath=${selectedPath.name}")
+        Log.i(TAG, "native_print_path_selection commandId=${job.commandId} orderId=${job.orderId ?: ""} selectedPath=${selectedPath.name} activePrinterPath=${selectedPath.name}")
         if (selectedPath == NativePathSelection.OFFICIAL_LIBRARY_PATH) {
             return officialProbe.dispatch(job)
         }
@@ -1854,7 +1854,7 @@ class SunmiNativePrinterWorker(
     }
 
     private fun resolvePrinterPathSelection(): NativePathSelection {
-        val normalized = PRINTER_PATH_SELECTION.trim().uppercase()
+        val normalized = ACTIVE_PRINTER_PATH.trim().uppercase()
         return NativePathSelection.entries.firstOrNull { it.name == normalized } ?: DEFAULT_PRINTER_PATH_SELECTION
     }
 
@@ -2252,8 +2252,8 @@ class SunmiNativePrinterWorker(
         private val DEFAULT_ROBUST_TEST_MODE = RobustPrintTestMode.MODE_M
         private const val ROBUST_TEST_MODE = "MODE_M" // MODE_A..MODE_M, LEGACY
         private const val ENABLE_PRINTER_INIT_BEFORE_DISPATCH = false // Used only when ROBUST_TEST_MODE=LEGACY
-        private val DEFAULT_PRINTER_PATH_SELECTION = NativePathSelection.LEGACY_AIDL_PATH
-        private const val PRINTER_PATH_SELECTION = "LEGACY_AIDL_PATH" // LEGACY_AIDL_PATH or OFFICIAL_LIBRARY_PATH
+        private val DEFAULT_PRINTER_PATH_SELECTION = NativePathSelection.OFFICIAL_LIBRARY_PATH
+        private const val ACTIVE_PRINTER_PATH = "OFFICIAL_LIBRARY_PATH" // LEGACY_AIDL_PATH or OFFICIAL_LIBRARY_PATH
         private const val FINALIZE_POLICY_MODE = "finalize_linewrap_plus_raw" // finalize_none, finalize_linewrap_only, finalize_linewrap_plus_raw, finalize_extra_feed_then_sleep
         private const val CALLBACK_TIMEOUT_MS = 1800L
         private val activeTelemetry = ThreadLocal<LowLevelExecutionTelemetry>()
