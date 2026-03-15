@@ -163,7 +163,7 @@ class OfficialLibraryPrinterProbe(
             bitmap.recycle()
         }
 
-        Log.i(TAG, "official_probe_step commandId=${job.commandId} orderId=${job.orderId ?: ""} official_probe_step=lineWrap_after_bitmap_dispatch")
+        Log.i(TAG, "official_probe_step commandId=${job.commandId} orderId=${job.orderId ?: ""} official_probe_step=lineWrap_after_bitmap")
         service.lineWrap(3, callbackForOfficial(job, if (useCustom) "lineWrap_3_bitmapCustom" else "lineWrap_3_bitmap", callbackErrors))
     }
 
@@ -242,7 +242,7 @@ class OfficialLibraryPrinterProbe(
         private const val TAG = "OfficialLibraryProbe"
         private const val CALLBACK_TIMEOUT_MS = 1800L
         private const val BIND_TIMEOUT_MS = 3500L
-        private val DEFAULT_OFFICIAL_PROBE_MODE = OfficialProbeMode.OFFICIAL_PROBE_TEXT_ONLY
-        private const val ACTIVE_OFFICIAL_PROBE_MODE = "OFFICIAL_PROBE_TEXT_ONLY" // OFFICIAL_PROBE_TEXT_ONLY | OFFICIAL_PROBE_BITMAP_ONLY_PRINTBITMAP | OFFICIAL_PROBE_BITMAP_ONLY_PRINTBITMAPCUSTOM
+        private val DEFAULT_OFFICIAL_PROBE_MODE = OfficialProbeMode.OFFICIAL_PROBE_BITMAP_ONLY_PRINTBITMAP
+        private const val ACTIVE_OFFICIAL_PROBE_MODE = "OFFICIAL_PROBE_BITMAP_ONLY_PRINTBITMAP" // OFFICIAL_PROBE_TEXT_ONLY | OFFICIAL_PROBE_BITMAP_ONLY_PRINTBITMAP | OFFICIAL_PROBE_BITMAP_ONLY_PRINTBITMAPCUSTOM
     }
 }
