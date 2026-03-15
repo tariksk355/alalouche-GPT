@@ -157,6 +157,7 @@ private enum class RobustPrintTestMode(
     MODE_D(strategyMode = "single_block_text", usePrinterInit = true),
     MODE_E(strategyMode = "bitmap_segmented", usePrinterInit = false),
     MODE_F(strategyMode = "bitmap_segmented", usePrinterInit = true),
+    MODE_G(strategyMode = "line_by_line_text_explicit", usePrinterInit = true),
     BUFFER_PROBE_ONLY(strategyMode = "buffer_probe_only", usePrinterInit = false),
     SINGLE_BLOCK_TEXT_CALLBACK_GATED(strategyMode = "single_block_text_callback_gated", usePrinterInit = false),
 }
@@ -1359,6 +1360,8 @@ class SunmiNativePrinterWorker(
                 val bitmapConfig = config.copy(strategy = PhysicalFidelityStrategy.BITMAP_RECEIPT_SEGMENTED_BLOCKS)
                 executeBitmapStrategies(service, job, sectionLines, bitmapConfig, callbackErrors, dispatchStartMs, finalizePolicy, testMode)
             }
+            RobustPrintTestMode.MODE_G,
+            -> executeLineByLineTextModeG(service, job, config, callbackErrors, dispatchStartMs)
             RobustPrintTestMode.BUFFER_PROBE_ONLY,
             -> executeBufferProbeOnly(service, job, callbackErrors, dispatchStartMs)
             RobustPrintTestMode.SINGLE_BLOCK_TEXT_CALLBACK_GATED,
@@ -1407,6 +1410,35 @@ class SunmiNativePrinterWorker(
         }
         val sequence = "printerInit?->setAlignment->printText(short_fixed)->waitCallbackOrTimeout->lineWrap(4)"
         Log.i(TAG, "native_print_callback_gated_summary commandId=${job.commandId} orderId=${job.orderId ?: ""} selectedTestMode=SINGLE_BLOCK_TEXT_CALLBACK_GATED fallbackUsed=false callbackObserved=$callbackArrived primitiveSequence=$sequence")
+        return sequence
+    }
+
+    private fun executeLineByLineTextModeG(
+        service: IWoyouService,
+        job: NativePrintJobEntity,
+        config: PhysicalFidelityConfig,
+        callbackErrors: MutableList<String>,
+        dispatchStartMs: Long,
+    ): String {
+        val lines = listOf("TEST", "HELLO", "123", "END")
+        lines.forEachIndexed { idx, lineText ->
+            Log.i(TAG, "native_print_mode_g_line commandId=${job.commandId} orderId=${job.orderId ?: ""} lineIndex=$idx lineText=$lineText")
+            callPrinterPrimitive(job, "printText", detail = "modeG lineIndex=$idx lineText=$lineText") {
+                service.printText(lineText, callbackFor(job, "modeG_printText_$idx", callbackErrors, dispatchStartMs))
+            }
+            val wrapLines = if (idx == lines.lastIndex) 3 else 1
+            callPrinterPrimitive(job, "lineWrap", detail = "modeG lineIndex=$idx lines=$wrapLines") {
+                service.lineWrap(wrapLines, callbackFor(job, "modeG_lineWrap_$idx", callbackErrors, dispatchStartMs))
+            }
+        }
+
+        if (config.finalSettleMs > 0) {
+            Log.i(TAG, "native_print_final_settle_sleep commandId=${job.commandId} orderId=${job.orderId ?: ""} settleMs=${config.finalSettleMs} mode=MODE_G")
+            runCatching { Thread.sleep(config.finalSettleMs) }
+        }
+
+        val sequence = "printerInit->setAlignment->printText(TEST)->lineWrap(1)->printText(HELLO)->lineWrap(1)->printText(123)->lineWrap(1)->printText(END)->lineWrap(3)"
+        Log.i(TAG, "native_print_mode_g_summary commandId=${job.commandId} orderId=${job.orderId ?: ""} selectedTestMode=MODE_G fallbackUsed=false lineCount=${lines.size} primitiveSequence=$sequence")
         return sequence
     }
 
@@ -1938,8 +1970,8 @@ class SunmiNativePrinterWorker(
         private const val TAG = "NativePrinterWorker"
         private val DEFAULT_ACTIVE_STRATEGY = PhysicalFidelityStrategy.TEXT_VENDOR_PARITY_UNBUFFERED
         // Controlled test matrix switch for robust vendor parity path.
-        private val DEFAULT_ROBUST_TEST_MODE = RobustPrintTestMode.MODE_D
-        private const val ROBUST_TEST_MODE = "MODE_D" // MODE_A..MODE_F, LEGACY
+        private val DEFAULT_ROBUST_TEST_MODE = RobustPrintTestMode.MODE_G
+        private const val ROBUST_TEST_MODE = "MODE_G" // MODE_A..MODE_G, LEGACY
         private const val ENABLE_PRINTER_INIT_BEFORE_DISPATCH = false // Used only when ROBUST_TEST_MODE=LEGACY
         private const val FINALIZE_POLICY_MODE = "finalize_linewrap_plus_raw" // finalize_none, finalize_linewrap_only, finalize_linewrap_plus_raw, finalize_extra_feed_then_sleep
         private const val CALLBACK_TIMEOUT_MS = 1800L
