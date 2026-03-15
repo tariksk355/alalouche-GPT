@@ -162,6 +162,7 @@ private enum class RobustPrintTestMode(
     MODE_H(strategyMode = "line_by_line_text_paced", usePrinterInit = true),
     MODE_I(strategyMode = "text_only_single_call", usePrinterInit = true),
     MODE_K(strategyMode = "strict_bitmap_transaction_single_image", usePrinterInit = true),
+    MODE_L(strategyMode = "strict_bitmap_non_transaction_single_image", usePrinterInit = true),
     BUFFER_PROBE_ONLY(strategyMode = "buffer_probe_only", usePrinterInit = false),
     SINGLE_BLOCK_TEXT_CALLBACK_GATED(strategyMode = "single_block_text_callback_gated", usePrinterInit = false),
 }
@@ -477,9 +478,13 @@ class SunmiNativePrinterWorker(
             } else {
                 Log.i(TAG, "native_print_printer_init_skipped commandId=${job.commandId} orderId=${job.orderId ?: ""} selectedTestMode=${telemetry.selectedTestMode}")
             }
-            val shouldSkipAlignment = testMode == RobustPrintTestMode.MODE_I || testMode == RobustPrintTestMode.MODE_K
+            val shouldSkipAlignment = testMode == RobustPrintTestMode.MODE_I || testMode == RobustPrintTestMode.MODE_K || testMode == RobustPrintTestMode.MODE_L
             if (shouldSkipAlignment) {
-                val reason = if (testMode == RobustPrintTestMode.MODE_K) "strict_bitmap_transaction_mode_k" else "text_only_minimal_mode"
+                val reason = when (testMode) {
+                    RobustPrintTestMode.MODE_K -> "strict_bitmap_transaction_mode_k"
+                    RobustPrintTestMode.MODE_L -> "strict_bitmap_non_transaction_mode_l"
+                    else -> "text_only_minimal_mode"
+                }
                 Log.i(TAG, "native_print_strict_mode_skip_primitive commandId=${job.commandId} orderId=${job.orderId ?: ""} selectedTestMode=${testMode?.name ?: "LEGACY_DEFAULT"} primitive=setAlignment reason=$reason")
             } else {
                 callPrinterPrimitive(job, "setAlignment", detail = "value=0") {
@@ -1412,6 +1417,8 @@ class SunmiNativePrinterWorker(
             -> executeTextOnlySingleCallModeI(service, job, callbackErrors, dispatchStartMs)
             RobustPrintTestMode.MODE_K,
             -> executeStrictBitmapTransactionModeK(service, job, callbackErrors, dispatchStartMs)
+            RobustPrintTestMode.MODE_L,
+            -> executeStrictBitmapNonTransactionModeL(service, job, callbackErrors, dispatchStartMs)
             RobustPrintTestMode.BUFFER_PROBE_ONLY,
             -> executeBufferProbeOnly(service, job, callbackErrors, dispatchStartMs)
             RobustPrintTestMode.SINGLE_BLOCK_TEXT_CALLBACK_GATED,
@@ -1470,6 +1477,40 @@ class SunmiNativePrinterWorker(
         )
 
         return "printerInit->sleep(300ms)->enterPrinterBuffer(true)->printBitmap(single_384px)->commitPrinterBufferWithCallback(callback)->sleep(1000ms)"
+    }
+
+    private fun executeStrictBitmapNonTransactionModeL(
+        service: IWoyouService,
+        job: NativePrintJobEntity,
+        callbackErrors: MutableList<String>,
+        dispatchStartMs: Long,
+    ): String {
+        Log.i(TAG, "native_print_mode_l_selected commandId=${job.commandId} orderId=${job.orderId ?: ""} selectedTestMode=MODE_L fallbackUsed=false strictNoFallback=true")
+        Log.i(TAG, "native_print_mode_l_service_info commandId=${job.commandId} orderId=${job.orderId ?: ""} selectedFamily=woyou_legacy_packaged packageName=woyou.aidlservice.jiuiv5 action=woyou.aidlservice.jiuiv5.IWoyouService")
+        Log.i(TAG, "native_print_mode_l_transaction_primitives_skipped commandId=${job.commandId} orderId=${job.orderId ?: ""} enterPrinterBuffer=false commitPrinterBuffer=false commitPrinterBufferWithCallback=false exitPrinterBuffer=false reason=non_transaction_experiment")
+
+        Log.i(TAG, "native_print_mode_l_sleep commandId=${job.commandId} orderId=${job.orderId ?: ""} stage=post_printer_init durationMs=300")
+        runCatching { Thread.sleep(300L) }
+
+        val render = renderModeKBitmap(listOf("TEST", "HELLO", "123", "END"))
+        try {
+            Log.i(TAG, "native_print_mode_l_bitmap_dimensions commandId=${job.commandId} orderId=${job.orderId ?: ""} widthPx=${render.widthPx} heightPx=${render.heightPx} lineCount=${render.lineCount}")
+            callPrinterPrimitive(job, "printBitmap", detail = "modeL width=${render.widthPx} height=${render.heightPx}") {
+                service.printBitmap(render.bitmap, callbackFor(job, "modeL_printBitmap", callbackErrors, dispatchStartMs))
+            }
+        } finally {
+            render.bitmap.recycle()
+        }
+
+        callPrinterPrimitive(job, "lineWrap", detail = "modeL lines=1 postBitmapFlush") {
+            service.lineWrap(1, callbackFor(job, "modeL_lineWrap", callbackErrors, dispatchStartMs))
+        }
+
+        Log.i(TAG, "native_print_mode_l_sleep commandId=${job.commandId} orderId=${job.orderId ?: ""} stage=final_settle durationMs=1000")
+        runCatching { Thread.sleep(1000L) }
+
+        Log.i(TAG, "native_print_mode_l_summary commandId=${job.commandId} orderId=${job.orderId ?: ""} selectedTestMode=MODE_L fallbackUsed=false nonTransaction=true bitmapSegmentationUsed=false textUsed=false setAlignmentUsed=false lineWrapUsed=true lineWrapCount=1 rawFinalizeUsed=false")
+        return "printerInit->sleep(300ms)->printBitmap(single_384px)->lineWrap(1)->sleep(1000ms)"
     }
 
     private fun executeBufferProbeOnly(
@@ -2136,8 +2177,8 @@ class SunmiNativePrinterWorker(
         private const val TAG = "NativePrinterWorker"
         private val DEFAULT_ACTIVE_STRATEGY = PhysicalFidelityStrategy.TEXT_VENDOR_PARITY_UNBUFFERED
         // Controlled test matrix switch for robust vendor parity path.
-        private val DEFAULT_ROBUST_TEST_MODE = RobustPrintTestMode.MODE_K
-        private const val ROBUST_TEST_MODE = "MODE_K" // MODE_A..MODE_K, LEGACY
+        private val DEFAULT_ROBUST_TEST_MODE = RobustPrintTestMode.MODE_L
+        private const val ROBUST_TEST_MODE = "MODE_L" // MODE_A..MODE_L, LEGACY
         private const val ENABLE_PRINTER_INIT_BEFORE_DISPATCH = false // Used only when ROBUST_TEST_MODE=LEGACY
         private const val FINALIZE_POLICY_MODE = "finalize_linewrap_plus_raw" // finalize_none, finalize_linewrap_only, finalize_linewrap_plus_raw, finalize_extra_feed_then_sleep
         private const val CALLBACK_TIMEOUT_MS = 1800L
