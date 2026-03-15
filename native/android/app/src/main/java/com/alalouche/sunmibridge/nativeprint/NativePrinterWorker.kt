@@ -159,6 +159,7 @@ private enum class RobustPrintTestMode(
     MODE_F(strategyMode = "bitmap_segmented", usePrinterInit = true),
     MODE_G(strategyMode = "line_by_line_text_explicit", usePrinterInit = true),
     MODE_H(strategyMode = "line_by_line_text_paced", usePrinterInit = true),
+    MODE_I(strategyMode = "text_only_single_call", usePrinterInit = true),
     BUFFER_PROBE_ONLY(strategyMode = "buffer_probe_only", usePrinterInit = false),
     SINGLE_BLOCK_TEXT_CALLBACK_GATED(strategyMode = "single_block_text_callback_gated", usePrinterInit = false),
 }
@@ -474,8 +475,13 @@ class SunmiNativePrinterWorker(
             } else {
                 Log.i(TAG, "native_print_printer_init_skipped commandId=${job.commandId} orderId=${job.orderId ?: ""} selectedTestMode=${telemetry.selectedTestMode}")
             }
-            callPrinterPrimitive(job, "setAlignment", detail = "value=0") {
-                service.setAlignment(0, callbackFor(job, "setAlignment", callbackErrors, dispatchStartMs))
+            val shouldSkipAlignment = testMode == RobustPrintTestMode.MODE_I
+            if (shouldSkipAlignment) {
+                Log.i(TAG, "native_print_mode_i_skip_primitive commandId=${job.commandId} orderId=${job.orderId ?: ""} primitive=setAlignment reason=text_only_minimal_mode")
+            } else {
+                callPrinterPrimitive(job, "setAlignment", detail = "value=0") {
+                    service.setAlignment(0, callbackFor(job, "setAlignment", callbackErrors, dispatchStartMs))
+                }
             }
 
             val lines = renderedText.replace("\r\n", "\n").replace("\r", "\n").split("\n").map { it.trimEnd() }.filter { it.isNotBlank() }
@@ -1365,6 +1371,8 @@ class SunmiNativePrinterWorker(
             -> executeLineByLineTextModeG(service, job, config, callbackErrors, dispatchStartMs)
             RobustPrintTestMode.MODE_H,
             -> executeLineByLineTextModeH(service, job, callbackErrors, dispatchStartMs)
+            RobustPrintTestMode.MODE_I,
+            -> executeTextOnlySingleCallModeI(service, job, callbackErrors, dispatchStartMs)
             RobustPrintTestMode.BUFFER_PROBE_ONLY,
             -> executeBufferProbeOnly(service, job, callbackErrors, dispatchStartMs)
             RobustPrintTestMode.SINGLE_BLOCK_TEXT_CALLBACK_GATED,
@@ -1479,6 +1487,32 @@ class SunmiNativePrinterWorker(
 
         val sequence = "printerInit->sleep(300)->setAlignment->printText(TEST)->sleep(250)->lineWrap(1)->sleep(250)->printText(HELLO)->sleep(250)->lineWrap(1)->sleep(250)->printText(123)->sleep(250)->lineWrap(1)->sleep(250)->printText(END)->sleep(250)->lineWrap(3)->sleep(600)"
         Log.i(TAG, "native_print_mode_h_summary commandId=${job.commandId} orderId=${job.orderId ?: ""} selectedTestMode=MODE_H fallbackUsed=false lineCount=${lines.size} primitiveSequence=$sequence")
+        return sequence
+    }
+
+    private fun executeTextOnlySingleCallModeI(
+        service: IWoyouService,
+        job: NativePrintJobEntity,
+        callbackErrors: MutableList<String>,
+        dispatchStartMs: Long,
+    ): String {
+        val payload = "TEST\nHELLO\n123\nEND\n"
+        Log.i(TAG, "native_print_mode_i_selected commandId=${job.commandId} orderId=${job.orderId ?: ""} selectedTestMode=MODE_I fallbackUsed=false payloadLength=${payload.length}")
+        Log.i(TAG, "native_print_mode_i_skip_primitive commandId=${job.commandId} orderId=${job.orderId ?: ""} primitive=lineWrap reason=text_only_minimal_mode")
+        Log.i(TAG, "native_print_mode_i_skip_primitive commandId=${job.commandId} orderId=${job.orderId ?: ""} primitive=sendRAWData reason=text_only_minimal_mode")
+
+        Log.i(TAG, "native_print_mode_i_sleep commandId=${job.commandId} orderId=${job.orderId ?: ""} position=after_printer_init_before_print sleepMs=300")
+        runCatching { Thread.sleep(300L) }
+
+        callPrinterPrimitive(job, "printText", detail = "modeI payloadLength=${payload.length}") {
+            service.printText(payload, callbackFor(job, "modeI_printText_single", callbackErrors, dispatchStartMs))
+        }
+
+        Log.i(TAG, "native_print_mode_i_sleep commandId=${job.commandId} orderId=${job.orderId ?: ""} position=final_settle sleepMs=800")
+        runCatching { Thread.sleep(800L) }
+
+        val sequence = "printerInit->sleep(300)->printText(TEST\nHELLO\n123\nEND\n)->sleep(800)"
+        Log.i(TAG, "native_print_mode_i_summary commandId=${job.commandId} orderId=${job.orderId ?: ""} selectedTestMode=MODE_I fallbackUsed=false payloadLength=${payload.length} note=setAlignment_lineWrap_sendRAWData_intentionally_skipped primitiveSequence=$sequence")
         return sequence
     }
 
@@ -2010,8 +2044,8 @@ class SunmiNativePrinterWorker(
         private const val TAG = "NativePrinterWorker"
         private val DEFAULT_ACTIVE_STRATEGY = PhysicalFidelityStrategy.TEXT_VENDOR_PARITY_UNBUFFERED
         // Controlled test matrix switch for robust vendor parity path.
-        private val DEFAULT_ROBUST_TEST_MODE = RobustPrintTestMode.MODE_H
-        private const val ROBUST_TEST_MODE = "MODE_H" // MODE_A..MODE_H, LEGACY
+        private val DEFAULT_ROBUST_TEST_MODE = RobustPrintTestMode.MODE_I
+        private const val ROBUST_TEST_MODE = "MODE_I" // MODE_A..MODE_I, LEGACY
         private const val ENABLE_PRINTER_INIT_BEFORE_DISPATCH = false // Used only when ROBUST_TEST_MODE=LEGACY
         private const val FINALIZE_POLICY_MODE = "finalize_linewrap_plus_raw" // finalize_none, finalize_linewrap_only, finalize_linewrap_plus_raw, finalize_extra_feed_then_sleep
         private const val CALLBACK_TIMEOUT_MS = 1800L
