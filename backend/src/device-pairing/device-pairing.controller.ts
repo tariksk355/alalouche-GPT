@@ -47,6 +47,29 @@ export class DevicePairingController {
     return ok({ requests });
   }
 
+  @Get('admin/devices')
+  async listDevices(
+    @Headers('authorization') authorization?: string,
+    @Headers('x-admin-token') adminToken?: string,
+    @Headers('x-restaurant-id') legacyRestaurantId?: string,
+  ) {
+    const admin = this.requireAdmin(authorization, adminToken, legacyRestaurantId);
+    const devices = await this.pairingService.listAssociatedDevices(admin);
+    return ok({ devices });
+  }
+
+  @Post('admin/devices/:id/revoke')
+  async revokeDevice(
+    @Param('id') id: string,
+    @Headers('authorization') authorization?: string,
+    @Headers('x-admin-token') adminToken?: string,
+    @Headers('x-restaurant-id') legacyRestaurantId?: string,
+  ) {
+    const admin = this.requireAdmin(authorization, adminToken, legacyRestaurantId);
+    const device = await this.pairingService.revokeDevice(id, admin);
+    return ok({ device });
+  }
+
   @Post('admin/device-pairing-requests/:id/confirm')
   async confirm(
     @Param('id') id: string,

@@ -64,3 +64,20 @@ export async function verifyDevice(pairingRequestId) {
     throw error;
   }
 }
+
+
+export async function listAssociatedDevices() {
+  const data = await requestJson('/admin/devices', {
+    headers: adminAuthHeaders(),
+  });
+  return data?.devices || [];
+}
+
+export async function revokeAssociatedDevice(deviceId) {
+  const data = await requestJson(`/admin/devices/${deviceId}/revoke`, {
+    method: 'POST',
+    headers: adminAuthHeaders(),
+  });
+  debugLog('device_revoked', { deviceId });
+  return data;
+}

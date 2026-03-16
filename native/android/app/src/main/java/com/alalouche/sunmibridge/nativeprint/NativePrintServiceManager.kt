@@ -37,6 +37,7 @@ class NativePrintServiceManager(context: Context) {
         }
         Log.i(TAG, "native_print_service_payload_raw payload=${payload.toString()}")
         val normalizedPayload = normalizePayloadForWorker(payload)
+        logCustomerPhoneCandidates("native_print_service_normalized", normalizedPayload)
         val formattingHints = normalizedPayload.optJSONObject("formattingHints")
         val outputStrategyRaw = formattingHints?.optString("outputStrategy", "")?.trim().orEmpty()
         val nativePrintStrategyRaw = formattingHints?.optString("nativePrintStrategy", "")?.trim().orEmpty()
@@ -227,6 +228,34 @@ class NativePrintServiceManager(context: Context) {
 
         Log.i(TAG, "native_print_service_payload_normalized outputStrategyRaw=${hints.optString("outputStrategy", "")} nativePrintStrategyRaw=${hints.optString("nativePrintStrategy", "")} usedTopLevelOutput=${topLevelOutput.isNotBlank()} usedTopLevelNative=${topLevelNative.isNotBlank()} usedForceOutput=${forceOutput.isNotBlank()}")
         return normalized
+    }
+
+    private fun logCustomerPhoneCandidates(scope: String, payload: JSONObject) {
+        val displayModel = payload.optJSONObject("displayModel")
+        val customer = payload.optJSONObject("customer")
+        val contact = payload.optJSONObject("contact")
+        val sections = displayModel?.optJSONArray("displaySections")
+        val lines = mutableListOf<String>()
+
+        fun add(field: String, exists: Boolean, value: String?) {
+            lines += "field=$field exists=$exists value=${value?.trim().orEmpty()}"
+        }
+
+        add("payload.customerPhone", payload.has("customerPhone"), payload.optString("customerPhone", ""))
+        add("payload.customer_phone", payload.has("customer_phone"), payload.optString("customer_phone", ""))
+        add("payload.phone", payload.has("phone"), payload.optString("phone", ""))
+        add("payload.phoneNumber", payload.has("phoneNumber"), payload.optString("phoneNumber", ""))
+        add("payload.customer.phone", customer?.has("phone") == true, customer?.optString("phone", ""))
+        add("payload.customer.phoneNumber", customer?.has("phoneNumber") == true, customer?.optString("phoneNumber", ""))
+        add("payload.deliveryPhone", payload.has("deliveryPhone"), payload.optString("deliveryPhone", ""))
+        add("payload.delivery_phone", payload.has("delivery_phone"), payload.optString("delivery_phone", ""))
+        add("payload.contactPhone", payload.has("contactPhone"), payload.optString("contactPhone", ""))
+        add("payload.contact.phone", contact?.has("phone") == true, contact?.optString("phone", ""))
+        add("displayModel.phone", displayModel?.has("phone") == true, displayModel?.optString("phone", ""))
+        add("displayModel.customerPhone", displayModel?.has("customerPhone") == true, displayModel?.optString("customerPhone", ""))
+        add("displayModel.displaySections", sections != null, if (sections != null) "count=${sections.length()}" else "")
+
+        Log.i(TAG, "customer_phone_candidates scope=$scope\n${lines.joinToString("\n")}")
     }
 
     fun release() {

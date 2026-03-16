@@ -20,6 +20,7 @@ const PRINT_JOB_TRACKING_STORAGE_KEY = 'receiver_print_job_tracking_v1';
 const TERMINAL_JOB_RETENTION_MS = 30 * 60 * 1000;
 const PRINT_STRATEGY_OVERRIDE_STORAGE_KEY = 'sunmi_print_strategy_override_v1';
 const PRINT_DISPATCH_DEDUP_MS = 15000;
+const ATTENTION_ALERT_DURATION_MS = 7000;
 
 const state = {
   mode: 'booting', // booting | not_paired | pairing_submitting | pairing_waiting | verifying | server_error | receiver_loaded
@@ -42,6 +43,11 @@ const state = {
   printRetryInFlightByOrderId: {},
   printDispatchInFlightByOrderId: {},
   lastPrintDispatchAtByOrderId: {},
+  seenOrderIds: new Set(),
+  seenReservationIds: new Set(),
+  hasHydratedOperationalBaseline: false,
+  activeAttentionAlert: null,
+  attentionAlertTimeoutId: null,
   printDebug: {
     at: null,
     mode: 'idle',
@@ -62,6 +68,133 @@ function setPrintDebug(patch) {
     ...patch,
     at: new Date().toISOString(),
   };
+}
+
+function clearAttentionAlert() {
+  if (state.attentionAlertTimeoutId) {
+    clearTimeout(state.attentionAlertTimeoutId);
+    state.attentionAlertTimeoutId = null;
+  }
+  state.activeAttentionAlert = null;
+}
+
+async function playAttentionBeep(type, id) {
+  try {
+    const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContextCtor) return;
+    const context = new AudioContextCtor();
+    if (context.state === 'suspended') {
+      await context.resume();
+    }
+
+    const pattern = type === 'order'
+      ? [
+        { f: 880, d: 0.13, g: 0.18 },
+        { f: 660, d: 0.13, g: 0.18 },
+        { f: 990, d: 0.22, g: 0.24 },
+      ]
+      : [
+        { f: 620, d: 0.14, g: 0.16 },
+        { f: 740, d: 0.14, g: 0.16 },
+      ];
+
+    let t = context.currentTime;
+    for (const note of pattern) {
+      const osc = context.createOscillator();
+      const gain = context.createGain();
+      osc.type = type === 'order' ? 'square' : 'triangle';
+      osc.frequency.setValueAtTime(note.f, t);
+      gain.gain.setValueAtTime(0.0001, t);
+      gain.gain.linearRampToValueAtTime(note.g, t + 0.02);
+      gain.gain.linearRampToValueAtTime(0.0001, t + note.d);
+      osc.connect(gain);
+      gain.connect(context.destination);
+      osc.start(t);
+      osc.stop(t + note.d + 0.02);
+      t += note.d + 0.06;
+    }
+
+    const settleMs = Math.ceil((t - context.currentTime) * 1000) + 80;
+    setTimeout(() => {
+      context.close().catch(() => {});
+    }, settleMs);
+
+    if (type === 'order') {
+      console.debug(`[sunmi-receiver] order_beep_played orderId=${id}`);
+    } else {
+      console.debug(`[sunmi-receiver] reservation_beep_played reservationId=${id}`);
+    }
+  } catch (error) {
+    debugLog('attention_beep_failed', { type, id, message: error?.message || 'unknown' });
+  }
+}
+
+function showAttentionAlert(type, item) {
+  const id = item?.id || '';
+  clearAttentionAlert();
+  state.activeAttentionAlert = {
+    type,
+    id,
+    title: type === 'order' ? 'Nouvelle commande' : 'Nouvelle réservation',
+    subtitle: type === 'order' ? (item?.orderNumber || id) : (item?.customerName || item?.id || 'Nouvelle demande'),
+    createdAt: Date.now(),
+  };
+
+  if (type === 'order') {
+    console.debug(`[sunmi-receiver] order_alert_shown orderId=${id}`);
+  } else {
+    console.debug(`[sunmi-receiver] reservation_alert_shown reservationId=${id}`);
+  }
+
+  playAttentionBeep(type, id);
+  state.attentionAlertTimeoutId = setTimeout(() => {
+    clearAttentionAlert();
+    render();
+  }, ATTENTION_ALERT_DURATION_MS);
+}
+
+function detectAndTriggerNewEventAlerts(nextOrders, nextReservations) {
+  const orderIds = new Set((Array.isArray(nextOrders) ? nextOrders : []).map((order) => order?.id).filter(Boolean));
+  const reservationIds = new Set((Array.isArray(nextReservations) ? nextReservations : []).map((reservation) => reservation?.id).filter(Boolean));
+
+  if (!state.hasHydratedOperationalBaseline) {
+    state.seenOrderIds = orderIds;
+    state.seenReservationIds = reservationIds;
+    state.hasHydratedOperationalBaseline = true;
+    return;
+  }
+
+  const newlyDetectedOrders = [];
+  for (const order of (Array.isArray(nextOrders) ? nextOrders : [])) {
+    const id = order?.id;
+    if (!id) continue;
+    if (state.seenOrderIds.has(id)) {
+      console.debug(`[sunmi-receiver] alert_suppressed_already_seen type=order id=${id}`);
+      continue;
+    }
+    state.seenOrderIds.add(id);
+    console.debug(`[sunmi-receiver] new_order_detected orderId=${id}`);
+    newlyDetectedOrders.push(order);
+  }
+
+  const newlyDetectedReservations = [];
+  for (const reservation of (Array.isArray(nextReservations) ? nextReservations : [])) {
+    const id = reservation?.id;
+    if (!id) continue;
+    if (state.seenReservationIds.has(id)) {
+      console.debug(`[sunmi-receiver] alert_suppressed_already_seen type=reservation id=${id}`);
+      continue;
+    }
+    state.seenReservationIds.add(id);
+    console.debug(`[sunmi-receiver] new_reservation_detected reservationId=${id}`);
+    newlyDetectedReservations.push(reservation);
+  }
+
+  if (newlyDetectedOrders.length > 0) {
+    showAttentionAlert('order', newlyDetectedOrders[0]);
+  } else if (newlyDetectedReservations.length > 0) {
+    showAttentionAlert('reservation', newlyDetectedReservations[0]);
+  }
 }
 
 function safeStringify(value) {
@@ -193,7 +326,6 @@ function normalizePrintUiState(nativeState) {
 }
 
 function printStateMessage(uiState) {
-  if (uiState === 'QUEUED') return "Ticket en file d'impression...";
   if (uiState === 'PRINTING') return 'Impression en cours...';
   if (uiState === 'PRINTED') return 'Imprimé';
   if (uiState === 'NEEDS_ATTENTION') return 'Impression échouée. Réessayez.';
@@ -502,6 +634,22 @@ function stopReceiverPolling() {
   }
 }
 
+
+function formatZurichDateTime(iso) {
+  if (!iso) return '-';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return String(iso);
+  return new Intl.DateTimeFormat('fr-CH', {
+    timeZone: 'Europe/Zurich',
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).format(d).replace(',', '');
+}
+
 function formatReservationStatus(status) {
   const labels = {
     pending: 'En attente',
@@ -512,9 +660,7 @@ function formatReservationStatus(status) {
 }
 
 function formatReservationDate(iso) {
-  if (!iso) return '-';
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? String(iso) : d.toLocaleString('fr-CH');
+  return formatZurichDateTime(iso);
 }
 
 
@@ -523,9 +669,7 @@ function formatOrderType(orderType) {
 }
 
 function formatOrderDate(iso) {
-  if (!iso) return '-';
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? String(iso) : d.toLocaleString('fr-CH');
+  return formatZurichDateTime(iso);
 }
 
 function prepMinutesForOrder(order) {
@@ -626,7 +770,7 @@ function render() {
           <strong>${order.orderNumber || order.id}</strong>
           <span class="status-pill">${formatOrderStatus(order.status)}</span>
         </div>
-        ${printUiState ? `<div class="print-state-row"><span class="print-status-pill print-status-pill-${printUiState.toLowerCase()}">${printMessage}</span>${printUiState === 'NEEDS_ATTENTION' && printJob?.jobId && !printJob?.nonRetryable ? `<button class="btn-secondary-inline print-retry-btn" data-action="retry-print" data-job-id="${printJob.jobId}" data-id="${order.id}" ${state.printRetryInFlightByOrderId[order.id] ? 'disabled' : ''}>Réessayer</button>` : ''}${printUiState === 'PRINTED' ? `<button class="btn-secondary-inline print-retry-btn" data-action="reprint-order" data-id="${order.id}">Réimprimer</button>` : ''}</div>` : ''}
+        <div class="print-state-row">${printUiState === 'NEEDS_ATTENTION' ? `<span class="print-status-pill print-status-pill-${printUiState.toLowerCase()}">${printMessage}</span>` : ''}${printUiState === 'NEEDS_ATTENTION' && printJob?.jobId && !printJob?.nonRetryable ? `<button class="btn-secondary-inline print-retry-btn" data-action="retry-print" data-job-id="${printJob.jobId}" data-id="${order.id}" ${state.printRetryInFlightByOrderId[order.id] ? 'disabled' : ''}>Réessayer</button>` : ''}<button class="btn-secondary-inline print-retry-btn" data-action="reprint-order" data-id="${order.id}" ${state.printDispatchInFlightByOrderId[order.id] ? 'disabled' : ''}>Reimprimer</button></div>
         ${printJob?.nonRetryable ? `<div class="subtle print-status-unavailable">Impression bloquée: ${escapeHtml(printJob.blockedReasonMessage || 'Action opérateur requise.')}</div>` : ''}
         ${printJob?.transientUnavailable ? '<div class="subtle print-status-unavailable">Statut impression temporairement indisponible.</div>' : ''}
         ${sectionRowsHtml}
@@ -662,26 +806,17 @@ function render() {
       </div>
     `).join('');
 
-  const printDebug = state.printDebug;
-  const printDebugHtml = `
-    <div class="card debug-card">
-      <div class="title">Debug impression (temporaire)</div>
-      <p class="subtle">Utiliser pour diagnostic on-device sans logcat.</p>
-      <div class="debug-grid">
-        <div><span class="subtle">Heure:</span> <strong>${printDebug.at ? formatOrderDate(printDebug.at) : '-'}</strong></div>
-        <div><span class="subtle">État:</span> <strong>${printDebug.mode || '-'}</strong></div>
-        <div><span class="subtle">Bridge method:</span> <strong>${printDebug.method || '-'}</strong></div>
-        <div><span class="subtle">Payload construit:</span> <strong>${printDebug.payloadBuilt ? 'oui' : 'non'}</strong></div>
-        <div><span class="subtle">Commande:</span> <strong>${printDebug.orderNumber || '-'}</strong></div>
-        <div><span class="subtle">Lignes:</span> <strong>${Number(printDebug.lineCount || 0)}</strong></div>
-        <div><span class="subtle">Résultat natif:</span> <strong>${printDebug.ok === null ? '-' : (printDebug.ok ? 'succès' : 'erreur')}</strong></div>
-        <div><span class="subtle">Fallback:</span> <strong>${printDebug.fallbackUsed ? 'oui' : 'non'}</strong></div>
+  const attentionOverlay = state.activeAttentionAlert
+    ? `
+      <div class="attention-overlay attention-overlay-${state.activeAttentionAlert.type}" data-action="dismiss-attention-alert">
+        <div class="attention-overlay-card">
+          <div class="attention-overlay-title">${escapeHtml(state.activeAttentionAlert.title)}</div>
+          <div class="attention-overlay-subtitle">${escapeHtml(state.activeAttentionAlert.subtitle || '')}</div>
+          <button class="attention-overlay-dismiss" data-action="dismiss-attention-alert">Fermer</button>
+        </div>
       </div>
-      ${printDebug.message ? `<p class="subtle">Message: ${printDebug.message}</p>` : ''}
-      ${printDebug.receiptPreview ? `<p class="subtle">Prévisualisation ticket (natif):</p><pre class="debug-pre">${escapeHtml(printDebug.receiptPreview)}</pre>` : ''}
-      <button id="clear-print-debug-btn" class="btn-secondary-inline">Effacer debug impression</button>
-    </div>
-  `;
+    `
+    : '';
 
   app.innerHTML = `
     <div class="card">
@@ -705,10 +840,10 @@ function render() {
     </div>
     ${reservationsHtml}
 
-    ${printDebugHtml}
 
     ${state.printerMessage ? `<div class="card"><p class="subtle">${state.printerMessage}</p></div>` : ''}
     ${state.error ? `<div class="card"><p class="error">${state.error}</p></div>` : ''}
+    ${attentionOverlay}
   `;
 }
 
@@ -741,6 +876,10 @@ async function validateDeviceOnceAndEnterReceiver() {
     state.printRetryInFlightByOrderId = {};
     state.printDispatchInFlightByOrderId = {};
     state.lastPrintDispatchAtByOrderId = {};
+    state.seenOrderIds = new Set();
+    state.seenReservationIds = new Set();
+    state.hasHydratedOperationalBaseline = false;
+    clearAttentionAlert();
     clearPersistedPrintJobTracking();
     stopReceiverPolling();
     debugLog('device_validation_not_paired', { message: state.error || 'no_message' });
@@ -772,8 +911,11 @@ async function refreshOperations() {
   const result = await loadOperationalData();
 
   if (result.state === 'loaded') {
-    state.orders = result.orders || [];
-    state.reservations = result.reservations || [];
+    const nextOrders = result.orders || [];
+    const nextReservations = result.reservations || [];
+    detectAndTriggerNewEventAlerts(nextOrders, nextReservations);
+    state.orders = nextOrders;
+    state.reservations = nextReservations;
     const nextPrep = {};
     for (const order of state.orders) {
       const existing = state.prepMinutesByOrderId[order.id];
@@ -798,6 +940,10 @@ async function refreshOperations() {
     state.printRetryInFlightByOrderId = {};
     state.printDispatchInFlightByOrderId = {};
     state.lastPrintDispatchAtByOrderId = {};
+    state.seenOrderIds = new Set();
+    state.seenReservationIds = new Set();
+    state.hasHydratedOperationalBaseline = false;
+    clearAttentionAlert();
     clearPersistedPrintJobTracking();
     stopReceiverPolling();
     debugLog('operations_poll_auth_failed', { message: state.error || 'token_invalid' });
@@ -857,6 +1003,7 @@ async function startPairingSubmit() {
 
 function startPairingPolling() {
   stopPairingPolling();
+  clearAttentionAlert();
   state.pairingInFlight = false;
 
   state.pairingPollId = setInterval(async () => {
@@ -1097,6 +1244,10 @@ app.addEventListener('click', async (event) => {
     state.printRetryInFlightByOrderId = {};
     state.printDispatchInFlightByOrderId = {};
     state.lastPrintDispatchAtByOrderId = {};
+    state.seenOrderIds = new Set();
+    state.seenReservationIds = new Set();
+    state.hasHydratedOperationalBaseline = false;
+    clearAttentionAlert();
     clearPersistedPrintJobTracking();
     stopReceiverPolling();
     stopPairingPolling();
@@ -1117,25 +1268,14 @@ app.addEventListener('click', async (event) => {
     return;
   }
 
-  if (target.id === 'printer-info-btn') {
-    await showPrinterInfo();
+  if (target.dataset.action === 'dismiss-attention-alert') {
+    clearAttentionAlert();
+    render();
     return;
   }
 
-  if (target.id === 'clear-print-debug-btn') {
-    state.printDebug = {
-      at: null,
-      mode: 'idle',
-      method: null,
-      payloadBuilt: false,
-      orderNumber: null,
-      lineCount: 0,
-      ok: null,
-      message: '',
-      fallbackUsed: false,
-      receiptPreview: '',
-    };
-    render();
+  if (target.id === 'printer-info-btn') {
+    await showPrinterInfo();
     return;
   }
 
@@ -1202,6 +1342,7 @@ app.addEventListener('click', async (event) => {
 
 
   if (target.dataset.action === 'reprint-order' && target.dataset.id) {
+    console.debug(`[sunmi-receiver] reprint_button_clicked orderId=${target.dataset.id}`);
     const orderForReprint = state.orders.find((item) => item.id === target.dataset.id);
     if (!orderForReprint) {
       state.printerMessage = 'Commande introuvable pour la réimpression.';
@@ -1209,6 +1350,7 @@ app.addEventListener('click', async (event) => {
       return;
     }
 
+    console.debug(`[sunmi-receiver] reprint_dispatch_started orderId=${orderForReprint.id}`);
     await printOrderTicket(orderForReprint, { reprint: true });
     return;
   }
