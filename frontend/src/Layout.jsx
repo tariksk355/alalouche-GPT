@@ -50,6 +50,9 @@ export default function Layout({ children, currentPageName }) {
   }, []);
 
   const scrollToTop = () => window.scrollTo({ top: 0, behavior: 'smooth' });
+  const isMenuViewOnlyMode = currentPageName === 'Menu'
+    && typeof window !== 'undefined'
+    && new URLSearchParams(window.location.search).get('mode') === 'menu-only';
 
   const isAdmin = ['AdminDashboard', 'AdminLogin', 'OrderReceiver', 'DevicePair'].includes(currentPageName);
   if (isAdmin) return <>{children}</>;
@@ -60,6 +63,7 @@ export default function Layout({ children, currentPageName }) {
     { name: 'Reservation', page: 'Reservation' },
     { name: 'Mes commandes', page: 'MesCommandes' },
   ];
+  const navLinksInMode = isMenuViewOnlyMode ? [{ name: 'Menu', page: 'Menu' }] : navLinks;
 
   const CartIcon = () => (
     <Link to={createPageUrl('Panier')} className="relative flex items-center gap-1 text-sm font-medium text-gray-700 hover:text-black transition-colors">
@@ -118,10 +122,10 @@ export default function Layout({ children, currentPageName }) {
           </Link>
 
           <div className="hidden md:flex items-center gap-8">
-            {navLinks.map((link) => (
+            {navLinksInMode.map((link) => (
               <Link
                 key={link.page}
-                to={createPageUrl(link.page)}
+                to={link.page === 'Menu' && isMenuViewOnlyMode ? `${createPageUrl('Menu')}?mode=menu-only` : createPageUrl(link.page)}
                 className={`text-sm font-medium transition-colors pb-0.5 border-b-2 ${
                   currentPageName === link.page ? 'text-gray-900' : 'text-gray-700 border-transparent hover:text-black hover:border-gray-300'
                 }`}
@@ -133,8 +137,8 @@ export default function Layout({ children, currentPageName }) {
           </div>
 
           <div className="hidden md:flex items-center gap-3">
-            <CartIcon />
-            {user ? (
+            {!isMenuViewOnlyMode && <CartIcon />}
+            {!isMenuViewOnlyMode && (user ? (
               <>
                 <Link to={createPageUrl('Account')} className="px-4 py-2 text-gray-700 text-sm font-medium hover:text-black transition-colors">
                   Mon Compte
@@ -150,15 +154,19 @@ export default function Layout({ children, currentPageName }) {
               >
                 Connexion / S'inscrire
               </button>
+            ))}
+            {!isMenuViewOnlyMode && (
+              <Link to={createPageUrl('Order')} className="px-5 py-2 text-white text-sm font-medium transition-colors" style={{ backgroundColor: primaryColor }}>
+                Commander
+              </Link>
             )}
-            <Link to={createPageUrl('Order')} className="px-5 py-2 text-white text-sm font-medium transition-colors" style={{ backgroundColor: primaryColor }}>
-              Commander
-            </Link>
           </div>
 
-          <div className="md:hidden mr-1">
-            <CartIcon />
-          </div>
+          {!isMenuViewOnlyMode && (
+            <div className="md:hidden mr-1">
+              <CartIcon />
+            </div>
+          )}
 
           <button className="md:hidden p-2 text-gray-600 hover:text-black" onClick={() => setMobileMenuOpen(!mobileMenuOpen)}>
             {mobileMenuOpen ? (
@@ -175,21 +183,23 @@ export default function Layout({ children, currentPageName }) {
 
         {mobileMenuOpen && (
           <div className="md:hidden border-t border-gray-100 bg-white px-6 py-5 space-y-1">
-            <Link
-              to={createPageUrl('Panier')}
-              onClick={() => setMobileMenuOpen(false)}
-              className={`flex items-center gap-2 text-sm font-medium py-3 border-b border-gray-50 transition-colors ${
-                currentPageName === 'Panier' ? 'text-gray-900' : 'text-gray-700'
-              }`}
-              style={currentPageName === 'Panier' ? { color: primaryColor } : undefined}
-            >
-              <ShoppingCart className="w-4 h-4" />
-              Panier {itemCount > 0 && <span className="ml-1 px-1.5 py-0.5 text-white text-[10px] rounded-full font-bold" style={{ backgroundColor: primaryColor }}>{itemCount}</span>}
-            </Link>
-            {navLinks.map((link) => (
+            {!isMenuViewOnlyMode && (
+              <Link
+                to={createPageUrl('Panier')}
+                onClick={() => setMobileMenuOpen(false)}
+                className={`flex items-center gap-2 text-sm font-medium py-3 border-b border-gray-50 transition-colors ${
+                  currentPageName === 'Panier' ? 'text-gray-900' : 'text-gray-700'
+                }`}
+                style={currentPageName === 'Panier' ? { color: primaryColor } : undefined}
+              >
+                <ShoppingCart className="w-4 h-4" />
+                Panier {itemCount > 0 && <span className="ml-1 px-1.5 py-0.5 text-white text-[10px] rounded-full font-bold" style={{ backgroundColor: primaryColor }}>{itemCount}</span>}
+              </Link>
+            )}
+            {navLinksInMode.map((link) => (
               <Link
                 key={link.page}
-                to={createPageUrl(link.page)}
+                to={link.page === 'Menu' && isMenuViewOnlyMode ? `${createPageUrl('Menu')}?mode=menu-only` : createPageUrl(link.page)}
                 onClick={() => setMobileMenuOpen(false)}
                 className={`block text-sm font-medium py-3 border-b border-gray-50 transition-colors ${
                   currentPageName === link.page ? 'text-gray-900' : 'text-gray-700'
@@ -199,7 +209,7 @@ export default function Layout({ children, currentPageName }) {
                 {link.name}
               </Link>
             ))}
-            <div className="pt-3 space-y-2">
+            {!isMenuViewOnlyMode && <div className="pt-3 space-y-2">
               {user ? (
                 <>
                   <Link to={createPageUrl('Account')} onClick={() => setMobileMenuOpen(false)} className="block w-full text-center px-5 py-3 border border-gray-200 text-gray-700 text-sm font-medium rounded">
@@ -220,7 +230,7 @@ export default function Layout({ children, currentPageName }) {
               <Link to={createPageUrl('Order')} onClick={() => setMobileMenuOpen(false)} className="block w-full text-center px-5 py-3 text-white text-sm font-medium rounded" style={{ backgroundColor: primaryColor }}>
                 Commander
               </Link>
-            </div>
+            </div>}
           </div>
         )}
       </nav>

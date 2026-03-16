@@ -140,7 +140,78 @@ function AdminDevices() {
   return (
     <div className="max-w-3xl space-y-4">
       <AdminNotice type="info">Générez un code d'association puis confirmez la demande pour rattacher un terminal Sunmi à ce restaurant.</AdminNotice>
+      <AdminMenuQrCard />
       <DeviceProvisioning />
+    </div>
+  );
+}
+
+function AdminMenuQrCard() {
+  const [menuUrl, setMenuUrl] = useState("");
+  const [copied, setCopied] = useState(false);
+  const qrImageUrl = menuUrl
+    ? `https://api.qrserver.com/v1/create-qr-code/?size=320x320&format=png&margin=20&data=${encodeURIComponent(menuUrl)}`
+    : "";
+
+  const generateMenuUrl = () => {
+    if (typeof window === "undefined") return;
+    setMenuUrl(`${window.location.origin}${createPageUrl("Menu")}?mode=menu-only`);
+    setCopied(false);
+  };
+
+  const copyMenuUrl = async () => {
+    if (!menuUrl) return;
+    try {
+      await navigator.clipboard.writeText(menuUrl);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      setCopied(false);
+    }
+  };
+
+  const downloadQrPng = async () => {
+    if (!qrImageUrl) return;
+    const response = await fetch(qrImageUrl);
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "qr-menu-alalouche.png";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  };
+
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm space-y-4">
+      <h3 className="font-semibold text-lg text-gray-900">QR Menu</h3>
+      <p className="text-sm text-gray-500">
+        Générez un QR pour <span className="font-medium">voir le menu uniquement</span>. Les clients ne peuvent pas commander dans ce mode.
+      </p>
+
+      <div className="flex flex-wrap gap-2">
+        <button onClick={generateMenuUrl} className="px-4 py-2 bg-[#b5122a] text-white rounded-lg hover:bg-[#8f0e21]">
+          Générer
+        </button>
+        <button onClick={copyMenuUrl} disabled={!menuUrl} className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg disabled:opacity-50">
+          {copied ? "Lien copié" : "Copier le lien"}
+        </button>
+        <button onClick={downloadQrPng} disabled={!menuUrl} className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg disabled:opacity-50">
+          Télécharger le QR
+        </button>
+      </div>
+
+      {menuUrl && (
+        <>
+          <div className="text-xs text-gray-500 break-all bg-gray-50 border border-gray-200 rounded p-2">{menuUrl}</div>
+          <div>
+            <p className="text-sm font-medium text-gray-800 mb-2">Aperçu</p>
+            <img src={qrImageUrl} alt="QR Menu" className="w-44 h-44 border border-gray-200 rounded-lg bg-white p-2" />
+          </div>
+        </>
+      )}
     </div>
   );
 }
