@@ -7,6 +7,7 @@ import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Typeface
 import android.os.Build
+import android.text.TextPaint
 import android.util.Log
 import com.sunmi.peripheral.printer.InnerPrinterCallback
 import com.sunmi.peripheral.printer.InnerPrinterManager
@@ -372,22 +373,46 @@ class OfficialLibraryPrinterProbe(
 
     private fun renderBitmapFromLines(lines: List<String>): Bitmap {
         val bitmapWidth = 384
-        val horizontalPaddingPx = 12
+        val leftPaddingPx = 12
+        val rightPaddingPx = 12
         val topPaddingPx = 18
         val bottomPaddingPx = 26
         val lineHeightPx = 34
-        val maxCharsPerLine = 30
+        val drawableWidthPx = (bitmapWidth - leftPaddingPx - rightPaddingPx).coerceAtLeast(1)
         val safeLines = if (lines.isEmpty()) listOf("EMPTY_RECEIPT") else lines
+
+        val paint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.BLACK
+            textSize = 24f
+            typeface = Typeface.MONOSPACE
+        }
+
+        val normalizedLines = mutableListOf<String>()
+        safeLines.forEachIndexed { idx, line ->
+            val normalized = normalizeReceiptText(line)
+            if (normalized != line) {
+                Log.i(TAG, "official_receipt_line_normalized index=$idx before=$line after=$normalized")
+            }
+            normalizedLines += normalized
+        }
 
         val wrappedLines = mutableListOf<String>()
         var truncatedLineCount = 0
-        for (line in safeLines) {
-            if (line.length <= maxCharsPerLine) {
-                wrappedLines += line
-            } else {
-                val chunks = line.chunked(maxCharsPerLine)
-                wrappedLines += chunks
-                truncatedLineCount += (chunks.size - 1)
+        normalizedLines.forEach { sourceLine ->
+            if (sourceLine.isBlank()) {
+                wrappedLines += ""
+                return@forEach
+            }
+            var cursor = 0
+            while (cursor < sourceLine.length) {
+                var count = paint.breakText(sourceLine, cursor, sourceLine.length, true, drawableWidthPx.toFloat(), null)
+                if (count <= 0) {
+                    count = 1
+                    truncatedLineCount += 1
+                }
+                val end = (cursor + count).coerceAtMost(sourceLine.length)
+                wrappedLines += sourceLine.substring(cursor, end)
+                cursor = end
             }
         }
 
@@ -398,22 +423,37 @@ class OfficialLibraryPrinterProbe(
         val drawableLines = wrappedLines.take(maxDrawableLines)
         val droppedLineCount = (wrappedLines.size - drawableLines.size).coerceAtLeast(0)
 
-        Log.i(TAG, "official_receipt_bitmap_render_stats inputLineCount=${safeLines.size} drawnLineCount=${drawableLines.size} wrappedLineCount=${wrappedLines.size} truncatedLineCount=$truncatedLineCount bitmapWidth=$bitmapWidth bitmapHeight=$bitmapHeight lineHeight=$lineHeightPx topPadding=$topPaddingPx bottomPadding=$bottomPaddingPx droppedLineCount=$droppedLineCount")
+        Log.i(
+            TAG,
+            "official_receipt_bitmap_render_stats inputLineCount=${safeLines.size} wrappedLineCount=${wrappedLines.size} drawnLineCount=${drawableLines.size} truncatedLineCount=$truncatedLineCount droppedLineCount=$droppedLineCount bitmapWidth=$bitmapWidth bitmapHeight=$bitmapHeight lineHeight=$lineHeightPx leftPadding=$leftPaddingPx rightPadding=$rightPaddingPx topPadding=$topPaddingPx bottomPadding=$bottomPaddingPx",
+        )
 
         val bmp = Bitmap.createBitmap(bitmapWidth, bitmapHeight, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bmp)
         canvas.drawColor(Color.WHITE)
-        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.BLACK
-            textSize = 24f
-            typeface = Typeface.MONOSPACE
-        }
         var y = topPaddingPx + lineHeightPx
         drawableLines.forEach { line ->
-            canvas.drawText(line, horizontalPaddingPx.toFloat(), y.toFloat(), paint)
+            canvas.drawText(line, leftPaddingPx.toFloat(), y.toFloat(), paint)
             y += lineHeightPx
         }
         return bmp
+    }
+
+    private fun normalizeReceiptText(input: String): String {
+        var out = input
+        val replacements = listOf(
+            "ÔÇó" to "•",
+            "pr├®c├®dentes" to "précédentes",
+            "Pr├®paration" to "Préparation",
+            "├®" to "é",
+            "├" to "",
+            "ÔÇ" to "",
+            "Â" to "",
+        )
+        replacements.forEach { (bad, good) ->
+            out = out.replace(bad, good)
+        }
+        return out
     }
 
     private fun renderDeterministicProbeBitmap(): Bitmap {
