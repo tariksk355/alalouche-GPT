@@ -285,17 +285,49 @@ class OfficialLibraryPrinterProbe(
             addLine("ORDER: ${job.orderId ?: "UNKNOWN"}")
             addLine("PAYLOAD_ERROR")
             addLine("---")
+            Log.i(TAG, "customer_phone_source source=fallback_payload_null")
+            Log.i(TAG, "customer_phone_value value=")
+            Log.i(TAG, "customer_phone_included_in_receipt false")
             Log.i(TAG, "official_receipt_line_extraction_summary commandId=${job.commandId} orderId=${job.orderId ?: ""} source=fallback_payload_null totalExtractedLines=${lines.size}")
             return lines
         }
 
         val displayModel = payload.optJSONObject("displayModel")
+        val extractedPhone = extractCustomerPhoneFromPayload(payload, displayModel)
+        val finalPhone = normalizePhoneForDisplay(extractedPhone.second)
+        Log.i(TAG, "customer_phone_source source=${extractedPhone.first}")
+        Log.i(TAG, "customer_phone_value value=$finalPhone")
+
+        fun ensurePhoneIncludedInLines() {
+            val hasPhoneAlready = lines.any { existing ->
+                existing.contains("tel", ignoreCase = true) ||
+                    existing.contains("téléphone", ignoreCase = true) ||
+                    (finalPhone.isNotBlank() && existing.contains(finalPhone))
+            }
+            val included = if (finalPhone.isNotBlank() && !hasPhoneAlready) {
+                val insertAt = lines.indexOfFirst { it.startsWith("CUSTOMER:", ignoreCase = true) }
+                if (insertAt >= 0) {
+                    lines.add(insertAt + 1, "Téléphone: $finalPhone")
+                    Log.i(TAG, "official_receipt_line commandId=${job.commandId} orderId=${job.orderId ?: ""} index=${insertAt + 1} text=Téléphone: $finalPhone")
+                } else {
+                    val target = 1.coerceAtMost(lines.size)
+                    lines.add(target, "Téléphone: $finalPhone")
+                    Log.i(TAG, "official_receipt_line commandId=${job.commandId} orderId=${job.orderId ?: ""} index=$target text=Téléphone: $finalPhone")
+                }
+                true
+            } else {
+                hasPhoneAlready && finalPhone.isNotBlank()
+            }
+            Log.i(TAG, "customer_phone_included_in_receipt $included")
+        }
+
         val displayReceiptLines = displayModel?.optJSONArray("receiptLines")
         if (displayReceiptLines != null && displayReceiptLines.length() > 0) {
             sourceUsed = "displayModel.receiptLines"
             for (i in 0 until displayReceiptLines.length()) {
                 addLine(displayReceiptLines.optString(i))
             }
+            ensurePhoneIncludedInLines()
             Log.i(TAG, "official_receipt_line_extraction_summary commandId=${job.commandId} orderId=${job.orderId ?: ""} source=$sourceUsed totalExtractedLines=${lines.size}")
             return lines
         }
@@ -306,6 +338,7 @@ class OfficialLibraryPrinterProbe(
             for (i in 0 until topLevelReceiptLines.length()) {
                 addLine(topLevelReceiptLines.optString(i))
             }
+            ensurePhoneIncludedInLines()
             Log.i(TAG, "official_receipt_line_extraction_summary commandId=${job.commandId} orderId=${job.orderId ?: ""} source=$sourceUsed totalExtractedLines=${lines.size}")
             return lines
         }
@@ -342,6 +375,12 @@ class OfficialLibraryPrinterProbe(
 
         addLine("ORDER #$orderNumber")
         addLabeled("CUSTOMER", customerLine)
+        if (finalPhone.isNotBlank()) {
+            addLine("Téléphone: $finalPhone")
+            Log.i(TAG, "customer_phone_included_in_receipt true")
+        } else {
+            Log.i(TAG, "customer_phone_included_in_receipt false")
+        }
         addLabeled("ADDRESS", address)
         addLabeled("PAYMENT", payment)
         addLabeled("ORDERED", orderedTime)
@@ -370,6 +409,57 @@ class OfficialLibraryPrinterProbe(
         addLabeled("TOTAL", total)
         Log.i(TAG, "official_receipt_line_extraction_summary commandId=${job.commandId} orderId=${job.orderId ?: ""} source=$sourceUsed totalExtractedLines=${lines.size}")
         return lines
+    }
+
+    private fun extractCustomerPhoneFromPayload(payload: JSONObject, displayModel: JSONObject?): Pair<String, String> {
+        val candidates = mutableListOf<Pair<String, String>>()
+
+        fun push(source: String, value: String?) {
+            val v = value?.trim().orEmpty()
+            if (v.isNotBlank()) candidates += (source to v)
+        }
+
+        push("payload.customerPhone", payload.optString("customerPhone"))
+        push("payload.customer_phone", payload.optString("customer_phone"))
+        push("payload.phone", payload.optString("phone"))
+        push("payload.phoneNumber", payload.optString("phoneNumber"))
+        payload.optJSONObject("customer")?.let { customer ->
+            push("payload.customer.phone", customer.optString("phone"))
+            push("payload.customer.phoneNumber", customer.optString("phoneNumber"))
+        }
+        push("payload.deliveryPhone", payload.optString("deliveryPhone"))
+        push("payload.delivery_phone", payload.optString("delivery_phone"))
+        push("payload.contactPhone", payload.optString("contactPhone"))
+        payload.optJSONObject("contact")?.let { contact ->
+            push("payload.contact.phone", contact.optString("phone"))
+        }
+
+        push("displayModel.phone", displayModel?.optString("phone"))
+        push("displayModel.customerPhone", displayModel?.optString("customerPhone"))
+        displayModel?.optJSONArray("displaySections")?.let { sections ->
+            for (i in 0 until sections.length()) {
+                val section = sections.optJSONObject(i) ?: continue
+                push("displayModel.displaySections[$i].phone", section.optString("phone"))
+                push("displayModel.displaySections[$i].customerPhone", section.optString("customerPhone"))
+                val line = section.optString("line")
+                if (line.contains("tel", ignoreCase = true) || line.contains("phone", ignoreCase = true)) {
+                    val extracted = line.substringAfter(':', "").trim()
+                    push("displayModel.displaySections[$i].line", extracted)
+                }
+            }
+        }
+
+        return candidates.firstOrNull() ?: ("not_found" to "")
+    }
+
+    private fun normalizePhoneForDisplay(raw: String): String {
+        if (raw.isBlank()) return ""
+        val trimmed = raw.trim().replace("\\s+".toRegex(), " ")
+        return if (trimmed.startsWith("+")) {
+            "+" + trimmed.removePrefix("+").trimStart()
+        } else {
+            trimmed
+        }
     }
 
     private fun renderBitmapFromLines(lines: List<String>): Bitmap {

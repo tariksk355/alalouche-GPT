@@ -407,7 +407,6 @@ class SunmiPrinterManager(private val context: Context) {
         val itemsSource = firstNonBlank(printJob.optString("itemsSource"), "unknown")
         val customerName = firstNonBlank(printJob.optString("customerName"), printJob.optString("customer_name"))
         val createdAt = firstNonBlank(printJob.optString("createdAtIso"), printJob.optString("created_at_iso"), printJob.optString("createdAt"))
-        val customerPhone = firstNonBlank(printJob.optString("customerPhone"), printJob.optString("customer_phone"))
         val customerAddress = firstNonBlank(printJob.optString("customerAddress"), printJob.optString("customer_address"))
         val customerTotalOrderCount = when {
             printJob.has("customerTotalOrderCount") -> printJob.optInt("customerTotalOrderCount", 0)
@@ -427,7 +426,10 @@ class SunmiPrinterManager(private val context: Context) {
         val parsedNotes = parseStructuredNotes(notes)
         val orderType = formatOrderType(firstNonBlank(orderTypeRaw, parsedNotes.type))
         val paymentMethod = formatPaymentMethod(firstNonBlank(paymentMethodRaw, parsedNotes.paymentMethod))
-        val finalPhone = firstNonBlank(customerPhone, parsedNotes.phone)
+        val extractedPhone = extractCustomerPhone(printJob, displayModel, parsedNotes.phone)
+        val finalPhone = normalizePhoneForDisplay(extractedPhone.value)
+        Log.i(TAG, "customer_phone_source source=${extractedPhone.source}")
+        Log.i(TAG, "customer_phone_value value=$finalPhone")
         val finalAddress = firstNonBlank(customerAddress, parsedNotes.address)
 
         if (!syntheticTextTestRequested && !bitmapTest3LinesChunkedRequested && !bitmapTest10LinesChunkedRequested && !bitmapTest3LinesChunkedMonoRequested && !officialParityRequested && (orderNumber.isBlank() || lines.length() == 0)) {
@@ -503,10 +505,21 @@ class SunmiPrinterManager(private val context: Context) {
                 Log.i(TAG, "synthetic_test_text_start\n${renderedLines.joinToString("\n")}\nsynthetic_test_text_end")
                 Log.i(TAG, "synthetic_text_test_payload strategy=$requestedOutputStrategy lines=${renderedLines.size} content=${renderedLines.joinToString(" | ")}")
             } else if (useDisplayModel) {
+                val uiLines = mutableListOf<String>()
                 for (i in 0 until displayModelReceiptLines!!.length()) {
                     val line = displayModelReceiptLines.optString(i)
-                    if (line.isNotBlank()) pushRenderedLine(line)
+                    if (line.isNotBlank()) uiLines += line
                 }
+                val hasPhoneAlready = uiLines.any { it.contains("tel", ignoreCase = true) || it.contains("téléphone", ignoreCase = true) || (finalPhone.isNotBlank() && it.contains(finalPhone)) }
+                val includedInUi = if (finalPhone.isNotBlank() && !hasPhoneAlready) {
+                    val insertAt = uiLines.indexOfFirst { it.contains("client", ignoreCase = true) }.let { if (it >= 0) it + 1 else 1.coerceAtMost(uiLines.size) }
+                    uiLines.add(insertAt, "Téléphone: $finalPhone")
+                    true
+                } else {
+                    hasPhoneAlready && finalPhone.isNotBlank()
+                }
+                Log.i(TAG, "customer_phone_included_in_ui $includedInUi")
+                uiLines.forEach { pushRenderedLine(it) }
             } else {
                 val restaurantName = firstNonBlank(restaurant.optString("name"), printJob.optString("restaurantName"))
                 if (restaurantName.isNotBlank()) {
@@ -525,11 +538,12 @@ class SunmiPrinterManager(private val context: Context) {
                     pushRenderedLine("Client: $customerName")
                 }
                 if (finalPhone.isNotBlank()) {
-                    pushRenderedLine("Tel: $finalPhone")
+                    pushRenderedLine("Téléphone: $finalPhone")
                 }
                 if (finalAddress.isNotBlank()) {
                     pushRenderedLine("Adresse: $finalAddress")
                 }
+                Log.i(TAG, "customer_phone_included_in_ui ${finalPhone.isNotBlank()}")
                 val formattedCreatedAt = formatTicketDateTime(createdAt)
                 if (formattedCreatedAt.isNotBlank()) {
                     pushRenderedLine("Date/Heure: $formattedCreatedAt")
@@ -1687,6 +1701,60 @@ class SunmiPrinterManager(private val context: Context) {
         val paymentMethod: String,
         val extraNote: String,
     )
+
+
+    private data class CustomerPhoneExtractionResult(
+        val source: String,
+        val value: String,
+    )
+
+    private fun extractCustomerPhone(printJob: JSONObject, displayModel: JSONObject?, parsedNotesPhone: String): CustomerPhoneExtractionResult {
+        val candidates = mutableListOf<CustomerPhoneExtractionResult>()
+
+        fun push(source: String, value: String?) {
+            val v = value?.trim().orEmpty()
+            if (v.isNotBlank()) candidates += CustomerPhoneExtractionResult(source, v)
+        }
+
+        push("payload.customerPhone", printJob.optString("customerPhone"))
+        push("payload.customer_phone", printJob.optString("customer_phone"))
+        push("payload.phone", printJob.optString("phone"))
+        push("payload.phoneNumber", printJob.optString("phoneNumber"))
+        printJob.optJSONObject("customer")?.let { customer ->
+            push("payload.customer.phone", customer.optString("phone"))
+            push("payload.customer.phoneNumber", customer.optString("phoneNumber"))
+        }
+        push("payload.deliveryPhone", printJob.optString("deliveryPhone"))
+        push("payload.delivery_phone", printJob.optString("delivery_phone"))
+        push("payload.contactPhone", printJob.optString("contactPhone"))
+        printJob.optJSONObject("contact")?.let { contact ->
+            push("payload.contact.phone", contact.optString("phone"))
+        }
+
+        push("displayModel.phone", displayModel?.optString("phone"))
+        push("displayModel.customerPhone", displayModel?.optString("customerPhone"))
+        displayModel?.optJSONArray("displaySections")?.let { sections ->
+            for (i in 0 until sections.length()) {
+                val section = sections.optJSONObject(i) ?: continue
+                push("displayModel.displaySections[$i].phone", section.optString("phone"))
+                push("displayModel.displaySections[$i].customerPhone", section.optString("customerPhone"))
+                val line = section.optString("line")
+                if (line.contains("tel", ignoreCase = true) || line.contains("phone", ignoreCase = true)) {
+                    push("displayModel.displaySections[$i].line", line.substringAfter(':', "").trim())
+                }
+            }
+        }
+
+        push("parsedStructuredNotes.phone", parsedNotesPhone)
+
+        return candidates.firstOrNull() ?: CustomerPhoneExtractionResult("not_found", "")
+    }
+
+    private fun normalizePhoneForDisplay(raw: String): String {
+        if (raw.isBlank()) return ""
+        val collapsed = raw.trim().replace("\\s+".toRegex(), " ")
+        return if (collapsed.startsWith("+")) "+" + collapsed.removePrefix("+").trimStart() else collapsed
+    }
 
     private fun containsArticlesSection(displaySections: JSONArray?): Boolean {
         if (displaySections == null) return false
