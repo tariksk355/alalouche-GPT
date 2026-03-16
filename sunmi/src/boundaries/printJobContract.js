@@ -55,6 +55,9 @@
  */
 export function normalizeOrderForDisplay(order) {
   const payload = (order?.payload && typeof order.payload === 'object') ? order.payload : {};
+  const customerObj = (payload?.customer && typeof payload.customer === 'object') ? payload.customer : {};
+  const contactObj = (payload?.contact && typeof payload.contact === 'object') ? payload.contact : {};
+  const deliveryObj = (payload?.delivery && typeof payload.delivery === 'object') ? payload.delivery : {};
   const itemSource =
     Array.isArray(payload.items) ? 'payload.items'
       : Array.isArray(payload.lines) ? 'payload.lines'
@@ -87,7 +90,20 @@ export function normalizeOrderForDisplay(order) {
     };
   });
 
-  const customerPhone = typeof order?.customerPhone === 'string' ? order.customerPhone : payload.customerPhone;
+  const customerPhone = [
+    typeof order?.customerPhone === 'string' ? order.customerPhone : null,
+    payload.customerPhone,
+    payload.customer_phone,
+    payload.phone,
+    payload.phoneNumber,
+    customerObj.phone,
+    customerObj.phoneNumber,
+    payload.deliveryPhone,
+    payload.delivery_phone,
+    deliveryObj.phone,
+    payload.contactPhone,
+    contactObj.phone,
+  ].find((value) => typeof value === 'string' && value.trim().length > 0);
   const customerAddress = typeof order?.customerAddress === 'string' ? order.customerAddress : payload.customerAddress;
   const paymentMethod = typeof order?.paymentMethod === 'string' ? order.paymentMethod : payload.paymentMethod;
   const orderType = order?.orderType || payload.orderType;
@@ -146,6 +162,32 @@ export function normalizeOrderForDisplay(order) {
   if (totals && Number.isFinite(Number(totals.total))) displaySections.push({ key: 'total', line: `Total: ${Number(totals.total).toFixed(2)} ${totals.currency || 'CHF'}` });
   if (notesExtra) displaySections.push({ key: 'notes', line: `Notes: ${notesExtra}` });
 
+  const phoneCandidateDiagnostics = [
+    ['order.customerPhone', order?.customerPhone],
+    ['payload.customerPhone', payload?.customerPhone],
+    ['payload.customer_phone', payload?.customer_phone],
+    ['payload.phone', payload?.phone],
+    ['payload.phoneNumber', payload?.phoneNumber],
+    ['payload.customer.phone', customerObj?.phone],
+    ['payload.customer.phoneNumber', customerObj?.phoneNumber],
+    ['payload.deliveryPhone', payload?.deliveryPhone],
+    ['payload.delivery_phone', payload?.delivery_phone],
+    ['payload.delivery.phone', deliveryObj?.phone],
+    ['payload.contactPhone', payload?.contactPhone],
+    ['payload.contact.phone', contactObj?.phone],
+  ];
+  const phoneDiagnosticBlock = phoneCandidateDiagnostics
+    .map(([field, value]) => `field=${field} exists=${value != null} value=${typeof value === 'string' ? value : ''}`)
+    .join('\n');
+  console.debug(`[sunmi-receiver] customer_phone_candidates\n${phoneDiagnosticBlock}`);
+  console.debug('[sunmi-receiver] customer_phone_normalized', {
+    orderId: order?.id || '',
+    hasCustomerObject: Object.keys(customerObj).length > 0,
+    hasContactObject: Object.keys(contactObj).length > 0,
+    hasDeliveryObject: Object.keys(deliveryObj).length > 0,
+    normalizedCustomerPhone: customerPhone || '',
+  });
+
   const receiptMetaLines = displaySections
     .filter((section) => !['items_header', 'item', 'total', 'notes'].includes(section.key))
     .map((section) => section.line);
@@ -176,6 +218,9 @@ export function normalizeOrderForDisplay(order) {
     notesExtra,
     displaySections,
     receiptLines,
+    customer: customerObj,
+    contact: contactObj,
+    delivery: deliveryObj,
   };
 }
 
@@ -184,6 +229,7 @@ export function normalizeOrderForPrint(order) {
 }
 
 export function buildPrintJobFromOrder(order, restaurant) {
+  const payload = (order?.payload && typeof order.payload === 'object') ? order.payload : {};
   const displayModel = normalizeOrderForDisplay(order);
 
   return {
@@ -202,6 +248,16 @@ export function buildPrintJobFromOrder(order, restaurant) {
     order_number: order.orderNumber || order.id,
     customerName: order.customerName,
     customer_name: order.customerName,
+    customerPhone: displayModel.customerPhone || '',
+    customer_phone: displayModel.customerPhone || '',
+    phone: displayModel.customerPhone || '',
+    phoneNumber: displayModel.customerPhone || '',
+    customer: displayModel.customer || {},
+    contact: displayModel.contact || {},
+    delivery: displayModel.delivery || {},
+    deliveryPhone: displayModel.delivery?.phone || payload?.deliveryPhone || payload?.delivery_phone || '',
+    delivery_phone: displayModel.delivery?.phone || payload?.delivery_phone || payload?.deliveryPhone || '',
+    contactPhone: displayModel.contact?.phone || payload?.contactPhone || '',
     customerTotalOrderCount: displayModel.customerTotalOrderCount,
     customer_total_order_count: displayModel.customerTotalOrderCount,
     itemsSource: displayModel.itemsSource,
@@ -212,6 +268,8 @@ export function buildPrintJobFromOrder(order, restaurant) {
     printed_from_display_model: true,
     displayModel: {
       itemsSource: displayModel.itemsSource,
+      phone: displayModel.customerPhone || '',
+      customerPhone: displayModel.customerPhone || '',
       displaySections: displayModel.displaySections,
       receiptLines: displayModel.receiptLines,
       items: displayModel.items,

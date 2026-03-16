@@ -293,6 +293,7 @@ class OfficialLibraryPrinterProbe(
         }
 
         val displayModel = payload.optJSONObject("displayModel")
+        logCustomerPhoneCandidates("official_probe_payload", payload, displayModel)
         val extractedPhone = extractCustomerPhoneFromPayload(payload, displayModel)
         val finalPhone = normalizePhoneForDisplay(extractedPhone.second)
         Log.i(TAG, "customer_phone_source source=${extractedPhone.first}")
@@ -450,6 +451,52 @@ class OfficialLibraryPrinterProbe(
         }
 
         return candidates.firstOrNull() ?: ("not_found" to "")
+    }
+
+    private data class CustomerPhoneCandidate(
+        val field: String,
+        val exists: Boolean,
+        val value: String,
+    )
+
+    private fun logCustomerPhoneCandidates(scope: String, payload: JSONObject, displayModel: JSONObject?) {
+        val candidates = mutableListOf<CustomerPhoneCandidate>()
+
+        fun add(field: String, exists: Boolean, value: String?) {
+            candidates += CustomerPhoneCandidate(field, exists, value?.trim().orEmpty())
+        }
+
+        add("payload.customerPhone", payload.has("customerPhone"), payload.optString("customerPhone", ""))
+        add("payload.customer_phone", payload.has("customer_phone"), payload.optString("customer_phone", ""))
+        add("payload.phone", payload.has("phone"), payload.optString("phone", ""))
+        add("payload.phoneNumber", payload.has("phoneNumber"), payload.optString("phoneNumber", ""))
+        val customer = payload.optJSONObject("customer")
+        add("payload.customer", customer != null, if (customer != null) "[object]" else "")
+        add("payload.customer.phone", customer?.has("phone") == true, customer?.optString("phone", ""))
+        add("payload.customer.phoneNumber", customer?.has("phoneNumber") == true, customer?.optString("phoneNumber", ""))
+        add("payload.deliveryPhone", payload.has("deliveryPhone"), payload.optString("deliveryPhone", ""))
+        add("payload.delivery_phone", payload.has("delivery_phone"), payload.optString("delivery_phone", ""))
+        add("payload.contactPhone", payload.has("contactPhone"), payload.optString("contactPhone", ""))
+        val contact = payload.optJSONObject("contact")
+        add("payload.contact", contact != null, if (contact != null) "[object]" else "")
+        add("payload.contact.phone", contact?.has("phone") == true, contact?.optString("phone", ""))
+
+        add("displayModel.phone", displayModel?.has("phone") == true, displayModel?.optString("phone", ""))
+        add("displayModel.customerPhone", displayModel?.has("customerPhone") == true, displayModel?.optString("customerPhone", ""))
+        val sections = displayModel?.optJSONArray("displaySections")
+        add("displayModel.displaySections", sections != null, if (sections != null) "count=${sections.length()}" else "")
+        if (sections != null) {
+            for (i in 0 until sections.length()) {
+                val section = sections.optJSONObject(i) ?: continue
+                add("displayModel.displaySections[$i].key", section.has("key"), section.optString("key", ""))
+                add("displayModel.displaySections[$i].phone", section.has("phone"), section.optString("phone", ""))
+                add("displayModel.displaySections[$i].customerPhone", section.has("customerPhone"), section.optString("customerPhone", ""))
+                add("displayModel.displaySections[$i].line", section.has("line"), section.optString("line", ""))
+            }
+        }
+
+        val block = candidates.joinToString("\n") { "field=${it.field} exists=${it.exists} value=${it.value}" }
+        Log.i(TAG, "customer_phone_candidates scope=$scope\n$block")
     }
 
     private fun normalizePhoneForDisplay(raw: String): String {
