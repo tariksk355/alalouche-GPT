@@ -264,14 +264,51 @@ class OfficialLibraryPrinterProbe(
     private fun buildReceiptLines(job: NativePrintJobEntity): List<String> {
         val payload = runCatching { JSONObject(job.payloadJson) }.getOrNull()
         val lines = mutableListOf<String>()
+        var sourceUsed = "fallback_fields"
 
-        fun add(label: String, value: String?) {
-            val normalized = value?.trim().orEmpty()
-            if (normalized.isNotBlank()) lines += "$label: $normalized"
+        fun addLine(text: String) {
+            val normalized = text.trim()
+            if (normalized.isBlank()) return
+            val idx = lines.size
+            lines += normalized
+            Log.i(TAG, "official_receipt_line commandId=${job.commandId} orderId=${job.orderId ?: ""} index=$idx text=$normalized")
         }
 
-        if (payload == null) return listOf("ORDER: ${job.orderId ?: "UNKNOWN"}", "PAYLOAD_ERROR", "---")
+        fun addLabeled(label: String, value: String?) {
+            val normalized = value?.trim().orEmpty()
+            if (normalized.isNotBlank()) addLine("$label: $normalized")
+        }
 
+        if (payload == null) {
+            addLine("ORDER: ${job.orderId ?: "UNKNOWN"}")
+            addLine("PAYLOAD_ERROR")
+            addLine("---")
+            Log.i(TAG, "official_receipt_line_extraction_summary commandId=${job.commandId} orderId=${job.orderId ?: ""} source=fallback_payload_null totalExtractedLines=${lines.size}")
+            return lines
+        }
+
+        val displayModel = payload.optJSONObject("displayModel")
+        val displayReceiptLines = displayModel?.optJSONArray("receiptLines")
+        if (displayReceiptLines != null && displayReceiptLines.length() > 0) {
+            sourceUsed = "displayModel.receiptLines"
+            for (i in 0 until displayReceiptLines.length()) {
+                addLine(displayReceiptLines.optString(i))
+            }
+            Log.i(TAG, "official_receipt_line_extraction_summary commandId=${job.commandId} orderId=${job.orderId ?: ""} source=$sourceUsed totalExtractedLines=${lines.size}")
+            return lines
+        }
+
+        val topLevelReceiptLines = payload.optJSONArray("receiptLines")
+        if (topLevelReceiptLines != null && topLevelReceiptLines.length() > 0) {
+            sourceUsed = "payload.receiptLines"
+            for (i in 0 until topLevelReceiptLines.length()) {
+                addLine(topLevelReceiptLines.optString(i))
+            }
+            Log.i(TAG, "official_receipt_line_extraction_summary commandId=${job.commandId} orderId=${job.orderId ?: ""} source=$sourceUsed totalExtractedLines=${lines.size}")
+            return lines
+        }
+
+        sourceUsed = "fallback_fields"
         val orderNumber = payload.optString("orderNumber").ifBlank {
             payload.optString("order_number").ifBlank {
                 payload.optString("orderId").ifBlank { job.orderId ?: "UNKNOWN" }
@@ -279,58 +316,91 @@ class OfficialLibraryPrinterProbe(
         }
         val customerLine = payload.optString("customerLine").ifBlank {
             payload.optString("customer").ifBlank {
-                payload.optString("customerName")
+                payload.optString("customerName").ifBlank { payload.optString("client") }
             }
         }
-        val address = payload.optString("address").ifBlank { payload.optString("deliveryAddress") }
-        val payment = payload.optString("payment").ifBlank { payload.optString("paymentMethod") }
-        val orderedTime = payload.optString("orderedTime").ifBlank { payload.optString("ordered_at") }
-        val customerHistory = payload.optString("customerHistory").ifBlank { payload.optString("history") }
-        val preparationTime = payload.optString("preparationTime").ifBlank { payload.optString("prepTime") }
-        val total = payload.optString("total").ifBlank { payload.optString("totalAmount") }
+        val address = payload.optString("address").ifBlank {
+            payload.optString("deliveryAddress").ifBlank { payload.optString("customerAddress") }
+        }
+        val payment = payload.optString("payment").ifBlank {
+            payload.optString("paymentMethod").ifBlank { payload.optString("payment_method") }
+        }
+        val orderedTime = payload.optString("orderedTime").ifBlank {
+            payload.optString("ordered_at").ifBlank { payload.optString("orderedTimeText") }
+        }
+        val customerHistory = payload.optString("customerHistory").ifBlank {
+            payload.optString("history").ifBlank { payload.optString("customer_history") }
+        }
+        val preparationTime = payload.optString("preparationTime").ifBlank {
+            payload.optString("prepTime").ifBlank { payload.optString("preparation_time") }
+        }
+        val total = payload.optString("total").ifBlank {
+            payload.optString("totalAmount").ifBlank { payload.optString("total_amount") }
+        }
 
-        lines += "ORDER #$orderNumber"
-        add("CUSTOMER", customerLine)
-        add("ADDRESS", address)
-        add("PAYMENT", payment)
-        add("ORDERED", orderedTime)
-        add("HISTORY", customerHistory)
-        add("PREPARATION", preparationTime)
-        lines += "------------------------------"
-        lines += payload.optString("itemsHeader").ifBlank { "ITEMS" }
+        addLine("ORDER #$orderNumber")
+        addLabeled("CUSTOMER", customerLine)
+        addLabeled("ADDRESS", address)
+        addLabeled("PAYMENT", payment)
+        addLabeled("ORDERED", orderedTime)
+        addLabeled("HISTORY", customerHistory)
+        addLabeled("PREPARATION", preparationTime)
+        addLine("------------------------------")
+        addLine(payload.optString("itemsHeader").ifBlank { "ITEMS" })
 
         val itemArray = payload.optJSONArray("items") ?: payload.optJSONArray("lines") ?: JSONArray()
         if (itemArray.length() == 0) {
-            lines += payload.optString("itemsText").ifBlank { "-" }
+            addLine(payload.optString("itemsText").ifBlank { "-" })
         } else {
             for (i in 0 until itemArray.length()) {
                 val itemObj = itemArray.optJSONObject(i)
                 if (itemObj != null) {
                     val qty = itemObj.optInt("quantity", itemObj.optInt("qty", 1))
                     val name = itemObj.optString("name").ifBlank { itemObj.optString("title", "ITEM") }
-                    lines += "$qty x $name"
+                    addLine("$qty x $name")
                 } else {
-                    val raw = itemArray.optString(i)
-                    if (raw.isNotBlank()) lines += raw
+                    addLine(itemArray.optString(i))
                 }
             }
         }
 
-        lines += "------------------------------"
-        add("TOTAL", total)
+        addLine("------------------------------")
+        addLabeled("TOTAL", total)
+        Log.i(TAG, "official_receipt_line_extraction_summary commandId=${job.commandId} orderId=${job.orderId ?: ""} source=$sourceUsed totalExtractedLines=${lines.size}")
         return lines
     }
 
     private fun renderBitmapFromLines(lines: List<String>): Bitmap {
-        val widthPx = 384
+        val bitmapWidth = 384
         val horizontalPaddingPx = 12
         val topPaddingPx = 18
         val bottomPaddingPx = 26
         val lineHeightPx = 34
+        val maxCharsPerLine = 30
         val safeLines = if (lines.isEmpty()) listOf("EMPTY_RECEIPT") else lines
-        val heightPx = max(220, topPaddingPx + bottomPaddingPx + (safeLines.size * lineHeightPx))
 
-        val bmp = Bitmap.createBitmap(widthPx, heightPx, Bitmap.Config.ARGB_8888)
+        val wrappedLines = mutableListOf<String>()
+        var truncatedLineCount = 0
+        for (line in safeLines) {
+            if (line.length <= maxCharsPerLine) {
+                wrappedLines += line
+            } else {
+                val chunks = line.chunked(maxCharsPerLine)
+                wrappedLines += chunks
+                truncatedLineCount += (chunks.size - 1)
+            }
+        }
+
+        val desiredHeight = topPaddingPx + bottomPaddingPx + (wrappedLines.size * lineHeightPx)
+        val maxBitmapHeightPx = 12000
+        val bitmapHeight = desiredHeight.coerceIn(220, maxBitmapHeightPx)
+        val maxDrawableLines = ((bitmapHeight - topPaddingPx - bottomPaddingPx) / lineHeightPx).coerceAtLeast(1)
+        val drawableLines = wrappedLines.take(maxDrawableLines)
+        val droppedLineCount = (wrappedLines.size - drawableLines.size).coerceAtLeast(0)
+
+        Log.i(TAG, "official_receipt_bitmap_render_stats inputLineCount=${safeLines.size} drawnLineCount=${drawableLines.size} wrappedLineCount=${wrappedLines.size} truncatedLineCount=$truncatedLineCount bitmapWidth=$bitmapWidth bitmapHeight=$bitmapHeight lineHeight=$lineHeightPx topPadding=$topPaddingPx bottomPadding=$bottomPaddingPx droppedLineCount=$droppedLineCount")
+
+        val bmp = Bitmap.createBitmap(bitmapWidth, bitmapHeight, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bmp)
         canvas.drawColor(Color.WHITE)
         val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -339,9 +409,8 @@ class OfficialLibraryPrinterProbe(
             typeface = Typeface.MONOSPACE
         }
         var y = topPaddingPx + lineHeightPx
-        safeLines.forEach { line ->
-            val drawLine = if (line.length > 30) line.take(30) else line
-            canvas.drawText(drawLine, horizontalPaddingPx.toFloat(), y.toFloat(), paint)
+        drawableLines.forEach { line ->
+            canvas.drawText(line, horizontalPaddingPx.toFloat(), y.toFloat(), paint)
             y += lineHeightPx
         }
         return bmp
