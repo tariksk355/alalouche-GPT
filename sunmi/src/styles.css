@@ -232,3 +232,31 @@ button:disabled { opacity: 0.6; }
 .alert-volume-row input[type="range"] {
   flex: 1;
 }
+
+
+.completed-orders-details {
+  padding-top: 10px;
+}
+
+.completed-orders-summary {
+  width: 100%;
+  margin-top: 0;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  cursor: pointer;
+  font-weight: 700;
+  font-size: 18px;
+  margin-bottom: 8px;
+}
+
+.completed-orders-summary:focus-visible {
+  outline: 2px solid #60a5fa;
+  border-radius: 6px;
+}

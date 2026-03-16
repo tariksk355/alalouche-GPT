@@ -20,6 +20,8 @@ const PRINT_JOB_TRACKING_STORAGE_KEY = 'receiver_print_job_tracking_v1';
 const TERMINAL_JOB_RETENTION_MS = 30 * 60 * 1000;
 const PRINT_STRATEGY_OVERRIDE_STORAGE_KEY = 'sunmi_print_strategy_override_v1';
 const ALERT_SETTINGS_STORAGE_KEY = 'sunmi_alert_settings_v1';
+const COMPLETED_ORDERS_CACHE_STORAGE_KEY = 'sunmi_completed_orders_cache_v1';
+const COMPLETED_SECTION_OPEN_STORAGE_KEY = 'sunmi_completed_section_open_v1';
 const PRINT_DISPATCH_DEDUP_MS = 15000;
 const ATTENTION_ALERT_DURATION_MS = 7000;
 
@@ -55,6 +57,9 @@ const state = {
   },
   isSettingsPanelOpen: false,
   hasLoggedInfoImprimanteRemoval: false,
+  hasLoggedQueueStatusTextRemoval: false,
+  completedOrdersById: {},
+  completedSectionOpen: false,
   activeAttentionAlert: null,
   attentionAlertTimeoutId: null,
   printDebug: {
@@ -111,6 +116,56 @@ function setPrintDebug(patch) {
     ...patch,
     at: new Date().toISOString(),
   };
+}
+
+function loadCompletedOrdersCache() {
+  try {
+    const raw = localStorage.getItem(COMPLETED_ORDERS_CACHE_STORAGE_KEY);
+    if (!raw) {
+      state.completedOrdersById = {};
+      return;
+    }
+    const parsed = JSON.parse(raw);
+    state.completedOrdersById = parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    state.completedOrdersById = {};
+  }
+}
+
+function persistCompletedOrdersCache() {
+  try {
+    localStorage.setItem(COMPLETED_ORDERS_CACHE_STORAGE_KEY, JSON.stringify(state.completedOrdersById));
+  } catch {
+    // ignore
+  }
+}
+
+function clearCompletedOrdersCache() {
+  state.completedOrdersById = {};
+  try {
+    localStorage.removeItem(COMPLETED_ORDERS_CACHE_STORAGE_KEY);
+  } catch {
+    // ignore
+  }
+}
+
+function loadCompletedSectionOpenState() {
+  try {
+    const raw = localStorage.getItem(COMPLETED_SECTION_OPEN_STORAGE_KEY);
+    state.completedSectionOpen = raw === 'true';
+  } catch {
+    state.completedSectionOpen = false;
+  }
+  console.debug(`[sunmi-receiver] completed_section_state_restored open=${state.completedSectionOpen}`);
+}
+
+function persistCompletedSectionOpenState() {
+  try {
+    localStorage.setItem(COMPLETED_SECTION_OPEN_STORAGE_KEY, state.completedSectionOpen ? 'true' : 'false');
+  } catch {
+    // ignore
+  }
+  console.debug(`[sunmi-receiver] completed_section_state_persisted open=${state.completedSectionOpen}`);
 }
 
 function clearAttentionAlert() {
@@ -796,33 +851,61 @@ function render() {
     return;
   }
 
-  const ordersHtml = state.orders.length === 0
-    ? '<div class="card"><p class="subtle">Aucune commande en attente.</p></div>'
-    : state.orders.map((order) => {
-      const displayModel = normalizeOrderForDisplay(order);
-      const duplicateFieldCheck = {
-        paymentShown: Boolean(displayModel.paymentMethod),
-        paymentInNotesExtra: /Paiement:/i.test(displayModel.notesExtra || ''),
-        addressShown: Boolean(displayModel.customerAddress),
-        addressInNotesExtra: /Adresse:/i.test(displayModel.notesExtra || ''),
-      };
-      debugLog('ui_duplicate_field_check', {
-        orderId: order.id,
-        duplicateFieldCheck,
-      });
+  const completedOrdersFromBackend = state.orders.filter((order) => String(order?.status || '').toLowerCase() === 'completed');
+  const activeOrders = state.orders.filter((order) => String(order?.status || '').toLowerCase() !== 'completed');
+  const completedOrdersFromCache = Object.values(state.completedOrdersById || {});
+  const completedById = {};
+  for (const order of completedOrdersFromCache) {
+    if (order?.id) completedById[order.id] = order;
+  }
+  for (const order of completedOrdersFromBackend) {
+    if (order?.id) completedById[order.id] = order;
+  }
+  const completedOrders = Object.values(completedById).sort((a, b) => {
+    const aTs = new Date(a?.updatedAt || a?.statusUpdatedAt || a?.createdAt || 0).getTime() || 0;
+    const bTs = new Date(b?.updatedAt || b?.statusUpdatedAt || b?.createdAt || 0).getTime() || 0;
+    return bTs - aTs;
+  });
 
-      const sectionRowsHtml = displayModel.displaySections.length
-        ? displayModel.displaySections.map((section, idx) => {
-          const marginStyle = idx === 0 ? '' : ' style="margin-top:6px;"';
-          return `<div class="subtle"${marginStyle}>${escapeHtml(section.line)}</div>`;
-        }).join('')
-        : '<div class="subtle" style="margin-top:8px;">Détails indisponibles</div>';
+  console.debug(`[sunmi-receiver] active_orders_count count=${activeOrders.length}`);
+  console.debug(`[sunmi-receiver] completed_orders_from_backend count=${completedOrdersFromBackend.length}`);
+  console.debug(`[sunmi-receiver] completed_orders_local_cache count=${completedOrdersFromCache.length}`);
+  console.debug(`[sunmi-receiver] completed_orders_count count=${completedOrders.length}`);
+  console.debug(`[sunmi-receiver] completed_section_rendered open=${state.completedSectionOpen} completedCount=${completedOrders.length}`);
+  console.debug('[sunmi-receiver] completed_section_dom_mode mode=custom_collapsible');
 
-      const printJob = state.printJobsByOrderId[order.id];
-      const printUiState = printJob?.uiState ? normalizePrintUiState(printJob.uiState) : null;
-      const printMessage = printUiState ? printStateMessage(printUiState) : '';
+  const renderOrderCard = (order, options = {}) => {
+    const isCompleted = Boolean(options.isCompleted);
+    if (isCompleted) {
+      console.debug(`[sunmi-receiver] completed_order_rendered orderId=${order?.id || ''}`);
+    } else {
+      console.debug(`[sunmi-receiver] active_order_rendered orderId=${order?.id || ''}`);
+    }
 
-      return `
+    const displayModel = normalizeOrderForDisplay(order);
+    const duplicateFieldCheck = {
+      paymentShown: Boolean(displayModel.paymentMethod),
+      paymentInNotesExtra: /Paiement:/i.test(displayModel.notesExtra || ''),
+      addressShown: Boolean(displayModel.customerAddress),
+      addressInNotesExtra: /Adresse:/i.test(displayModel.notesExtra || ''),
+    };
+    debugLog('ui_duplicate_field_check', {
+      orderId: order.id,
+      duplicateFieldCheck,
+    });
+
+    const sectionRowsHtml = displayModel.displaySections.length
+      ? displayModel.displaySections.map((section, idx) => {
+        const marginStyle = idx === 0 ? '' : ' style="margin-top:6px;"';
+        return `<div class="subtle"${marginStyle}>${escapeHtml(section.line)}</div>`;
+      }).join('')
+      : '<div class="subtle" style="margin-top:8px;">Détails indisponibles</div>';
+
+    const printJob = state.printJobsByOrderId[order.id];
+    const printUiState = printJob?.uiState ? normalizePrintUiState(printJob.uiState) : null;
+    const printMessage = printUiState ? printStateMessage(printUiState) : '';
+
+    return `
       <div class="card" data-order-id="${order.id}">
         <div class="topbar">
           <strong>${order.orderNumber || order.id}</strong>
@@ -832,21 +915,30 @@ function render() {
         ${printJob?.nonRetryable ? `<div class="subtle print-status-unavailable">Impression bloquée: ${escapeHtml(printJob.blockedReasonMessage || 'Action opérateur requise.')}</div>` : ''}
         ${printJob?.transientUnavailable ? '<div class="subtle print-status-unavailable">Statut impression temporairement indisponible.</div>' : ''}
         ${sectionRowsHtml}
-        <div class="prep-row">
-          <span class="subtle">Temps prep</span>
-          <div class="chip-row">
-            ${[15, 30, 45, 60].map((minutes) => `<button class="prep-chip ${prepMinutesForOrder(order) === minutes ? 'active' : ''}" data-action="set-prep" data-id="${order.id}" data-minutes="${minutes}">${minutes} min</button>`).join('')}
+        ${isCompleted ? '' : `
+          <div class="prep-row">
+            <span class="subtle">Temps prep</span>
+            <div class="chip-row">
+              ${[15, 30, 45, 60].map((minutes) => `<button class="prep-chip ${prepMinutesForOrder(order) === minutes ? 'active' : ''}" data-action="set-prep" data-id="${order.id}" data-minutes="${minutes}">${minutes} min</button>`).join('')}
+            </div>
           </div>
-        </div>
-        <div class="btn-row">
-          <button class="btn-accept" data-action="accepted" data-id="${order.id}">Accepter & imprimer</button>
-          <button class="btn-ready" data-action="ready" data-id="${order.id}">Prêt</button>
-          <button class="btn-done" data-action="completed" data-id="${order.id}">Terminé</button>
-        </div>
+          <div class="btn-row">
+            <button class="btn-accept" data-action="accepted" data-id="${order.id}">Accepter & imprimer</button>
+            <button class="btn-ready" data-action="ready" data-id="${order.id}">Prêt</button>
+            <button class="btn-done" data-action="completed" data-id="${order.id}">Terminé</button>
+          </div>
+        `}
       </div>
     `;
-    }).join('');
+  };
 
+  const activeOrdersHtml = activeOrders.length === 0
+    ? '<div class="card"><p class="subtle">Aucune commande en cours.</p></div>'
+    : activeOrders.map((order) => renderOrderCard(order, { isCompleted: false })).join('');
+
+  const completedOrdersHtml = completedOrders.length === 0
+    ? '<div class="card"><p class="subtle">Aucune commande terminée.</p></div>'
+    : completedOrders.map((order) => renderOrderCard(order, { isCompleted: true })).join('');
   const reservationsHtml = state.reservations.length === 0
     ? '<div class="card"><p class="subtle">Aucune réservation en cours.</p></div>'
     : state.reservations.map((reservation) => `
@@ -915,6 +1007,10 @@ function render() {
     debugLog('info_imprimante_removed_from_ui', true);
     state.hasLoggedInfoImprimanteRemoval = true;
   }
+  if (!state.hasLoggedQueueStatusTextRemoval) {
+    debugLog('queue_status_text_removed_from_ui', true);
+    state.hasLoggedQueueStatusTextRemoval = true;
+  }
 
   app.innerHTML = `
     <div class="card receiver-header-card">
@@ -927,10 +1023,20 @@ function render() {
     </div>
 
     <div class="card">
-      <div class="title">Commandes</div>
+      <div class="title">Commandes en cours</div>
       <p class="subtle">Gestion opérationnelle des commandes</p>
     </div>
-    ${ordersHtml}
+    ${activeOrdersHtml}
+
+    <div class="card completed-orders-details">
+      <button class="completed-orders-summary" data-action="toggle-completed-section" aria-expanded="${state.completedSectionOpen ? 'true' : 'false'}">
+        <span>Terminées (${completedOrders.length})</span>
+        <span>${state.completedSectionOpen ? '▾' : '▸'}</span>
+      </button>
+      ${state.completedSectionOpen
+    ? `<div><div class="subtle">Historique des commandes terminées avec réimpression rapide.</div>${completedOrdersHtml}</div>`
+    : ''}
+    </div>
 
     <div class="card">
       <div class="title">Réservations</div>
@@ -938,8 +1044,6 @@ function render() {
     </div>
     ${reservationsHtml}
 
-
-    ${state.printerMessage ? `<div class="card"><p class="subtle">${state.printerMessage}</p></div>` : ''}
     ${state.error ? `<div class="card"><p class="error">${state.error}</p></div>` : ''}
     ${attentionOverlay}
     ${settingsPanelHtml}
@@ -979,6 +1083,7 @@ async function validateDeviceOnceAndEnterReceiver() {
     state.seenReservationIds = new Set();
     state.hasHydratedOperationalBaseline = false;
     clearAttentionAlert();
+    clearCompletedOrdersCache();
     clearPersistedPrintJobTracking();
     stopReceiverPolling();
     debugLog('device_validation_not_paired', { message: state.error || 'no_message' });
@@ -1012,6 +1117,23 @@ async function refreshOperations() {
   if (result.state === 'loaded') {
     const nextOrders = result.orders || [];
     const nextReservations = result.reservations || [];
+    const backendCompletedOrders = nextOrders.filter((order) => String(order?.status || '').toLowerCase() === 'completed');
+    const activeOrderIds = new Set(nextOrders.map((order) => order?.id).filter(Boolean));
+    for (const activeOrderId of activeOrderIds) {
+      if (state.completedOrdersById[activeOrderId]) {
+        delete state.completedOrdersById[activeOrderId];
+      }
+    }
+    for (const completedOrder of backendCompletedOrders) {
+      if (!completedOrder?.id) continue;
+      state.completedOrdersById[completedOrder.id] = {
+        ...state.completedOrdersById[completedOrder.id],
+        ...completedOrder,
+      };
+    }
+    persistCompletedOrdersCache();
+    console.debug(`[sunmi-receiver] completed_orders_from_backend count=${backendCompletedOrders.length}`);
+    console.debug(`[sunmi-receiver] completed_orders_local_cache count=${Object.keys(state.completedOrdersById).length}`);
     detectAndTriggerNewEventAlerts(nextOrders, nextReservations);
     state.orders = nextOrders;
     state.reservations = nextReservations;
@@ -1042,6 +1164,7 @@ async function refreshOperations() {
     state.seenOrderIds = new Set();
     state.seenReservationIds = new Set();
     state.hasHydratedOperationalBaseline = false;
+    clearCompletedOrdersCache();
     clearAttentionAlert();
     clearPersistedPrintJobTracking();
     stopReceiverPolling();
@@ -1324,6 +1447,16 @@ app.addEventListener('click', async (event) => {
   const target = event.target;
   if (!(target instanceof HTMLElement)) return;
 
+  const completedToggle = target.closest('[data-action="toggle-completed-section"]');
+  if (completedToggle instanceof HTMLElement) {
+    const nextOpen = !state.completedSectionOpen;
+    console.debug(`[sunmi-receiver] completed_section_toggle_clicked nextOpen=${nextOpen}`);
+    state.completedSectionOpen = nextOpen;
+    persistCompletedSectionOpenState();
+    render();
+    return;
+  }
+
   if (target.id === 'pairing-submit-btn') {
     await startPairingSubmit();
     return;
@@ -1356,6 +1489,7 @@ app.addEventListener('click', async (event) => {
     state.seenReservationIds = new Set();
     state.hasHydratedOperationalBaseline = false;
     clearAttentionAlert();
+    clearCompletedOrdersCache();
     clearPersistedPrintJobTracking();
     stopReceiverPolling();
     stopPairingPolling();
@@ -1519,6 +1653,9 @@ app.addEventListener('click', async (event) => {
   if (status === 'accepted') {
     prepMinutes = state.prepMinutesByOrderId[orderId] || undefined;
   }
+  if (status === 'completed') {
+    console.debug(`[sunmi-receiver] order_marked_completed_clicked orderId=${orderId}`);
+  }
 
   target.setAttribute('disabled', 'true');
   const res = await changeOrderStatus(orderId, status, prepMinutes);
@@ -1532,6 +1669,21 @@ app.addEventListener('click', async (event) => {
     }
     render();
     return;
+  }
+
+  if (status === 'completed') {
+    const sourceOrder = state.orders.find((item) => item.id === orderId) || {};
+    const completedSnapshot = {
+      ...sourceOrder,
+      ...(res.order || {}),
+      id: orderId,
+      status: 'completed',
+      statusUpdatedAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    state.completedOrdersById[orderId] = completedSnapshot;
+    persistCompletedOrdersCache();
+    console.debug(`[sunmi-receiver] order_marked_completed_success orderId=${orderId} status=${completedSnapshot.status}`);
   }
 
   if (status === 'accepted') {
@@ -1558,6 +1710,8 @@ window.addEventListener('beforeunload', () => {
 async function boot() {
   debugLog('app_boot');
   loadAlertSettings();
+  loadCompletedOrdersCache();
+  loadCompletedSectionOpenState();
   hydratePrintJobTrackingFromStorage();
   render();
 
