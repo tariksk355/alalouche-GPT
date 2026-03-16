@@ -12,12 +12,15 @@ import com.sunmi.peripheral.printer.InnerPrinterCallback
 import com.sunmi.peripheral.printer.InnerPrinterManager
 import com.sunmi.peripheral.printer.InnerResultCallback
 import com.sunmi.peripheral.printer.SunmiPrinterService
+import org.json.JSONArray
+import org.json.JSONObject
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.max
 
-private enum class OfficialProbeMode {
+private enum class OfficialRunMode {
+    OFFICIAL_PRODUCTION_RECEIPT_BITMAP,
     OFFICIAL_PROBE_TEXT_ONLY,
     OFFICIAL_PROBE_BITMAP_ONLY_PRINTBITMAP,
     OFFICIAL_PROBE_BITMAP_ONLY_PRINTBITMAPCUSTOM,
@@ -32,16 +35,15 @@ class OfficialLibraryPrinterProbe(
     private val context: Context,
 ) {
     fun dispatch(job: NativePrintJobEntity): NativeDispatchReport {
-        val probeMode = resolveProbeMode()
+        val runMode = resolveRunMode()
         val bindLatch = CountDownLatch(1)
         val callbackErrors = mutableListOf<String>()
         var service: SunmiPrinterService? = null
 
-        Log.i(TAG, "native_print_official_probe_start commandId=${job.commandId} orderId=${job.orderId ?: ""} path=OFFICIAL_LIBRARY_PATH")
-        Log.i(TAG, "official_probe_mode commandId=${job.commandId} orderId=${job.orderId ?: ""} official_probe_mode=${probeMode.name}")
-        Log.i(TAG, "official_production_bitmap_primitive_default commandId=${job.commandId} orderId=${job.orderId ?: ""} primitive=${DEFAULT_PRODUCTION_BITMAP_PRIMITIVE.name}")
         Log.i(TAG, "official_library_bind_start commandId=${job.commandId} orderId=${job.orderId ?: ""} activePrinterPath=OFFICIAL_LIBRARY_PATH")
-        Log.i(TAG, "official_library_resolved_symbols managerClass=${InnerPrinterManager::class.java.name} bindCallbackBase=${InnerPrinterCallback::class.java.name} resultCallbackBase=${InnerResultCallback::class.java.name} serviceClass=${SunmiPrinterService::class.java.name}")
+        Log.i(TAG, "official_run_mode commandId=${job.commandId} orderId=${job.orderId ?: ""} mode=${runMode.name}")
+        Log.i(TAG, "official_production_bitmap_primitive_default commandId=${job.commandId} orderId=${job.orderId ?: ""} primitive=${DEFAULT_PRODUCTION_BITMAP_PRIMITIVE.name}")
+
         val bindCallback = object : InnerPrinterCallback() {
             override fun onConnected(svc: SunmiPrinterService?) {
                 service = svc
@@ -82,21 +84,27 @@ class OfficialLibraryPrinterProbe(
             }
 
             val svc = service!!
-            val deviceInfo = "buildModel=${Build.MODEL ?: ""} serviceVersion=${runCatching { svc.serviceVersion }.getOrNull().orEmpty()} printerVersion=${runCatching { svc.printerVersion }.getOrNull().orEmpty()} printerSerialNo=${runCatching { svc.printerSerialNo }.getOrNull().orEmpty()}"
-            Log.i(TAG, "official_library_device_info commandId=${job.commandId} orderId=${job.orderId ?: ""} $deviceInfo")
+            Log.i(
+                TAG,
+                "official_library_device_info commandId=${job.commandId} orderId=${job.orderId ?: ""} buildModel=${Build.MODEL ?: ""} serviceVersion=${runCatching { svc.serviceVersion }.getOrNull().orEmpty()} printerVersion=${runCatching { svc.printerVersion }.getOrNull().orEmpty()} printerSerialNo=${runCatching { svc.printerSerialNo }.getOrNull().orEmpty()}",
+            )
 
             Log.i(TAG, "official_probe_step commandId=${job.commandId} orderId=${job.orderId ?: ""} official_probe_step=printerInit_start")
             svc.printerInit(callbackForOfficial(job, "printerInit", callbackErrors))
 
-            when (probeMode) {
-                OfficialProbeMode.OFFICIAL_PROBE_TEXT_ONLY -> runTextOnlyProbe(svc, job, callbackErrors)
-                OfficialProbeMode.OFFICIAL_PROBE_BITMAP_ONLY_PRINTBITMAP -> runBitmapProbe(svc, job, callbackErrors, useCustom = false)
-                OfficialProbeMode.OFFICIAL_PROBE_BITMAP_ONLY_PRINTBITMAPCUSTOM -> runBitmapProbe(svc, job, callbackErrors, useCustom = true)
+            when (runMode) {
+                OfficialRunMode.OFFICIAL_PRODUCTION_RECEIPT_BITMAP -> runProductionReceiptBitmap(svc, job, callbackErrors)
+                OfficialRunMode.OFFICIAL_PROBE_TEXT_ONLY -> runTextOnlyProbe(svc, job, callbackErrors)
+                OfficialRunMode.OFFICIAL_PROBE_BITMAP_ONLY_PRINTBITMAP -> runBitmapProbe(svc, job, callbackErrors, useCustom = false)
+                OfficialRunMode.OFFICIAL_PROBE_BITMAP_ONLY_PRINTBITMAPCUSTOM -> runBitmapProbe(svc, job, callbackErrors, useCustom = true)
             }
 
             Thread.sleep(1000L)
             val physicalOutcome = if (callbackErrors.isEmpty()) "UNKNOWN_NO_HARDWARE_SIGNAL" else "CALLBACK_ERROR_REPORTED"
-            Log.i(TAG, "official_probe_summary commandId=${job.commandId} orderId=${job.orderId ?: ""} official_probe_mode=${probeMode.name} printTextDispatched=${probeMode == OfficialProbeMode.OFFICIAL_PROBE_TEXT_ONLY} printBitmapDispatched=${probeMode == OfficialProbeMode.OFFICIAL_PROBE_BITMAP_ONLY_PRINTBITMAP} printBitmapCustomDispatched=${probeMode == OfficialProbeMode.OFFICIAL_PROBE_BITMAP_ONLY_PRINTBITMAPCUSTOM} callbackErrors=${callbackErrors.size} physicalOutcome=$physicalOutcome")
+            Log.i(
+                TAG,
+                "official_probe_summary commandId=${job.commandId} orderId=${job.orderId ?: ""} mode=${runMode.name} printTextDispatched=${runMode == OfficialRunMode.OFFICIAL_PROBE_TEXT_ONLY} printBitmapDispatched=${runMode == OfficialRunMode.OFFICIAL_PROBE_BITMAP_ONLY_PRINTBITMAP || (runMode == OfficialRunMode.OFFICIAL_PRODUCTION_RECEIPT_BITMAP && DEFAULT_PRODUCTION_BITMAP_PRIMITIVE == OfficialProductionBitmapPrimitive.PRINT_BITMAP)} printBitmapCustomDispatched=${runMode == OfficialRunMode.OFFICIAL_PROBE_BITMAP_ONLY_PRINTBITMAPCUSTOM || (runMode == OfficialRunMode.OFFICIAL_PRODUCTION_RECEIPT_BITMAP && DEFAULT_PRODUCTION_BITMAP_PRIMITIVE == OfficialProductionBitmapPrimitive.PRINT_BITMAP_CUSTOM)} callbackErrors=${callbackErrors.size} physicalOutcome=$physicalOutcome",
+            )
 
             NativeDispatchReport(
                 acceptedByNative = callbackErrors.isEmpty(),
@@ -133,6 +141,25 @@ class OfficialLibraryPrinterProbe(
         }
     }
 
+    private fun runProductionReceiptBitmap(
+        service: SunmiPrinterService,
+        job: NativePrintJobEntity,
+        callbackErrors: MutableList<String>,
+    ) {
+        val receiptLines = buildReceiptLines(job)
+        val bitmap = renderBitmapFromLines(receiptLines)
+        try {
+            Log.i(TAG, "official_receipt_bitmap_render commandId=${job.commandId} orderId=${job.orderId ?: ""} widthPx=${bitmap.width} heightPx=${bitmap.height} lineCount=${receiptLines.size}")
+            Log.i(TAG, "official_probe_step commandId=${job.commandId} orderId=${job.orderId ?: ""} official_probe_step=receipt_bitmap_dispatch")
+            dispatchBitmapByProductionPrimitive(service, bitmap, job, callbackErrors)
+        } finally {
+            bitmap.recycle()
+        }
+
+        Log.i(TAG, "official_probe_step commandId=${job.commandId} orderId=${job.orderId ?: ""} official_probe_step=lineWrap_after_bitmap")
+        service.lineWrap(3, callbackForOfficial(job, "lineWrap_3_receipt", callbackErrors))
+    }
+
     private fun runTextOnlyProbe(
         service: SunmiPrinterService,
         job: NativePrintJobEntity,
@@ -142,8 +169,7 @@ class OfficialLibraryPrinterProbe(
         Log.i(TAG, "official_probe_step commandId=${job.commandId} orderId=${job.orderId ?: ""} official_probe_step=printText_dispatch")
         service.printText("TEST\n", callbackForOfficial(job, "printText_TEST", callbackErrors))
         Log.i(TAG, "printText dispatched commandId=${job.commandId} orderId=${job.orderId ?: ""}")
-
-        Log.i(TAG, "official_probe_step commandId=${job.commandId} orderId=${job.orderId ?: ""} official_probe_step=lineWrap_after_printText_dispatch")
+        Log.i(TAG, "official_probe_step commandId=${job.commandId} orderId=${job.orderId ?: ""} official_probe_step=lineWrap_after_printText")
         service.lineWrap(3, callbackForOfficial(job, "lineWrap_3_text", callbackErrors))
     }
 
@@ -153,7 +179,7 @@ class OfficialLibraryPrinterProbe(
         callbackErrors: MutableList<String>,
         useCustom: Boolean,
     ) {
-        val bitmap = renderDeterministicBitmap()
+        val bitmap = renderDeterministicProbeBitmap()
         try {
             val op = if (useCustom) "printBitmapCustom" else "printBitmap"
             Log.i(TAG, "official_library_print_bitmap_probe_start commandId=${job.commandId} orderId=${job.orderId ?: ""} op=$op widthPx=${bitmap.width} heightPx=${bitmap.height}")
@@ -185,7 +211,7 @@ class OfficialLibraryPrinterProbe(
                 Log.w(TAG, "official_library_callback_timeout commandId=${job.commandId} orderId=${job.orderId ?: ""} op=$step timeoutMs=$CALLBACK_TIMEOUT_MS")
             }
         }.start()
-        val callbackImpl = object : InnerResultCallback() {
+        return object : InnerResultCallback() {
             override fun onRunResult(isSuccess: Boolean) {
                 resolved.set(true)
                 Log.i(TAG, "official_library_callback_onRunResult commandId=${job.commandId} orderId=${job.orderId ?: ""} op=$step success=$isSuccess")
@@ -210,13 +236,11 @@ class OfficialLibraryPrinterProbe(
                 if (!success) callbackErrors += "$step:onPrintResult:$code:${msg ?: "unknown"}"
             }
         }
-        Log.i(TAG, "official_library_callback_impl commandId=${job.commandId} orderId=${job.orderId ?: ""} op=$step callbackClass=${callbackImpl::class.java.name} callbackBase=InnerResultCallback")
-        return callbackImpl
     }
 
-    private fun resolveProbeMode(): OfficialProbeMode {
-        val normalized = ACTIVE_OFFICIAL_PROBE_MODE.trim().uppercase()
-        return OfficialProbeMode.entries.firstOrNull { it.name == normalized } ?: DEFAULT_OFFICIAL_PROBE_MODE
+    private fun resolveRunMode(): OfficialRunMode {
+        val normalized = ACTIVE_OFFICIAL_RUN_MODE.trim().uppercase()
+        return OfficialRunMode.entries.firstOrNull { it.name == normalized } ?: DEFAULT_OFFICIAL_RUN_MODE
     }
 
     private fun dispatchBitmapByProductionPrimitive(
@@ -237,38 +261,105 @@ class OfficialLibraryPrinterProbe(
         }
     }
 
-    private fun renderDeterministicBitmap(): Bitmap {
+    private fun buildReceiptLines(job: NativePrintJobEntity): List<String> {
+        val payload = runCatching { JSONObject(job.payloadJson) }.getOrNull()
+        val lines = mutableListOf<String>()
+
+        fun add(label: String, value: String?) {
+            val normalized = value?.trim().orEmpty()
+            if (normalized.isNotBlank()) lines += "$label: $normalized"
+        }
+
+        if (payload == null) return listOf("ORDER: ${job.orderId ?: "UNKNOWN"}", "PAYLOAD_ERROR", "---")
+
+        val orderNumber = payload.optString("orderNumber").ifBlank {
+            payload.optString("order_number").ifBlank {
+                payload.optString("orderId").ifBlank { job.orderId ?: "UNKNOWN" }
+            }
+        }
+        val customerLine = payload.optString("customerLine").ifBlank {
+            payload.optString("customer").ifBlank {
+                payload.optString("customerName")
+            }
+        }
+        val address = payload.optString("address").ifBlank { payload.optString("deliveryAddress") }
+        val payment = payload.optString("payment").ifBlank { payload.optString("paymentMethod") }
+        val orderedTime = payload.optString("orderedTime").ifBlank { payload.optString("ordered_at") }
+        val customerHistory = payload.optString("customerHistory").ifBlank { payload.optString("history") }
+        val preparationTime = payload.optString("preparationTime").ifBlank { payload.optString("prepTime") }
+        val total = payload.optString("total").ifBlank { payload.optString("totalAmount") }
+
+        lines += "ORDER #$orderNumber"
+        add("CUSTOMER", customerLine)
+        add("ADDRESS", address)
+        add("PAYMENT", payment)
+        add("ORDERED", orderedTime)
+        add("HISTORY", customerHistory)
+        add("PREPARATION", preparationTime)
+        lines += "------------------------------"
+        lines += payload.optString("itemsHeader").ifBlank { "ITEMS" }
+
+        val itemArray = payload.optJSONArray("items") ?: payload.optJSONArray("lines") ?: JSONArray()
+        if (itemArray.length() == 0) {
+            lines += payload.optString("itemsText").ifBlank { "-" }
+        } else {
+            for (i in 0 until itemArray.length()) {
+                val itemObj = itemArray.optJSONObject(i)
+                if (itemObj != null) {
+                    val qty = itemObj.optInt("quantity", itemObj.optInt("qty", 1))
+                    val name = itemObj.optString("name").ifBlank { itemObj.optString("title", "ITEM") }
+                    lines += "$qty x $name"
+                } else {
+                    val raw = itemArray.optString(i)
+                    if (raw.isNotBlank()) lines += raw
+                }
+            }
+        }
+
+        lines += "------------------------------"
+        add("TOTAL", total)
+        return lines
+    }
+
+    private fun renderBitmapFromLines(lines: List<String>): Bitmap {
         val widthPx = 384
-        val lines = listOf("TEST", "HELLO", "123", "END")
-        val horizontalPaddingPx = 24
-        val topPaddingPx = 28
-        val bottomPaddingPx = 28
-        val lineHeightPx = 52
-        val heightPx = max(220, topPaddingPx + bottomPaddingPx + (lines.size * lineHeightPx))
+        val horizontalPaddingPx = 12
+        val topPaddingPx = 18
+        val bottomPaddingPx = 26
+        val lineHeightPx = 34
+        val safeLines = if (lines.isEmpty()) listOf("EMPTY_RECEIPT") else lines
+        val heightPx = max(220, topPaddingPx + bottomPaddingPx + (safeLines.size * lineHeightPx))
 
         val bmp = Bitmap.createBitmap(widthPx, heightPx, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bmp)
         canvas.drawColor(Color.WHITE)
         val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.BLACK
-            textSize = 36f
+            textSize = 24f
             typeface = Typeface.MONOSPACE
         }
         var y = topPaddingPx + lineHeightPx
-        lines.forEach { line ->
-            canvas.drawText(line, horizontalPaddingPx.toFloat(), y.toFloat(), paint)
+        safeLines.forEach { line ->
+            val drawLine = if (line.length > 30) line.take(30) else line
+            canvas.drawText(drawLine, horizontalPaddingPx.toFloat(), y.toFloat(), paint)
             y += lineHeightPx
         }
         return bmp
+    }
+
+    private fun renderDeterministicProbeBitmap(): Bitmap {
+        return renderBitmapFromLines(listOf("TEST", "HELLO", "123", "END"))
     }
 
     companion object {
         private const val TAG = "OfficialLibraryProbe"
         private const val CALLBACK_TIMEOUT_MS = 1800L
         private const val BIND_TIMEOUT_MS = 3500L
-        private val DEFAULT_OFFICIAL_PROBE_MODE = OfficialProbeMode.OFFICIAL_PROBE_BITMAP_ONLY_PRINTBITMAPCUSTOM
-        private const val ACTIVE_OFFICIAL_PROBE_MODE = "OFFICIAL_PROBE_BITMAP_ONLY_PRINTBITMAPCUSTOM" // OFFICIAL_PROBE_TEXT_ONLY | OFFICIAL_PROBE_BITMAP_ONLY_PRINTBITMAP | OFFICIAL_PROBE_BITMAP_ONLY_PRINTBITMAPCUSTOM
-        // Production rollout switch-point: keep PRINT_BITMAP as preferred default receipt primitive unless PRINT_BITMAP_CUSTOM is proven reliable.
+
+        private val DEFAULT_OFFICIAL_RUN_MODE = OfficialRunMode.OFFICIAL_PRODUCTION_RECEIPT_BITMAP
+        private const val ACTIVE_OFFICIAL_RUN_MODE = "OFFICIAL_PRODUCTION_RECEIPT_BITMAP" // OFFICIAL_PRODUCTION_RECEIPT_BITMAP | OFFICIAL_PROBE_TEXT_ONLY | OFFICIAL_PROBE_BITMAP_ONLY_PRINTBITMAP | OFFICIAL_PROBE_BITMAP_ONLY_PRINTBITMAPCUSTOM
+
+        // Production receipt primitive switch-point (preferred default: PRINT_BITMAP).
         private val DEFAULT_PRODUCTION_BITMAP_PRIMITIVE = OfficialProductionBitmapPrimitive.PRINT_BITMAP // PRINT_BITMAP or PRINT_BITMAP_CUSTOM
     }
 }
