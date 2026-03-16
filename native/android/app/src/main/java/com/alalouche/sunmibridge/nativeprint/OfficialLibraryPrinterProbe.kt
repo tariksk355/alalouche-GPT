@@ -18,6 +18,7 @@ import org.json.JSONObject
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.regex.Pattern
 import kotlin.math.max
 
 private enum class OfficialRunMode {
@@ -397,10 +398,16 @@ class OfficialLibraryPrinterProbe(
         }
 
         val wrappedLines = mutableListOf<String>()
+        val separatorSegmentIndices = mutableSetOf<Int>()
         var truncatedLineCount = 0
         normalizedLines.forEach { sourceLine ->
             if (sourceLine.isBlank()) {
                 wrappedLines += ""
+                return@forEach
+            }
+            if (SEPARATOR_LINE_PATTERN.matcher(sourceLine).matches()) {
+                wrappedLines += sourceLine
+                separatorSegmentIndices += wrappedLines.lastIndex
                 return@forEach
             }
             var cursor = 0
@@ -431,9 +438,25 @@ class OfficialLibraryPrinterProbe(
         val bmp = Bitmap.createBitmap(bitmapWidth, bitmapHeight, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bmp)
         canvas.drawColor(Color.WHITE)
+
+        val separatorPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.BLACK
+            style = Paint.Style.STROKE
+            strokeWidth = 2f
+        }
+
         var y = topPaddingPx + lineHeightPx
-        drawableLines.forEach { line ->
-            canvas.drawText(line, leftPaddingPx.toFloat(), y.toFloat(), paint)
+        drawableLines.forEachIndexed { drawIndex, line ->
+            val sourceWrappedIndex = drawIndex
+            if (separatorSegmentIndices.contains(sourceWrappedIndex)) {
+                val startX = leftPaddingPx.toFloat()
+                val endX = (bitmapWidth - rightPaddingPx).toFloat()
+                val centerY = (y - (lineHeightPx / 2f))
+                canvas.drawLine(startX, centerY, endX, centerY, separatorPaint)
+                Log.i(TAG, "official_receipt_separator_rendered index=$sourceWrappedIndex mode=drawLine")
+            } else {
+                canvas.drawText(line, leftPaddingPx.toFloat(), y.toFloat(), paint)
+            }
             y += lineHeightPx
         }
         return bmp
@@ -464,6 +487,7 @@ class OfficialLibraryPrinterProbe(
         private const val TAG = "OfficialLibraryProbe"
         private const val CALLBACK_TIMEOUT_MS = 1800L
         private const val BIND_TIMEOUT_MS = 3500L
+        private val SEPARATOR_LINE_PATTERN: Pattern = Pattern.compile("^\\s*-{3,}\\s*$")
 
         private val DEFAULT_OFFICIAL_RUN_MODE = OfficialRunMode.OFFICIAL_PRODUCTION_RECEIPT_BITMAP
         private const val ACTIVE_OFFICIAL_RUN_MODE = "OFFICIAL_PRODUCTION_RECEIPT_BITMAP" // OFFICIAL_PRODUCTION_RECEIPT_BITMAP | OFFICIAL_PROBE_TEXT_ONLY | OFFICIAL_PROBE_BITMAP_ONLY_PRINTBITMAP | OFFICIAL_PROBE_BITMAP_ONLY_PRINTBITMAPCUSTOM
