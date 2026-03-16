@@ -1,9 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { backendClient } from '@/api/backendClient';
 import { useAuth } from '@/lib/AuthContext';
 import { StorefrontNotice } from '@/components/storefront/feedback';
 
 export default function Reservation() {
+  const MINIMUM_NOTICE_MINUTES = 30;
   const { user } = useAuth();
   const [form, setForm] = useState({ name: '', email: '', phone: '', date: '', time: '', guests: 2, notes: '' });
   const [loading, setLoading] = useState(false);
@@ -21,6 +22,70 @@ export default function Reservation() {
   }, [user]);
 
   const TIMES = ['11:30', '12:00', '12:30', '13:00', '13:30', '18:00', '18:30', '19:00', '19:30', '20:00', '20:30', '21:00'];
+
+  const toLocalDateInputValue = (date = new Date()) => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
+  const minDate = useMemo(() => toLocalDateInputValue(new Date()), []);
+
+  useEffect(() => {
+    console.debug('[storefront-reservation] reservation_same_day_enabled true');
+  }, []);
+
+  useEffect(() => {
+    if (!form.date) return;
+    console.debug(`[storefront-reservation] reservation_date_selected value=${form.date}`);
+  }, [form.date]);
+
+  const availableTimes = useMemo(() => {
+    if (!form.date) {
+      return TIMES;
+    }
+
+    const now = new Date();
+    const nowWithNotice = new Date(now.getTime() + MINIMUM_NOTICE_MINUTES * 60 * 1000);
+    const todayLocal = toLocalDateInputValue(now);
+    const isSameDay = form.date === todayLocal;
+
+    const filtered = TIMES.filter((slot) => {
+      if (!isSameDay) {
+        console.debug(`[storefront-reservation] reservation_time_slot_filtered slot=${slot} reason=valid`);
+        return true;
+      }
+
+      const [hours, minutes] = slot.split(':').map(Number);
+      const slotDate = new Date(now);
+      slotDate.setHours(hours, minutes, 0, 0);
+
+      const pastTime = slotDate.getTime() <= now.getTime();
+      if (pastTime) {
+        console.debug(`[storefront-reservation] reservation_time_slot_filtered slot=${slot} reason=past_time`);
+        return false;
+      }
+
+      const respectsNotice = slotDate.getTime() >= nowWithNotice.getTime();
+      if (!respectsNotice) {
+        console.debug(`[storefront-reservation] reservation_time_slot_filtered slot=${slot} reason=minimum_notice`);
+        return false;
+      }
+
+      console.debug(`[storefront-reservation] reservation_time_slot_filtered slot=${slot} reason=valid`);
+      return true;
+    });
+
+    console.debug(`[storefront-reservation] reservation_available_slots_count date=${form.date} count=${filtered.length}`);
+    return filtered;
+  }, [form.date]);
+
+  useEffect(() => {
+    if (!form.time) return;
+    if (availableTimes.includes(form.time)) return;
+    setForm((prev) => ({ ...prev, time: '' }));
+  }, [availableTimes, form.time]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -49,10 +114,6 @@ export default function Reservation() {
       setLoading(false);
     }
   };
-
-  const tomorrow = new Date();
-  tomorrow.setDate(tomorrow.getDate() + 1);
-  const minDate = tomorrow.toISOString().split('T')[0];
 
   return (
     <div className="min-h-screen bg-white">
@@ -147,7 +208,7 @@ export default function Reservation() {
                   className="w-full border border-gray-300 px-4 py-3 focus:outline-none focus:border-black transition-colors bg-white"
                 >
                   <option value="">Choisir une heure</option>
-                  {TIMES.map((t) => (
+                  {availableTimes.map((t) => (
                     <option key={t} value={t}>
                       {t}
                     </option>
