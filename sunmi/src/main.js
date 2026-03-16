@@ -193,7 +193,6 @@ function normalizePrintUiState(nativeState) {
 }
 
 function printStateMessage(uiState) {
-  if (uiState === 'QUEUED') return "Ticket en file d'impression...";
   if (uiState === 'PRINTING') return 'Impression en cours...';
   if (uiState === 'PRINTED') return 'Imprimé';
   if (uiState === 'NEEDS_ATTENTION') return 'Impression échouée. Réessayez.';
@@ -502,6 +501,22 @@ function stopReceiverPolling() {
   }
 }
 
+
+function formatZurichDateTime(iso) {
+  if (!iso) return '-';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return String(iso);
+  return new Intl.DateTimeFormat('fr-CH', {
+    timeZone: 'Europe/Zurich',
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).format(d).replace(',', '');
+}
+
 function formatReservationStatus(status) {
   const labels = {
     pending: 'En attente',
@@ -512,9 +527,7 @@ function formatReservationStatus(status) {
 }
 
 function formatReservationDate(iso) {
-  if (!iso) return '-';
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? String(iso) : d.toLocaleString('fr-CH');
+  return formatZurichDateTime(iso);
 }
 
 
@@ -523,9 +536,7 @@ function formatOrderType(orderType) {
 }
 
 function formatOrderDate(iso) {
-  if (!iso) return '-';
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? String(iso) : d.toLocaleString('fr-CH');
+  return formatZurichDateTime(iso);
 }
 
 function prepMinutesForOrder(order) {
@@ -626,7 +637,7 @@ function render() {
           <strong>${order.orderNumber || order.id}</strong>
           <span class="status-pill">${formatOrderStatus(order.status)}</span>
         </div>
-        ${printUiState ? `<div class="print-state-row"><span class="print-status-pill print-status-pill-${printUiState.toLowerCase()}">${printMessage}</span>${printUiState === 'NEEDS_ATTENTION' && printJob?.jobId && !printJob?.nonRetryable ? `<button class="btn-secondary-inline print-retry-btn" data-action="retry-print" data-job-id="${printJob.jobId}" data-id="${order.id}" ${state.printRetryInFlightByOrderId[order.id] ? 'disabled' : ''}>Réessayer</button>` : ''}${printUiState === 'PRINTED' ? `<button class="btn-secondary-inline print-retry-btn" data-action="reprint-order" data-id="${order.id}">Réimprimer</button>` : ''}</div>` : ''}
+        <div class="print-state-row">${printUiState === 'NEEDS_ATTENTION' ? `<span class="print-status-pill print-status-pill-${printUiState.toLowerCase()}">${printMessage}</span>` : ''}${printUiState === 'NEEDS_ATTENTION' && printJob?.jobId && !printJob?.nonRetryable ? `<button class="btn-secondary-inline print-retry-btn" data-action="retry-print" data-job-id="${printJob.jobId}" data-id="${order.id}" ${state.printRetryInFlightByOrderId[order.id] ? 'disabled' : ''}>Réessayer</button>` : ''}<button class="btn-secondary-inline print-retry-btn" data-action="reprint-order" data-id="${order.id}" ${state.printDispatchInFlightByOrderId[order.id] ? 'disabled' : ''}>Reimprimer</button></div>
         ${printJob?.nonRetryable ? `<div class="subtle print-status-unavailable">Impression bloquée: ${escapeHtml(printJob.blockedReasonMessage || 'Action opérateur requise.')}</div>` : ''}
         ${printJob?.transientUnavailable ? '<div class="subtle print-status-unavailable">Statut impression temporairement indisponible.</div>' : ''}
         ${sectionRowsHtml}
@@ -662,27 +673,6 @@ function render() {
       </div>
     `).join('');
 
-  const printDebug = state.printDebug;
-  const printDebugHtml = `
-    <div class="card debug-card">
-      <div class="title">Debug impression (temporaire)</div>
-      <p class="subtle">Utiliser pour diagnostic on-device sans logcat.</p>
-      <div class="debug-grid">
-        <div><span class="subtle">Heure:</span> <strong>${printDebug.at ? formatOrderDate(printDebug.at) : '-'}</strong></div>
-        <div><span class="subtle">État:</span> <strong>${printDebug.mode || '-'}</strong></div>
-        <div><span class="subtle">Bridge method:</span> <strong>${printDebug.method || '-'}</strong></div>
-        <div><span class="subtle">Payload construit:</span> <strong>${printDebug.payloadBuilt ? 'oui' : 'non'}</strong></div>
-        <div><span class="subtle">Commande:</span> <strong>${printDebug.orderNumber || '-'}</strong></div>
-        <div><span class="subtle">Lignes:</span> <strong>${Number(printDebug.lineCount || 0)}</strong></div>
-        <div><span class="subtle">Résultat natif:</span> <strong>${printDebug.ok === null ? '-' : (printDebug.ok ? 'succès' : 'erreur')}</strong></div>
-        <div><span class="subtle">Fallback:</span> <strong>${printDebug.fallbackUsed ? 'oui' : 'non'}</strong></div>
-      </div>
-      ${printDebug.message ? `<p class="subtle">Message: ${printDebug.message}</p>` : ''}
-      ${printDebug.receiptPreview ? `<p class="subtle">Prévisualisation ticket (natif):</p><pre class="debug-pre">${escapeHtml(printDebug.receiptPreview)}</pre>` : ''}
-      <button id="clear-print-debug-btn" class="btn-secondary-inline">Effacer debug impression</button>
-    </div>
-  `;
-
   app.innerHTML = `
     <div class="card">
       <div class="title">Sunmi Receiver</div>
@@ -705,7 +695,6 @@ function render() {
     </div>
     ${reservationsHtml}
 
-    ${printDebugHtml}
 
     ${state.printerMessage ? `<div class="card"><p class="subtle">${state.printerMessage}</p></div>` : ''}
     ${state.error ? `<div class="card"><p class="error">${state.error}</p></div>` : ''}
@@ -1122,23 +1111,6 @@ app.addEventListener('click', async (event) => {
     return;
   }
 
-  if (target.id === 'clear-print-debug-btn') {
-    state.printDebug = {
-      at: null,
-      mode: 'idle',
-      method: null,
-      payloadBuilt: false,
-      orderNumber: null,
-      lineCount: 0,
-      ok: null,
-      message: '',
-      fallbackUsed: false,
-      receiptPreview: '',
-    };
-    render();
-    return;
-  }
-
 
 
   if (target.dataset.action === 'set-prep' && target.dataset.id) {
@@ -1202,6 +1174,7 @@ app.addEventListener('click', async (event) => {
 
 
   if (target.dataset.action === 'reprint-order' && target.dataset.id) {
+    console.debug(`[sunmi-receiver] reprint_button_clicked orderId=${target.dataset.id}`);
     const orderForReprint = state.orders.find((item) => item.id === target.dataset.id);
     if (!orderForReprint) {
       state.printerMessage = 'Commande introuvable pour la réimpression.';
@@ -1209,6 +1182,7 @@ app.addEventListener('click', async (event) => {
       return;
     }
 
+    console.debug(`[sunmi-receiver] reprint_dispatch_started orderId=${orderForReprint.id}`);
     await printOrderTicket(orderForReprint, { reprint: true });
     return;
   }

@@ -10,6 +10,8 @@ import { createAdminCustomer, deleteAdminCustomer, listAdminCustomers, updateAdm
 import { getAdminPrinterSettings, updateAdminPrinterSettings } from "@/lib/api/adminSettings";
 import { getAdminMarketingRecipientCount, sendAdminMarketingBulkEmail } from "@/lib/api/adminMarketing";
 
+const ADMIN_ACTIVE_TAB_STORAGE_KEY = "admin_dashboard_active_tab_v1";
+
 const NAV_ITEMS = [
   { id: "orders", label: "Commandes", icon: "🛒" },
   { id: "devices", label: "Appareils", icon: "📟" },
@@ -40,8 +42,24 @@ function AdminEmptyState({ label }) {
 
 export default function AdminDashboard() {
   const [admin, setAdmin] = useState(null);
-  const [activeTab, setActiveTab] = useState("orders");
+  const [activeTab, setActiveTab] = useState(() => {
+    try {
+      const persisted = window.localStorage.getItem(ADMIN_ACTIVE_TAB_STORAGE_KEY);
+      if (persisted && NAV_ITEMS.some((item) => item.id === persisted)) return persisted;
+    } catch {
+      // ignore storage errors
+    }
+    return "orders";
+  });
   const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(ADMIN_ACTIVE_TAB_STORAGE_KEY, activeTab);
+    } catch {
+      // ignore storage errors
+    }
+  }, [activeTab]);
 
   useEffect(() => {
     const stored = getStoredAdminSession();
