@@ -20,6 +20,7 @@ const PRINT_JOB_TRACKING_STORAGE_KEY = 'receiver_print_job_tracking_v1';
 const TERMINAL_JOB_RETENTION_MS = 30 * 60 * 1000;
 const PRINT_STRATEGY_OVERRIDE_STORAGE_KEY = 'sunmi_print_strategy_override_v1';
 const PRINT_DISPATCH_DEDUP_MS = 15000;
+const ATTENTION_ALERT_DURATION_MS = 7000;
 
 const state = {
   mode: 'booting', // booting | not_paired | pairing_submitting | pairing_waiting | verifying | server_error | receiver_loaded
@@ -42,6 +43,11 @@ const state = {
   printRetryInFlightByOrderId: {},
   printDispatchInFlightByOrderId: {},
   lastPrintDispatchAtByOrderId: {},
+  seenOrderIds: new Set(),
+  seenReservationIds: new Set(),
+  hasHydratedOperationalBaseline: false,
+  activeAttentionAlert: null,
+  attentionAlertTimeoutId: null,
   printDebug: {
     at: null,
     mode: 'idle',
@@ -62,6 +68,133 @@ function setPrintDebug(patch) {
     ...patch,
     at: new Date().toISOString(),
   };
+}
+
+function clearAttentionAlert() {
+  if (state.attentionAlertTimeoutId) {
+    clearTimeout(state.attentionAlertTimeoutId);
+    state.attentionAlertTimeoutId = null;
+  }
+  state.activeAttentionAlert = null;
+}
+
+async function playAttentionBeep(type, id) {
+  try {
+    const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContextCtor) return;
+    const context = new AudioContextCtor();
+    if (context.state === 'suspended') {
+      await context.resume();
+    }
+
+    const pattern = type === 'order'
+      ? [
+        { f: 880, d: 0.13, g: 0.18 },
+        { f: 660, d: 0.13, g: 0.18 },
+        { f: 990, d: 0.22, g: 0.24 },
+      ]
+      : [
+        { f: 620, d: 0.14, g: 0.16 },
+        { f: 740, d: 0.14, g: 0.16 },
+      ];
+
+    let t = context.currentTime;
+    for (const note of pattern) {
+      const osc = context.createOscillator();
+      const gain = context.createGain();
+      osc.type = type === 'order' ? 'square' : 'triangle';
+      osc.frequency.setValueAtTime(note.f, t);
+      gain.gain.setValueAtTime(0.0001, t);
+      gain.gain.linearRampToValueAtTime(note.g, t + 0.02);
+      gain.gain.linearRampToValueAtTime(0.0001, t + note.d);
+      osc.connect(gain);
+      gain.connect(context.destination);
+      osc.start(t);
+      osc.stop(t + note.d + 0.02);
+      t += note.d + 0.06;
+    }
+
+    const settleMs = Math.ceil((t - context.currentTime) * 1000) + 80;
+    setTimeout(() => {
+      context.close().catch(() => {});
+    }, settleMs);
+
+    if (type === 'order') {
+      console.debug(`[sunmi-receiver] order_beep_played orderId=${id}`);
+    } else {
+      console.debug(`[sunmi-receiver] reservation_beep_played reservationId=${id}`);
+    }
+  } catch (error) {
+    debugLog('attention_beep_failed', { type, id, message: error?.message || 'unknown' });
+  }
+}
+
+function showAttentionAlert(type, item) {
+  const id = item?.id || '';
+  clearAttentionAlert();
+  state.activeAttentionAlert = {
+    type,
+    id,
+    title: type === 'order' ? 'Nouvelle commande' : 'Nouvelle réservation',
+    subtitle: type === 'order' ? (item?.orderNumber || id) : (item?.customerName || item?.id || 'Nouvelle demande'),
+    createdAt: Date.now(),
+  };
+
+  if (type === 'order') {
+    console.debug(`[sunmi-receiver] order_alert_shown orderId=${id}`);
+  } else {
+    console.debug(`[sunmi-receiver] reservation_alert_shown reservationId=${id}`);
+  }
+
+  playAttentionBeep(type, id);
+  state.attentionAlertTimeoutId = setTimeout(() => {
+    clearAttentionAlert();
+    render();
+  }, ATTENTION_ALERT_DURATION_MS);
+}
+
+function detectAndTriggerNewEventAlerts(nextOrders, nextReservations) {
+  const orderIds = new Set((Array.isArray(nextOrders) ? nextOrders : []).map((order) => order?.id).filter(Boolean));
+  const reservationIds = new Set((Array.isArray(nextReservations) ? nextReservations : []).map((reservation) => reservation?.id).filter(Boolean));
+
+  if (!state.hasHydratedOperationalBaseline) {
+    state.seenOrderIds = orderIds;
+    state.seenReservationIds = reservationIds;
+    state.hasHydratedOperationalBaseline = true;
+    return;
+  }
+
+  const newlyDetectedOrders = [];
+  for (const order of (Array.isArray(nextOrders) ? nextOrders : [])) {
+    const id = order?.id;
+    if (!id) continue;
+    if (state.seenOrderIds.has(id)) {
+      console.debug(`[sunmi-receiver] alert_suppressed_already_seen type=order id=${id}`);
+      continue;
+    }
+    state.seenOrderIds.add(id);
+    console.debug(`[sunmi-receiver] new_order_detected orderId=${id}`);
+    newlyDetectedOrders.push(order);
+  }
+
+  const newlyDetectedReservations = [];
+  for (const reservation of (Array.isArray(nextReservations) ? nextReservations : [])) {
+    const id = reservation?.id;
+    if (!id) continue;
+    if (state.seenReservationIds.has(id)) {
+      console.debug(`[sunmi-receiver] alert_suppressed_already_seen type=reservation id=${id}`);
+      continue;
+    }
+    state.seenReservationIds.add(id);
+    console.debug(`[sunmi-receiver] new_reservation_detected reservationId=${id}`);
+    newlyDetectedReservations.push(reservation);
+  }
+
+  if (newlyDetectedOrders.length > 0) {
+    showAttentionAlert('order', newlyDetectedOrders[0]);
+  } else if (newlyDetectedReservations.length > 0) {
+    showAttentionAlert('reservation', newlyDetectedReservations[0]);
+  }
 }
 
 function safeStringify(value) {
@@ -673,6 +806,18 @@ function render() {
       </div>
     `).join('');
 
+  const attentionOverlay = state.activeAttentionAlert
+    ? `
+      <div class="attention-overlay attention-overlay-${state.activeAttentionAlert.type}" data-action="dismiss-attention-alert">
+        <div class="attention-overlay-card">
+          <div class="attention-overlay-title">${escapeHtml(state.activeAttentionAlert.title)}</div>
+          <div class="attention-overlay-subtitle">${escapeHtml(state.activeAttentionAlert.subtitle || '')}</div>
+          <button class="attention-overlay-dismiss" data-action="dismiss-attention-alert">Fermer</button>
+        </div>
+      </div>
+    `
+    : '';
+
   app.innerHTML = `
     <div class="card">
       <div class="title">Sunmi Receiver</div>
@@ -698,6 +843,7 @@ function render() {
 
     ${state.printerMessage ? `<div class="card"><p class="subtle">${state.printerMessage}</p></div>` : ''}
     ${state.error ? `<div class="card"><p class="error">${state.error}</p></div>` : ''}
+    ${attentionOverlay}
   `;
 }
 
@@ -730,6 +876,10 @@ async function validateDeviceOnceAndEnterReceiver() {
     state.printRetryInFlightByOrderId = {};
     state.printDispatchInFlightByOrderId = {};
     state.lastPrintDispatchAtByOrderId = {};
+    state.seenOrderIds = new Set();
+    state.seenReservationIds = new Set();
+    state.hasHydratedOperationalBaseline = false;
+    clearAttentionAlert();
     clearPersistedPrintJobTracking();
     stopReceiverPolling();
     debugLog('device_validation_not_paired', { message: state.error || 'no_message' });
@@ -761,8 +911,11 @@ async function refreshOperations() {
   const result = await loadOperationalData();
 
   if (result.state === 'loaded') {
-    state.orders = result.orders || [];
-    state.reservations = result.reservations || [];
+    const nextOrders = result.orders || [];
+    const nextReservations = result.reservations || [];
+    detectAndTriggerNewEventAlerts(nextOrders, nextReservations);
+    state.orders = nextOrders;
+    state.reservations = nextReservations;
     const nextPrep = {};
     for (const order of state.orders) {
       const existing = state.prepMinutesByOrderId[order.id];
@@ -787,6 +940,10 @@ async function refreshOperations() {
     state.printRetryInFlightByOrderId = {};
     state.printDispatchInFlightByOrderId = {};
     state.lastPrintDispatchAtByOrderId = {};
+    state.seenOrderIds = new Set();
+    state.seenReservationIds = new Set();
+    state.hasHydratedOperationalBaseline = false;
+    clearAttentionAlert();
     clearPersistedPrintJobTracking();
     stopReceiverPolling();
     debugLog('operations_poll_auth_failed', { message: state.error || 'token_invalid' });
@@ -846,6 +1003,7 @@ async function startPairingSubmit() {
 
 function startPairingPolling() {
   stopPairingPolling();
+  clearAttentionAlert();
   state.pairingInFlight = false;
 
   state.pairingPollId = setInterval(async () => {
@@ -1086,6 +1244,10 @@ app.addEventListener('click', async (event) => {
     state.printRetryInFlightByOrderId = {};
     state.printDispatchInFlightByOrderId = {};
     state.lastPrintDispatchAtByOrderId = {};
+    state.seenOrderIds = new Set();
+    state.seenReservationIds = new Set();
+    state.hasHydratedOperationalBaseline = false;
+    clearAttentionAlert();
     clearPersistedPrintJobTracking();
     stopReceiverPolling();
     stopPairingPolling();
@@ -1103,6 +1265,12 @@ app.addEventListener('click', async (event) => {
         startReceiverPolling();
       }
     }
+    return;
+  }
+
+  if (target.dataset.action === 'dismiss-attention-alert') {
+    clearAttentionAlert();
+    render();
     return;
   }
 
