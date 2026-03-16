@@ -19,7 +19,11 @@ const PRINT_TERMINAL_STATES = new Set(['PRINTED', 'NEEDS_ATTENTION']);
 const PRINT_JOB_TRACKING_STORAGE_KEY = 'receiver_print_job_tracking_v1';
 const TERMINAL_JOB_RETENTION_MS = 30 * 60 * 1000;
 const PRINT_STRATEGY_OVERRIDE_STORAGE_KEY = 'sunmi_print_strategy_override_v1';
+const ALERT_SETTINGS_STORAGE_KEY = 'sunmi_alert_settings_v1';
+const COMPLETED_ORDERS_CACHE_STORAGE_KEY = 'sunmi_completed_orders_cache_v1';
+const COMPLETED_SECTION_OPEN_STORAGE_KEY = 'sunmi_completed_section_open_v1';
 const PRINT_DISPATCH_DEDUP_MS = 15000;
+const ATTENTION_ALERT_DURATION_MS = 7000;
 
 const state = {
   mode: 'booting', // booting | not_paired | pairing_submitting | pairing_waiting | verifying | server_error | receiver_loaded
@@ -42,6 +46,22 @@ const state = {
   printRetryInFlightByOrderId: {},
   printDispatchInFlightByOrderId: {},
   lastPrintDispatchAtByOrderId: {},
+  seenOrderIds: new Set(),
+  seenReservationIds: new Set(),
+  hasHydratedOperationalBaseline: false,
+  alertSettings: {
+    soundEnabled: true,
+    orderEnabled: true,
+    reservationEnabled: true,
+    volume: 0.2,
+  },
+  isSettingsPanelOpen: false,
+  hasLoggedInfoImprimanteRemoval: false,
+  hasLoggedQueueStatusTextRemoval: false,
+  completedOrdersById: {},
+  completedSectionOpen: false,
+  activeAttentionAlert: null,
+  attentionAlertTimeoutId: null,
   printDebug: {
     at: null,
     mode: 'idle',
@@ -56,12 +76,238 @@ const state = {
   },
 };
 
+function normalizeAlertSettings(value) {
+  const candidate = value && typeof value === 'object' ? value : {};
+  return {
+    soundEnabled: candidate.soundEnabled !== false,
+    orderEnabled: candidate.orderEnabled !== false,
+    reservationEnabled: candidate.reservationEnabled !== false,
+    volume: Math.min(1, Math.max(0, Number.isFinite(Number(candidate.volume)) ? Number(candidate.volume) : 0.2)),
+  };
+}
+
+function persistAlertSettings() {
+  try {
+    localStorage.setItem(ALERT_SETTINGS_STORAGE_KEY, JSON.stringify(state.alertSettings));
+  } catch {
+    // ignore
+  }
+}
+
+function loadAlertSettings() {
+  try {
+    const raw = localStorage.getItem(ALERT_SETTINGS_STORAGE_KEY);
+    if (!raw) {
+      state.alertSettings = normalizeAlertSettings();
+      debugLog('alert_settings_loaded', state.alertSettings);
+      return;
+    }
+    state.alertSettings = normalizeAlertSettings(JSON.parse(raw));
+    debugLog('alert_settings_loaded', state.alertSettings);
+  } catch {
+    state.alertSettings = normalizeAlertSettings();
+    debugLog('alert_settings_loaded', state.alertSettings);
+  }
+}
+
 function setPrintDebug(patch) {
   state.printDebug = {
     ...state.printDebug,
     ...patch,
     at: new Date().toISOString(),
   };
+}
+
+function loadCompletedOrdersCache() {
+  try {
+    const raw = localStorage.getItem(COMPLETED_ORDERS_CACHE_STORAGE_KEY);
+    if (!raw) {
+      state.completedOrdersById = {};
+      return;
+    }
+    const parsed = JSON.parse(raw);
+    state.completedOrdersById = parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    state.completedOrdersById = {};
+  }
+}
+
+function persistCompletedOrdersCache() {
+  try {
+    localStorage.setItem(COMPLETED_ORDERS_CACHE_STORAGE_KEY, JSON.stringify(state.completedOrdersById));
+  } catch {
+    // ignore
+  }
+}
+
+function clearCompletedOrdersCache() {
+  state.completedOrdersById = {};
+  try {
+    localStorage.removeItem(COMPLETED_ORDERS_CACHE_STORAGE_KEY);
+  } catch {
+    // ignore
+  }
+}
+
+function loadCompletedSectionOpenState() {
+  try {
+    const raw = localStorage.getItem(COMPLETED_SECTION_OPEN_STORAGE_KEY);
+    state.completedSectionOpen = raw === 'true';
+  } catch {
+    state.completedSectionOpen = false;
+  }
+  console.debug(`[sunmi-receiver] completed_section_state_restored open=${state.completedSectionOpen}`);
+}
+
+function persistCompletedSectionOpenState() {
+  try {
+    localStorage.setItem(COMPLETED_SECTION_OPEN_STORAGE_KEY, state.completedSectionOpen ? 'true' : 'false');
+  } catch {
+    // ignore
+  }
+  console.debug(`[sunmi-receiver] completed_section_state_persisted open=${state.completedSectionOpen}`);
+}
+
+function clearAttentionAlert() {
+  if (state.attentionAlertTimeoutId) {
+    clearTimeout(state.attentionAlertTimeoutId);
+    state.attentionAlertTimeoutId = null;
+  }
+  state.activeAttentionAlert = null;
+}
+
+async function playAttentionBeep(type, id) {
+  const isTypeEnabled = type === 'order' ? state.alertSettings.orderEnabled : state.alertSettings.reservationEnabled;
+  if (!state.alertSettings.soundEnabled || !isTypeEnabled) {
+    if (type === 'order') {
+      console.debug(`[sunmi-receiver] order_beep_skipped_sound_disabled orderId=${id}`);
+    } else {
+      console.debug(`[sunmi-receiver] reservation_beep_skipped_sound_disabled reservationId=${id}`);
+    }
+    return;
+  }
+
+  try {
+    const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContextCtor) return;
+    const context = new AudioContextCtor();
+    if (context.state === 'suspended') {
+      await context.resume();
+    }
+
+    const pattern = type === 'order'
+      ? [
+        { f: 880, d: 0.13, g: 0.18 },
+        { f: 660, d: 0.13, g: 0.18 },
+        { f: 990, d: 0.22, g: 0.24 },
+      ]
+      : [
+        { f: 620, d: 0.14, g: 0.16 },
+        { f: 740, d: 0.14, g: 0.16 },
+      ];
+
+    let t = context.currentTime;
+    for (const note of pattern) {
+      const osc = context.createOscillator();
+      const gain = context.createGain();
+      osc.type = type === 'order' ? 'square' : 'triangle';
+      osc.frequency.setValueAtTime(note.f, t);
+      gain.gain.setValueAtTime(0.0001, t);
+      gain.gain.linearRampToValueAtTime(note.g * state.alertSettings.volume, t + 0.02);
+      gain.gain.linearRampToValueAtTime(0.0001, t + note.d);
+      osc.connect(gain);
+      gain.connect(context.destination);
+      osc.start(t);
+      osc.stop(t + note.d + 0.02);
+      t += note.d + 0.06;
+    }
+
+    const settleMs = Math.ceil((t - context.currentTime) * 1000) + 80;
+    setTimeout(() => {
+      context.close().catch(() => {});
+    }, settleMs);
+
+    if (type === 'order') {
+      console.debug(`[sunmi-receiver] order_beep_played orderId=${id}`);
+    } else {
+      console.debug(`[sunmi-receiver] reservation_beep_played reservationId=${id}`);
+    }
+  } catch (error) {
+    debugLog('attention_beep_failed', { type, id, message: error?.message || 'unknown' });
+  }
+}
+
+function showAttentionAlert(type, item) {
+  const isTypeEnabled = type === 'order' ? state.alertSettings.orderEnabled : state.alertSettings.reservationEnabled;
+  if (!state.alertSettings.soundEnabled || !isTypeEnabled) {
+    return;
+  }
+
+  const id = item?.id || '';
+  clearAttentionAlert();
+  state.activeAttentionAlert = {
+    type,
+    id,
+    title: type === 'order' ? 'Nouvelle commande' : 'Nouvelle réservation',
+    subtitle: type === 'order' ? (item?.orderNumber || id) : (item?.customerName || item?.id || 'Nouvelle demande'),
+    createdAt: Date.now(),
+  };
+
+  if (type === 'order') {
+    console.debug(`[sunmi-receiver] order_alert_shown orderId=${id}`);
+  } else {
+    console.debug(`[sunmi-receiver] reservation_alert_shown reservationId=${id}`);
+  }
+
+  playAttentionBeep(type, id);
+  state.attentionAlertTimeoutId = setTimeout(() => {
+    clearAttentionAlert();
+    render();
+  }, ATTENTION_ALERT_DURATION_MS);
+}
+
+function detectAndTriggerNewEventAlerts(nextOrders, nextReservations) {
+  const orderIds = new Set((Array.isArray(nextOrders) ? nextOrders : []).map((order) => order?.id).filter(Boolean));
+  const reservationIds = new Set((Array.isArray(nextReservations) ? nextReservations : []).map((reservation) => reservation?.id).filter(Boolean));
+
+  if (!state.hasHydratedOperationalBaseline) {
+    state.seenOrderIds = orderIds;
+    state.seenReservationIds = reservationIds;
+    state.hasHydratedOperationalBaseline = true;
+    return;
+  }
+
+  const newlyDetectedOrders = [];
+  for (const order of (Array.isArray(nextOrders) ? nextOrders : [])) {
+    const id = order?.id;
+    if (!id) continue;
+    if (state.seenOrderIds.has(id)) {
+      console.debug(`[sunmi-receiver] alert_suppressed_already_seen type=order id=${id}`);
+      continue;
+    }
+    state.seenOrderIds.add(id);
+    console.debug(`[sunmi-receiver] new_order_detected orderId=${id}`);
+    newlyDetectedOrders.push(order);
+  }
+
+  const newlyDetectedReservations = [];
+  for (const reservation of (Array.isArray(nextReservations) ? nextReservations : [])) {
+    const id = reservation?.id;
+    if (!id) continue;
+    if (state.seenReservationIds.has(id)) {
+      console.debug(`[sunmi-receiver] alert_suppressed_already_seen type=reservation id=${id}`);
+      continue;
+    }
+    state.seenReservationIds.add(id);
+    console.debug(`[sunmi-receiver] new_reservation_detected reservationId=${id}`);
+    newlyDetectedReservations.push(reservation);
+  }
+
+  if (newlyDetectedOrders.length > 0) {
+    showAttentionAlert('order', newlyDetectedOrders[0]);
+  } else if (newlyDetectedReservations.length > 0) {
+    showAttentionAlert('reservation', newlyDetectedReservations[0]);
+  }
 }
 
 function safeStringify(value) {
@@ -193,7 +439,6 @@ function normalizePrintUiState(nativeState) {
 }
 
 function printStateMessage(uiState) {
-  if (uiState === 'QUEUED') return "Ticket en file d'impression...";
   if (uiState === 'PRINTING') return 'Impression en cours...';
   if (uiState === 'PRINTED') return 'Imprimé';
   if (uiState === 'NEEDS_ATTENTION') return 'Impression échouée. Réessayez.';
@@ -502,6 +747,22 @@ function stopReceiverPolling() {
   }
 }
 
+
+function formatZurichDateTime(iso) {
+  if (!iso) return '-';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return String(iso);
+  return new Intl.DateTimeFormat('fr-CH', {
+    timeZone: 'Europe/Zurich',
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).format(d).replace(',', '');
+}
+
 function formatReservationStatus(status) {
   const labels = {
     pending: 'En attente',
@@ -512,9 +773,7 @@ function formatReservationStatus(status) {
 }
 
 function formatReservationDate(iso) {
-  if (!iso) return '-';
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? String(iso) : d.toLocaleString('fr-CH');
+  return formatZurichDateTime(iso);
 }
 
 
@@ -523,9 +782,7 @@ function formatOrderType(orderType) {
 }
 
 function formatOrderDate(iso) {
-  if (!iso) return '-';
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? String(iso) : d.toLocaleString('fr-CH');
+  return formatZurichDateTime(iso);
 }
 
 function prepMinutesForOrder(order) {
@@ -594,57 +851,94 @@ function render() {
     return;
   }
 
-  const ordersHtml = state.orders.length === 0
-    ? '<div class="card"><p class="subtle">Aucune commande en attente.</p></div>'
-    : state.orders.map((order) => {
-      const displayModel = normalizeOrderForDisplay(order);
-      const duplicateFieldCheck = {
-        paymentShown: Boolean(displayModel.paymentMethod),
-        paymentInNotesExtra: /Paiement:/i.test(displayModel.notesExtra || ''),
-        addressShown: Boolean(displayModel.customerAddress),
-        addressInNotesExtra: /Adresse:/i.test(displayModel.notesExtra || ''),
-      };
-      debugLog('ui_duplicate_field_check', {
-        orderId: order.id,
-        duplicateFieldCheck,
-      });
+  const completedOrdersFromBackend = state.orders.filter((order) => String(order?.status || '').toLowerCase() === 'completed');
+  const activeOrders = state.orders.filter((order) => String(order?.status || '').toLowerCase() !== 'completed');
+  const completedOrdersFromCache = Object.values(state.completedOrdersById || {});
+  const completedById = {};
+  for (const order of completedOrdersFromCache) {
+    if (order?.id) completedById[order.id] = order;
+  }
+  for (const order of completedOrdersFromBackend) {
+    if (order?.id) completedById[order.id] = order;
+  }
+  const completedOrders = Object.values(completedById).sort((a, b) => {
+    const aTs = new Date(a?.updatedAt || a?.statusUpdatedAt || a?.createdAt || 0).getTime() || 0;
+    const bTs = new Date(b?.updatedAt || b?.statusUpdatedAt || b?.createdAt || 0).getTime() || 0;
+    return bTs - aTs;
+  });
 
-      const sectionRowsHtml = displayModel.displaySections.length
-        ? displayModel.displaySections.map((section, idx) => {
-          const marginStyle = idx === 0 ? '' : ' style="margin-top:6px;"';
-          return `<div class="subtle"${marginStyle}>${escapeHtml(section.line)}</div>`;
-        }).join('')
-        : '<div class="subtle" style="margin-top:8px;">Détails indisponibles</div>';
+  console.debug(`[sunmi-receiver] active_orders_count count=${activeOrders.length}`);
+  console.debug(`[sunmi-receiver] completed_orders_from_backend count=${completedOrdersFromBackend.length}`);
+  console.debug(`[sunmi-receiver] completed_orders_local_cache count=${completedOrdersFromCache.length}`);
+  console.debug(`[sunmi-receiver] completed_orders_count count=${completedOrders.length}`);
+  console.debug(`[sunmi-receiver] completed_section_rendered open=${state.completedSectionOpen} completedCount=${completedOrders.length}`);
+  console.debug('[sunmi-receiver] completed_section_dom_mode mode=custom_collapsible');
 
-      const printJob = state.printJobsByOrderId[order.id];
-      const printUiState = printJob?.uiState ? normalizePrintUiState(printJob.uiState) : null;
-      const printMessage = printUiState ? printStateMessage(printUiState) : '';
+  const renderOrderCard = (order, options = {}) => {
+    const isCompleted = Boolean(options.isCompleted);
+    if (isCompleted) {
+      console.debug(`[sunmi-receiver] completed_order_rendered orderId=${order?.id || ''}`);
+    } else {
+      console.debug(`[sunmi-receiver] active_order_rendered orderId=${order?.id || ''}`);
+    }
 
-      return `
+    const displayModel = normalizeOrderForDisplay(order);
+    const duplicateFieldCheck = {
+      paymentShown: Boolean(displayModel.paymentMethod),
+      paymentInNotesExtra: /Paiement:/i.test(displayModel.notesExtra || ''),
+      addressShown: Boolean(displayModel.customerAddress),
+      addressInNotesExtra: /Adresse:/i.test(displayModel.notesExtra || ''),
+    };
+    debugLog('ui_duplicate_field_check', {
+      orderId: order.id,
+      duplicateFieldCheck,
+    });
+
+    const sectionRowsHtml = displayModel.displaySections.length
+      ? displayModel.displaySections.map((section, idx) => {
+        const marginStyle = idx === 0 ? '' : ' style="margin-top:6px;"';
+        return `<div class="subtle"${marginStyle}>${escapeHtml(section.line)}</div>`;
+      }).join('')
+      : '<div class="subtle" style="margin-top:8px;">Détails indisponibles</div>';
+
+    const printJob = state.printJobsByOrderId[order.id];
+    const printUiState = printJob?.uiState ? normalizePrintUiState(printJob.uiState) : null;
+    const printMessage = printUiState ? printStateMessage(printUiState) : '';
+
+    return `
       <div class="card" data-order-id="${order.id}">
         <div class="topbar">
           <strong>${order.orderNumber || order.id}</strong>
           <span class="status-pill">${formatOrderStatus(order.status)}</span>
         </div>
-        ${printUiState ? `<div class="print-state-row"><span class="print-status-pill print-status-pill-${printUiState.toLowerCase()}">${printMessage}</span>${printUiState === 'NEEDS_ATTENTION' && printJob?.jobId && !printJob?.nonRetryable ? `<button class="btn-secondary-inline print-retry-btn" data-action="retry-print" data-job-id="${printJob.jobId}" data-id="${order.id}" ${state.printRetryInFlightByOrderId[order.id] ? 'disabled' : ''}>Réessayer</button>` : ''}${printUiState === 'PRINTED' ? `<button class="btn-secondary-inline print-retry-btn" data-action="reprint-order" data-id="${order.id}">Réimprimer</button>` : ''}</div>` : ''}
+        <div class="print-state-row">${printUiState === 'NEEDS_ATTENTION' ? `<span class="print-status-pill print-status-pill-${printUiState.toLowerCase()}">${printMessage}</span>` : ''}${printUiState === 'NEEDS_ATTENTION' && printJob?.jobId && !printJob?.nonRetryable ? `<button class="btn-secondary-inline print-retry-btn" data-action="retry-print" data-job-id="${printJob.jobId}" data-id="${order.id}" ${state.printRetryInFlightByOrderId[order.id] ? 'disabled' : ''}>Réessayer</button>` : ''}<button class="btn-secondary-inline print-retry-btn" data-action="reprint-order" data-id="${order.id}" ${state.printDispatchInFlightByOrderId[order.id] ? 'disabled' : ''}>Reimprimer</button></div>
         ${printJob?.nonRetryable ? `<div class="subtle print-status-unavailable">Impression bloquée: ${escapeHtml(printJob.blockedReasonMessage || 'Action opérateur requise.')}</div>` : ''}
         ${printJob?.transientUnavailable ? '<div class="subtle print-status-unavailable">Statut impression temporairement indisponible.</div>' : ''}
         ${sectionRowsHtml}
-        <div class="prep-row">
-          <span class="subtle">Temps prep</span>
-          <div class="chip-row">
-            ${[15, 30, 45, 60].map((minutes) => `<button class="prep-chip ${prepMinutesForOrder(order) === minutes ? 'active' : ''}" data-action="set-prep" data-id="${order.id}" data-minutes="${minutes}">${minutes} min</button>`).join('')}
+        ${isCompleted ? '' : `
+          <div class="prep-row">
+            <span class="subtle">Temps prep</span>
+            <div class="chip-row">
+              ${[15, 30, 45, 60].map((minutes) => `<button class="prep-chip ${prepMinutesForOrder(order) === minutes ? 'active' : ''}" data-action="set-prep" data-id="${order.id}" data-minutes="${minutes}">${minutes} min</button>`).join('')}
+            </div>
           </div>
-        </div>
-        <div class="btn-row">
-          <button class="btn-accept" data-action="accepted" data-id="${order.id}">Accepter & imprimer</button>
-          <button class="btn-ready" data-action="ready" data-id="${order.id}">Prêt</button>
-          <button class="btn-done" data-action="completed" data-id="${order.id}">Terminé</button>
-        </div>
+          <div class="btn-row">
+            <button class="btn-accept" data-action="accepted" data-id="${order.id}">Accepter & imprimer</button>
+            <button class="btn-ready" data-action="ready" data-id="${order.id}">Prêt</button>
+            <button class="btn-done" data-action="completed" data-id="${order.id}">Terminé</button>
+          </div>
+        `}
       </div>
     `;
-    }).join('');
+  };
 
+  const activeOrdersHtml = activeOrders.length === 0
+    ? '<div class="card"><p class="subtle">Aucune commande en cours.</p></div>'
+    : activeOrders.map((order) => renderOrderCard(order, { isCompleted: false })).join('');
+
+  const completedOrdersHtml = completedOrders.length === 0
+    ? '<div class="card"><p class="subtle">Aucune commande terminée.</p></div>'
+    : completedOrders.map((order) => renderOrderCard(order, { isCompleted: true })).join('');
   const reservationsHtml = state.reservations.length === 0
     ? '<div class="card"><p class="subtle">Aucune réservation en cours.</p></div>'
     : state.reservations.map((reservation) => `
@@ -662,42 +956,87 @@ function render() {
       </div>
     `).join('');
 
-  const printDebug = state.printDebug;
-  const printDebugHtml = `
-    <div class="card debug-card">
-      <div class="title">Debug impression (temporaire)</div>
-      <p class="subtle">Utiliser pour diagnostic on-device sans logcat.</p>
-      <div class="debug-grid">
-        <div><span class="subtle">Heure:</span> <strong>${printDebug.at ? formatOrderDate(printDebug.at) : '-'}</strong></div>
-        <div><span class="subtle">État:</span> <strong>${printDebug.mode || '-'}</strong></div>
-        <div><span class="subtle">Bridge method:</span> <strong>${printDebug.method || '-'}</strong></div>
-        <div><span class="subtle">Payload construit:</span> <strong>${printDebug.payloadBuilt ? 'oui' : 'non'}</strong></div>
-        <div><span class="subtle">Commande:</span> <strong>${printDebug.orderNumber || '-'}</strong></div>
-        <div><span class="subtle">Lignes:</span> <strong>${Number(printDebug.lineCount || 0)}</strong></div>
-        <div><span class="subtle">Résultat natif:</span> <strong>${printDebug.ok === null ? '-' : (printDebug.ok ? 'succès' : 'erreur')}</strong></div>
-        <div><span class="subtle">Fallback:</span> <strong>${printDebug.fallbackUsed ? 'oui' : 'non'}</strong></div>
+  const attentionOverlay = state.activeAttentionAlert
+    ? `
+      <div class="attention-overlay attention-overlay-${state.activeAttentionAlert.type}" data-action="dismiss-attention-alert">
+        <div class="attention-overlay-card">
+          <div class="attention-overlay-title">${escapeHtml(state.activeAttentionAlert.title)}</div>
+          <div class="attention-overlay-subtitle">${escapeHtml(state.activeAttentionAlert.subtitle || '')}</div>
+          <button class="attention-overlay-dismiss" data-action="dismiss-attention-alert">Fermer</button>
+        </div>
       </div>
-      ${printDebug.message ? `<p class="subtle">Message: ${printDebug.message}</p>` : ''}
-      ${printDebug.receiptPreview ? `<p class="subtle">Prévisualisation ticket (natif):</p><pre class="debug-pre">${escapeHtml(printDebug.receiptPreview)}</pre>` : ''}
-      <button id="clear-print-debug-btn" class="btn-secondary-inline">Effacer debug impression</button>
-    </div>
-  `;
+    `
+    : '';
+
+  const settingsPanelHtml = state.isSettingsPanelOpen
+    ? `
+      <div class="receiver-settings-overlay" data-action="close-settings-panel">
+        <div class="receiver-settings-panel" role="dialog" aria-modal="true" aria-label="Paramètres alertes">
+          <div class="receiver-settings-header">
+            <strong>Paramètres</strong>
+            <button class="receiver-settings-close" data-action="close-settings-panel" aria-label="Fermer les paramètres">✕</button>
+          </div>
+          <p class="subtle">Contrôlez les alertes visuelles et sonores.</p>
+          <div class="alert-settings-grid">
+            <label class="alert-toggle-row" for="alert-sound-enabled">
+              <span>Son global</span>
+              <input id="alert-sound-enabled" type="checkbox" data-action="toggle-alert" data-alert-type="sound" ${state.alertSettings.soundEnabled ? 'checked' : ''} />
+            </label>
+            <label class="alert-toggle-row" for="alert-order-enabled">
+              <span>Commandes</span>
+              <input id="alert-order-enabled" type="checkbox" data-action="toggle-alert" data-alert-type="order" ${state.alertSettings.orderEnabled ? 'checked' : ''} />
+            </label>
+            <label class="alert-toggle-row" for="alert-reservation-enabled">
+              <span>Réservations</span>
+              <input id="alert-reservation-enabled" type="checkbox" data-action="toggle-alert" data-alert-type="reservation" ${state.alertSettings.reservationEnabled ? 'checked' : ''} />
+            </label>
+            <label class="alert-volume-row" for="alert-volume-input">
+              <span>Volume: ${Math.round(state.alertSettings.volume * 100)}%</span>
+              <input id="alert-volume-input" type="range" min="0" max="100" step="5" data-action="set-alert-volume" value="${Math.round(state.alertSettings.volume * 100)}" />
+            </label>
+          </div>
+        </div>
+      </div>
+    `
+    : '';
+
+  if (state.isSettingsPanelOpen) {
+    debugLog('receiver_settings_rendered', { soundEnabled: state.alertSettings.soundEnabled });
+  }
+  if (!state.hasLoggedInfoImprimanteRemoval) {
+    debugLog('info_imprimante_removed_from_ui', true);
+    state.hasLoggedInfoImprimanteRemoval = true;
+  }
+  if (!state.hasLoggedQueueStatusTextRemoval) {
+    debugLog('queue_status_text_removed_from_ui', true);
+    state.hasLoggedQueueStatusTextRemoval = true;
+  }
 
   app.innerHTML = `
-    <div class="card">
-      <div class="title">Sunmi Receiver</div>
+    <div class="card receiver-header-card">
+      <div class="receiver-header-topline">
+        <div class="title">Sunmi Receiver</div>
+        <button class="receiver-settings-icon-btn" data-action="open-settings-panel" aria-label="Ouvrir les paramètres">⚙️</button>
+      </div>
       <p class="subtle">Connecté: ${state.deviceName || 'Périphérique'}</p>
-      <div class="btn-row">
-        <button id="printer-info-btn" class="btn-secondary-inline">Info imprimante</button>
-              </div>
       <button id="unpair-btn" class="btn-secondary">Désassocier cet appareil</button>
     </div>
 
     <div class="card">
-      <div class="title">Commandes</div>
+      <div class="title">Commandes en cours</div>
       <p class="subtle">Gestion opérationnelle des commandes</p>
     </div>
-    ${ordersHtml}
+    ${activeOrdersHtml}
+
+    <div class="card completed-orders-details">
+      <button class="completed-orders-summary" data-action="toggle-completed-section" aria-expanded="${state.completedSectionOpen ? 'true' : 'false'}">
+        <span>Terminées (${completedOrders.length})</span>
+        <span>${state.completedSectionOpen ? '▾' : '▸'}</span>
+      </button>
+      ${state.completedSectionOpen
+    ? `<div><div class="subtle">Historique des commandes terminées avec réimpression rapide.</div>${completedOrdersHtml}</div>`
+    : ''}
+    </div>
 
     <div class="card">
       <div class="title">Réservations</div>
@@ -705,10 +1044,9 @@ function render() {
     </div>
     ${reservationsHtml}
 
-    ${printDebugHtml}
-
-    ${state.printerMessage ? `<div class="card"><p class="subtle">${state.printerMessage}</p></div>` : ''}
     ${state.error ? `<div class="card"><p class="error">${state.error}</p></div>` : ''}
+    ${attentionOverlay}
+    ${settingsPanelHtml}
   `;
 }
 
@@ -741,6 +1079,11 @@ async function validateDeviceOnceAndEnterReceiver() {
     state.printRetryInFlightByOrderId = {};
     state.printDispatchInFlightByOrderId = {};
     state.lastPrintDispatchAtByOrderId = {};
+    state.seenOrderIds = new Set();
+    state.seenReservationIds = new Set();
+    state.hasHydratedOperationalBaseline = false;
+    clearAttentionAlert();
+    clearCompletedOrdersCache();
     clearPersistedPrintJobTracking();
     stopReceiverPolling();
     debugLog('device_validation_not_paired', { message: state.error || 'no_message' });
@@ -772,8 +1115,28 @@ async function refreshOperations() {
   const result = await loadOperationalData();
 
   if (result.state === 'loaded') {
-    state.orders = result.orders || [];
-    state.reservations = result.reservations || [];
+    const nextOrders = result.orders || [];
+    const nextReservations = result.reservations || [];
+    const backendCompletedOrders = nextOrders.filter((order) => String(order?.status || '').toLowerCase() === 'completed');
+    const activeOrderIds = new Set(nextOrders.map((order) => order?.id).filter(Boolean));
+    for (const activeOrderId of activeOrderIds) {
+      if (state.completedOrdersById[activeOrderId]) {
+        delete state.completedOrdersById[activeOrderId];
+      }
+    }
+    for (const completedOrder of backendCompletedOrders) {
+      if (!completedOrder?.id) continue;
+      state.completedOrdersById[completedOrder.id] = {
+        ...state.completedOrdersById[completedOrder.id],
+        ...completedOrder,
+      };
+    }
+    persistCompletedOrdersCache();
+    console.debug(`[sunmi-receiver] completed_orders_from_backend count=${backendCompletedOrders.length}`);
+    console.debug(`[sunmi-receiver] completed_orders_local_cache count=${Object.keys(state.completedOrdersById).length}`);
+    detectAndTriggerNewEventAlerts(nextOrders, nextReservations);
+    state.orders = nextOrders;
+    state.reservations = nextReservations;
     const nextPrep = {};
     for (const order of state.orders) {
       const existing = state.prepMinutesByOrderId[order.id];
@@ -798,6 +1161,11 @@ async function refreshOperations() {
     state.printRetryInFlightByOrderId = {};
     state.printDispatchInFlightByOrderId = {};
     state.lastPrintDispatchAtByOrderId = {};
+    state.seenOrderIds = new Set();
+    state.seenReservationIds = new Set();
+    state.hasHydratedOperationalBaseline = false;
+    clearCompletedOrdersCache();
+    clearAttentionAlert();
     clearPersistedPrintJobTracking();
     stopReceiverPolling();
     debugLog('operations_poll_auth_failed', { message: state.error || 'token_invalid' });
@@ -857,6 +1225,7 @@ async function startPairingSubmit() {
 
 function startPairingPolling() {
   stopPairingPolling();
+  clearAttentionAlert();
   state.pairingInFlight = false;
 
   state.pairingPollId = setInterval(async () => {
@@ -1062,12 +1431,31 @@ app.addEventListener('input', (event) => {
   if (!(target instanceof HTMLInputElement)) return;
   if (target.id === 'pairing-code-input') {
     state.pairingCode = target.value.toUpperCase();
+    return;
+  }
+
+  if (target.dataset.action === 'set-alert-volume') {
+    const nextVolume = Math.min(1, Math.max(0, Number(target.value) / 100));
+    state.alertSettings.volume = nextVolume;
+    persistAlertSettings();
+    debugLog('alert_settings_updated', state.alertSettings);
+    render();
   }
 });
 
 app.addEventListener('click', async (event) => {
   const target = event.target;
   if (!(target instanceof HTMLElement)) return;
+
+  const completedToggle = target.closest('[data-action="toggle-completed-section"]');
+  if (completedToggle instanceof HTMLElement) {
+    const nextOpen = !state.completedSectionOpen;
+    console.debug(`[sunmi-receiver] completed_section_toggle_clicked nextOpen=${nextOpen}`);
+    state.completedSectionOpen = nextOpen;
+    persistCompletedSectionOpenState();
+    render();
+    return;
+  }
 
   if (target.id === 'pairing-submit-btn') {
     await startPairingSubmit();
@@ -1097,6 +1485,11 @@ app.addEventListener('click', async (event) => {
     state.printRetryInFlightByOrderId = {};
     state.printDispatchInFlightByOrderId = {};
     state.lastPrintDispatchAtByOrderId = {};
+    state.seenOrderIds = new Set();
+    state.seenReservationIds = new Set();
+    state.hasHydratedOperationalBaseline = false;
+    clearAttentionAlert();
+    clearCompletedOrdersCache();
     clearPersistedPrintJobTracking();
     stopReceiverPolling();
     stopPairingPolling();
@@ -1117,29 +1510,42 @@ app.addEventListener('click', async (event) => {
     return;
   }
 
-  if (target.id === 'printer-info-btn') {
-    await showPrinterInfo();
-    return;
-  }
-
-  if (target.id === 'clear-print-debug-btn') {
-    state.printDebug = {
-      at: null,
-      mode: 'idle',
-      method: null,
-      payloadBuilt: false,
-      orderNumber: null,
-      lineCount: 0,
-      ok: null,
-      message: '',
-      fallbackUsed: false,
-      receiptPreview: '',
-    };
+  if (target.dataset.action === 'dismiss-attention-alert') {
+    clearAttentionAlert();
     render();
     return;
   }
 
+  if (target.dataset.action === 'toggle-alert' && target instanceof HTMLInputElement) {
+    const type = target.dataset.alertType;
+    if (type === 'sound') {
+      state.alertSettings.soundEnabled = target.checked;
+    } else if (type === 'order') {
+      state.alertSettings.orderEnabled = target.checked;
+    } else if (type === 'reservation') {
+      state.alertSettings.reservationEnabled = target.checked;
+    } else {
+      return;
+    }
+    persistAlertSettings();
+    debugLog('alert_settings_updated', state.alertSettings);
+    render();
+    return;
+  }
 
+  if (target.dataset.action === 'open-settings-panel') {
+    state.isSettingsPanelOpen = true;
+    debugLog('receiver_settings_opened');
+    render();
+    return;
+  }
+
+  if (target.dataset.action === 'close-settings-panel') {
+    state.isSettingsPanelOpen = false;
+    debugLog('receiver_settings_closed');
+    render();
+    return;
+  }
 
   if (target.dataset.action === 'set-prep' && target.dataset.id) {
     const minutes = Number(target.dataset.minutes || 0);
@@ -1202,6 +1608,7 @@ app.addEventListener('click', async (event) => {
 
 
   if (target.dataset.action === 'reprint-order' && target.dataset.id) {
+    console.debug(`[sunmi-receiver] reprint_button_clicked orderId=${target.dataset.id}`);
     const orderForReprint = state.orders.find((item) => item.id === target.dataset.id);
     if (!orderForReprint) {
       state.printerMessage = 'Commande introuvable pour la réimpression.';
@@ -1209,6 +1616,7 @@ app.addEventListener('click', async (event) => {
       return;
     }
 
+    console.debug(`[sunmi-receiver] reprint_dispatch_started orderId=${orderForReprint.id}`);
     await printOrderTicket(orderForReprint, { reprint: true });
     return;
   }
@@ -1245,6 +1653,9 @@ app.addEventListener('click', async (event) => {
   if (status === 'accepted') {
     prepMinutes = state.prepMinutesByOrderId[orderId] || undefined;
   }
+  if (status === 'completed') {
+    console.debug(`[sunmi-receiver] order_marked_completed_clicked orderId=${orderId}`);
+  }
 
   target.setAttribute('disabled', 'true');
   const res = await changeOrderStatus(orderId, status, prepMinutes);
@@ -1258,6 +1669,21 @@ app.addEventListener('click', async (event) => {
     }
     render();
     return;
+  }
+
+  if (status === 'completed') {
+    const sourceOrder = state.orders.find((item) => item.id === orderId) || {};
+    const completedSnapshot = {
+      ...sourceOrder,
+      ...(res.order || {}),
+      id: orderId,
+      status: 'completed',
+      statusUpdatedAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    state.completedOrdersById[orderId] = completedSnapshot;
+    persistCompletedOrdersCache();
+    console.debug(`[sunmi-receiver] order_marked_completed_success orderId=${orderId} status=${completedSnapshot.status}`);
   }
 
   if (status === 'accepted') {
@@ -1283,6 +1709,9 @@ window.addEventListener('beforeunload', () => {
 
 async function boot() {
   debugLog('app_boot');
+  loadAlertSettings();
+  loadCompletedOrdersCache();
+  loadCompletedSectionOpenState();
   hydratePrintJobTrackingFromStorage();
   render();
 

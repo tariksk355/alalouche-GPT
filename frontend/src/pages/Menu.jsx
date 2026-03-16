@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { createPageUrl } from "@/utils";
 import { addItem, getCart, cartCount as getCartCount } from "@/components/cartStore";
 import { listMenuCatalog } from "@/lib/api/storefrontOps";
@@ -62,8 +62,11 @@ export default function Menu() {
   const [cart, setCart] = useState(getCart());
   const [added, setAdded] = useState(null); // item id just added
   const navigate = useNavigate();
+  const isViewOnlyMenu = typeof window !== 'undefined'
+    && new URLSearchParams(window.location.search).get('mode') === 'menu-only';
 
   const handleAddToCart = (item) => {
+    if (isViewOnlyMenu) return;
     const updated = addItem(item);
     setCart(updated);
     setAdded(item.id);
@@ -136,12 +139,14 @@ export default function Menu() {
                   <span className="text-[#b5122a] font-semibold whitespace-nowrap text-base">CHF {item.price?.toFixed(2)}</span>
                 </div>
                 <div className="mt-3">
-                  <button
-                    onClick={() => handleAddToCart(item)}
-                    className={`inline-block px-5 py-2 text-white text-sm font-medium transition-colors ${added === item.id ? "bg-green-600" : "bg-[#b5122a] hover:bg-[#8f0e21]"}`}
-                  >
-                    {added === item.id ? "✓ Ajouté !" : "Ajouter à la commande"}
-                  </button>
+                  {!isViewOnlyMenu && (
+                    <button
+                      onClick={() => handleAddToCart(item)}
+                      className={`inline-block px-5 py-2 text-white text-sm font-medium transition-colors ${added === item.id ? "bg-green-600" : "bg-[#b5122a] hover:bg-[#8f0e21]"}`}
+                    >
+                      {added === item.id ? "✓ Ajouté !" : "Ajouter à la commande"}
+                    </button>
+                  )}
                 </div>
               </div>
             ))
@@ -149,7 +154,7 @@ export default function Menu() {
         </div>
 
         {/* Sticky Cart Footer */}
-        {count > 0 && (
+        {!isViewOnlyMenu && count > 0 && (
           <div className="fixed bottom-0 left-0 right-0 z-50 bg-[#b5122a] shadow-lg">
             <button
               onClick={() => navigate(createPageUrl("Panier"))}
@@ -172,6 +177,9 @@ export default function Menu() {
       <div className="bg-black text-white py-14 text-center px-4">
         <h1 className="text-4xl font-serif italic mb-2">Notre Menu</h1>
         <p className="text-gray-400 text-sm">Fraîcheur et générosité à chaque bouchée</p>
+        {isViewOnlyMenu && (
+          <p className="text-yellow-200 text-xs mt-2">Mode consultation: menu uniquement</p>
+        )}
       </div>
 
       {/* Category List */}

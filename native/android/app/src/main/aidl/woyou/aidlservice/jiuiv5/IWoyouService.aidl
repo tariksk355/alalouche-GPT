@@ -53,4 +53,7 @@ interface IWoyouService {
     // Fiscal/cash drawer
     void tax(in byte[] data, ICallback callback);
     void openDrawer(ICallback callback);
+
+    // Extended graphics
+    void printBitmapCustom(in Bitmap bitmap, int type, ICallback callback);
 }
