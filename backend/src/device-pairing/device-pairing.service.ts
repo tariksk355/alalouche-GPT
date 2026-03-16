@@ -121,6 +121,37 @@ export class DevicePairingService {
     return { id: request.id, deviceId: device.id };
   }
 
+  async listAssociatedDevices(admin: PairingAdminContext) {
+    return this.prisma.device.findMany({
+      where: { restaurantId: admin.restaurantId },
+      orderBy: { updatedAt: 'desc' },
+      take: 100,
+    });
+  }
+
+  async revokeDevice(deviceId: string, admin: PairingAdminContext) {
+    const device = await this.prisma.device.findFirst({
+      where: { id: deviceId, restaurantId: admin.restaurantId },
+    });
+    if (!device) {
+      throw new NotFoundException({ error: 'DEVICE_NOT_FOUND', message: 'Device not found.' });
+    }
+
+    await this.prisma.device.update({
+      where: { id: device.id },
+      data: { status: 'device_revoked', tokenHash: null },
+    });
+
+    if (device.pairingRequestId) {
+      await this.prisma.devicePairingRequest.update({
+        where: { id: device.pairingRequestId },
+        data: { status: 'device_revoked' },
+      });
+    }
+
+    return { id: device.id, status: 'device_revoked' };
+  }
+
   async verify(pairingRequestId: string) {
     const request = await this.prisma.devicePairingRequest.findUnique({ where: { id: pairingRequestId } });
     if (!request) {
