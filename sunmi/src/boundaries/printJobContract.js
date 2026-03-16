@@ -53,6 +53,23 @@
  * @param {{id?:string,name:string,address?:string,phone?:string}} restaurant
  * @returns {PrintJob}
  */
+
+function formatOrderDateTimeForZurich(rawIso) {
+  if (!rawIso || typeof rawIso !== 'string') return '';
+  const parsed = new Date(rawIso);
+  if (Number.isNaN(parsed.getTime())) return rawIso;
+  const formatter = new Intl.DateTimeFormat('fr-CH', {
+    timeZone: 'Europe/Zurich',
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  });
+  return formatter.format(parsed).replace(',', '');
+}
+
 export function normalizeOrderForDisplay(order) {
   const payload = (order?.payload && typeof order.payload === 'object') ? order.payload : {};
   const customerObj = (payload?.customer && typeof payload.customer === 'object') ? payload.customer : {};
@@ -108,7 +125,10 @@ export function normalizeOrderForDisplay(order) {
   const paymentMethod = typeof order?.paymentMethod === 'string' ? order.paymentMethod : payload.paymentMethod;
   const orderType = order?.orderType || payload.orderType;
   const orderTypeLabel = orderType === 'delivery' ? 'Livraison' : orderType ? 'À emporter' : '';
-  const createdAtIso = typeof order?.createdAt === 'string' ? order.createdAt : new Date().toISOString();
+  const createdAtIsoRaw = typeof order?.createdAt === 'string' ? order.createdAt : new Date().toISOString();
+  const createdAtIso = formatOrderDateTimeForZurich(createdAtIsoRaw);
+  console.debug(`[sunmi-receiver] order_datetime_raw value=${createdAtIsoRaw}`);
+  console.debug(`[sunmi-receiver] order_datetime_formatted timezone=Europe/Zurich value=${createdAtIso}`);
   const customerTotalOrderCount = Number.isFinite(Number(order?.customerTotalOrderCount))
     ? Number(order.customerTotalOrderCount)
     : Number.isFinite(Number(order?.customerOrderCount))
@@ -131,6 +151,7 @@ export function normalizeOrderForDisplay(order) {
 
   const displaySections = [];
   displaySections.push({ key: 'customer_type', line: customerDisplay });
+  if (customerPhone) displaySections.push({ key: 'phone', line: `Téléphone: ${customerPhone}` });
   if (customerAddress) displaySections.push({ key: 'address', line: `Adresse: ${customerAddress}` });
   if (paymentMethod) displaySections.push({ key: 'payment', line: `Paiement: ${paymentMethod}` });
   displaySections.push({ key: 'ordered_at', line: `Commande: ${createdAtIso}` });
@@ -207,6 +228,7 @@ export function normalizeOrderForDisplay(order) {
     items,
     itemsSource: itemSource,
     createdAtIso,
+    createdAtIsoRaw,
     customerPhone,
     customerAddress,
     paymentMethod,

@@ -546,6 +546,8 @@ class SunmiPrinterManager(private val context: Context) {
                 }
                 Log.i(TAG, "customer_phone_included_in_ui ${finalPhone.isNotBlank()}")
                 val formattedCreatedAt = formatTicketDateTime(createdAt)
+                Log.i(TAG, "order_datetime_raw value=$createdAt")
+                Log.i(TAG, "order_datetime_formatted timezone=Europe/Zurich value=$formattedCreatedAt")
                 if (formattedCreatedAt.isNotBlank()) {
                     pushRenderedLine("Date/Heure: $formattedCreatedAt")
                 }
@@ -1951,21 +1953,22 @@ class SunmiPrinterManager(private val context: Context) {
 
         runCatching {
             val parsed = java.time.Instant.parse(raw)
-            val zoned = java.time.ZonedDateTime.ofInstant(parsed, java.time.ZoneId.systemDefault())
-            return zoned.format(java.time.format.DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm"))
+            val zoned = java.time.ZonedDateTime.ofInstant(parsed, java.time.ZoneId.of("Europe/Zurich"))
+            return zoned.format(java.time.format.DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm"))
         }
 
         runCatching {
             val isoLike = raw.replace(' ', 'T')
             val parsed = java.time.LocalDateTime.parse(isoLike.take(19))
-            return parsed.format(java.time.format.DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm"))
+            return parsed.format(java.time.format.DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm"))
         }
 
         runCatching {
             val parser = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.US)
             val parsed = parser.parse(raw)
             if (parsed is Date) {
-                val fmt = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault())
+                val fmt = SimpleDateFormat("dd.MM.yyyy HH:mm", Locale.getDefault())
+                fmt.timeZone = java.util.TimeZone.getTimeZone("Europe/Zurich")
                 return fmt.format(parsed)
             }
         }
