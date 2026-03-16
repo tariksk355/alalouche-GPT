@@ -673,27 +673,6 @@ function render() {
       </div>
     `).join('');
 
-  const printDebug = state.printDebug;
-  const printDebugHtml = `
-    <div class="card debug-card">
-      <div class="title">Debug impression (temporaire)</div>
-      <p class="subtle">Utiliser pour diagnostic on-device sans logcat.</p>
-      <div class="debug-grid">
-        <div><span class="subtle">Heure:</span> <strong>${printDebug.at ? formatOrderDate(printDebug.at) : '-'}</strong></div>
-        <div><span class="subtle">État:</span> <strong>${printDebug.mode || '-'}</strong></div>
-        <div><span class="subtle">Bridge method:</span> <strong>${printDebug.method || '-'}</strong></div>
-        <div><span class="subtle">Payload construit:</span> <strong>${printDebug.payloadBuilt ? 'oui' : 'non'}</strong></div>
-        <div><span class="subtle">Commande:</span> <strong>${printDebug.orderNumber || '-'}</strong></div>
-        <div><span class="subtle">Lignes:</span> <strong>${Number(printDebug.lineCount || 0)}</strong></div>
-        <div><span class="subtle">Résultat natif:</span> <strong>${printDebug.ok === null ? '-' : (printDebug.ok ? 'succès' : 'erreur')}</strong></div>
-        <div><span class="subtle">Fallback:</span> <strong>${printDebug.fallbackUsed ? 'oui' : 'non'}</strong></div>
-      </div>
-      ${printDebug.message ? `<p class="subtle">Message: ${printDebug.message}</p>` : ''}
-      ${printDebug.receiptPreview ? `<p class="subtle">Prévisualisation ticket (natif):</p><pre class="debug-pre">${escapeHtml(printDebug.receiptPreview)}</pre>` : ''}
-      <button id="clear-print-debug-btn" class="btn-secondary-inline">Effacer debug impression</button>
-    </div>
-  `;
-
   app.innerHTML = `
     <div class="card">
       <div class="title">Sunmi Receiver</div>
@@ -716,7 +695,6 @@ function render() {
     </div>
     ${reservationsHtml}
 
-    ${printDebugHtml}
 
     ${state.printerMessage ? `<div class="card"><p class="subtle">${state.printerMessage}</p></div>` : ''}
     ${state.error ? `<div class="card"><p class="error">${state.error}</p></div>` : ''}
@@ -1130,23 +1108,6 @@ app.addEventListener('click', async (event) => {
 
   if (target.id === 'printer-info-btn') {
     await showPrinterInfo();
-    return;
-  }
-
-  if (target.id === 'clear-print-debug-btn') {
-    state.printDebug = {
-      at: null,
-      mode: 'idle',
-      method: null,
-      payloadBuilt: false,
-      orderNumber: null,
-      lineCount: 0,
-      ok: null,
-      message: '',
-      fallbackUsed: false,
-      receiptPreview: '',
-    };
-    render();
     return;
   }
 
