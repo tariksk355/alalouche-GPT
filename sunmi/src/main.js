@@ -19,6 +19,7 @@ const PRINT_TERMINAL_STATES = new Set(['PRINTED', 'NEEDS_ATTENTION']);
 const PRINT_JOB_TRACKING_STORAGE_KEY = 'receiver_print_job_tracking_v1';
 const TERMINAL_JOB_RETENTION_MS = 30 * 60 * 1000;
 const PRINT_STRATEGY_OVERRIDE_STORAGE_KEY = 'sunmi_print_strategy_override_v1';
+const ALERT_SETTINGS_STORAGE_KEY = 'sunmi_alert_settings_v1';
 const PRINT_DISPATCH_DEDUP_MS = 15000;
 const ATTENTION_ALERT_DURATION_MS = 7000;
 
@@ -46,6 +47,14 @@ const state = {
   seenOrderIds: new Set(),
   seenReservationIds: new Set(),
   hasHydratedOperationalBaseline: false,
+  alertSettings: {
+    soundEnabled: true,
+    orderEnabled: true,
+    reservationEnabled: true,
+    volume: 0.2,
+  },
+  isSettingsPanelOpen: false,
+  hasLoggedInfoImprimanteRemoval: false,
   activeAttentionAlert: null,
   attentionAlertTimeoutId: null,
   printDebug: {
@@ -61,6 +70,40 @@ const state = {
     receiptPreview: '',
   },
 };
+
+function normalizeAlertSettings(value) {
+  const candidate = value && typeof value === 'object' ? value : {};
+  return {
+    soundEnabled: candidate.soundEnabled !== false,
+    orderEnabled: candidate.orderEnabled !== false,
+    reservationEnabled: candidate.reservationEnabled !== false,
+    volume: Math.min(1, Math.max(0, Number.isFinite(Number(candidate.volume)) ? Number(candidate.volume) : 0.2)),
+  };
+}
+
+function persistAlertSettings() {
+  try {
+    localStorage.setItem(ALERT_SETTINGS_STORAGE_KEY, JSON.stringify(state.alertSettings));
+  } catch {
+    // ignore
+  }
+}
+
+function loadAlertSettings() {
+  try {
+    const raw = localStorage.getItem(ALERT_SETTINGS_STORAGE_KEY);
+    if (!raw) {
+      state.alertSettings = normalizeAlertSettings();
+      debugLog('alert_settings_loaded', state.alertSettings);
+      return;
+    }
+    state.alertSettings = normalizeAlertSettings(JSON.parse(raw));
+    debugLog('alert_settings_loaded', state.alertSettings);
+  } catch {
+    state.alertSettings = normalizeAlertSettings();
+    debugLog('alert_settings_loaded', state.alertSettings);
+  }
+}
 
 function setPrintDebug(patch) {
   state.printDebug = {
@@ -79,6 +122,16 @@ function clearAttentionAlert() {
 }
 
 async function playAttentionBeep(type, id) {
+  const isTypeEnabled = type === 'order' ? state.alertSettings.orderEnabled : state.alertSettings.reservationEnabled;
+  if (!state.alertSettings.soundEnabled || !isTypeEnabled) {
+    if (type === 'order') {
+      console.debug(`[sunmi-receiver] order_beep_skipped_sound_disabled orderId=${id}`);
+    } else {
+      console.debug(`[sunmi-receiver] reservation_beep_skipped_sound_disabled reservationId=${id}`);
+    }
+    return;
+  }
+
   try {
     const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
     if (!AudioContextCtor) return;
@@ -105,7 +158,7 @@ async function playAttentionBeep(type, id) {
       osc.type = type === 'order' ? 'square' : 'triangle';
       osc.frequency.setValueAtTime(note.f, t);
       gain.gain.setValueAtTime(0.0001, t);
-      gain.gain.linearRampToValueAtTime(note.g, t + 0.02);
+      gain.gain.linearRampToValueAtTime(note.g * state.alertSettings.volume, t + 0.02);
       gain.gain.linearRampToValueAtTime(0.0001, t + note.d);
       osc.connect(gain);
       gain.connect(context.destination);
@@ -130,6 +183,11 @@ async function playAttentionBeep(type, id) {
 }
 
 function showAttentionAlert(type, item) {
+  const isTypeEnabled = type === 'order' ? state.alertSettings.orderEnabled : state.alertSettings.reservationEnabled;
+  if (!state.alertSettings.soundEnabled || !isTypeEnabled) {
+    return;
+  }
+
   const id = item?.id || '';
   clearAttentionAlert();
   state.activeAttentionAlert = {
@@ -818,13 +876,53 @@ function render() {
     `
     : '';
 
+  const settingsPanelHtml = state.isSettingsPanelOpen
+    ? `
+      <div class="receiver-settings-overlay" data-action="close-settings-panel">
+        <div class="receiver-settings-panel" role="dialog" aria-modal="true" aria-label="Paramètres alertes">
+          <div class="receiver-settings-header">
+            <strong>Paramètres</strong>
+            <button class="receiver-settings-close" data-action="close-settings-panel" aria-label="Fermer les paramètres">✕</button>
+          </div>
+          <p class="subtle">Contrôlez les alertes visuelles et sonores.</p>
+          <div class="alert-settings-grid">
+            <label class="alert-toggle-row" for="alert-sound-enabled">
+              <span>Son global</span>
+              <input id="alert-sound-enabled" type="checkbox" data-action="toggle-alert" data-alert-type="sound" ${state.alertSettings.soundEnabled ? 'checked' : ''} />
+            </label>
+            <label class="alert-toggle-row" for="alert-order-enabled">
+              <span>Commandes</span>
+              <input id="alert-order-enabled" type="checkbox" data-action="toggle-alert" data-alert-type="order" ${state.alertSettings.orderEnabled ? 'checked' : ''} />
+            </label>
+            <label class="alert-toggle-row" for="alert-reservation-enabled">
+              <span>Réservations</span>
+              <input id="alert-reservation-enabled" type="checkbox" data-action="toggle-alert" data-alert-type="reservation" ${state.alertSettings.reservationEnabled ? 'checked' : ''} />
+            </label>
+            <label class="alert-volume-row" for="alert-volume-input">
+              <span>Volume: ${Math.round(state.alertSettings.volume * 100)}%</span>
+              <input id="alert-volume-input" type="range" min="0" max="100" step="5" data-action="set-alert-volume" value="${Math.round(state.alertSettings.volume * 100)}" />
+            </label>
+          </div>
+        </div>
+      </div>
+    `
+    : '';
+
+  if (state.isSettingsPanelOpen) {
+    debugLog('receiver_settings_rendered', { soundEnabled: state.alertSettings.soundEnabled });
+  }
+  if (!state.hasLoggedInfoImprimanteRemoval) {
+    debugLog('info_imprimante_removed_from_ui', true);
+    state.hasLoggedInfoImprimanteRemoval = true;
+  }
+
   app.innerHTML = `
-    <div class="card">
-      <div class="title">Sunmi Receiver</div>
+    <div class="card receiver-header-card">
+      <div class="receiver-header-topline">
+        <div class="title">Sunmi Receiver</div>
+        <button class="receiver-settings-icon-btn" data-action="open-settings-panel" aria-label="Ouvrir les paramètres">⚙️</button>
+      </div>
       <p class="subtle">Connecté: ${state.deviceName || 'Périphérique'}</p>
-      <div class="btn-row">
-        <button id="printer-info-btn" class="btn-secondary-inline">Info imprimante</button>
-              </div>
       <button id="unpair-btn" class="btn-secondary">Désassocier cet appareil</button>
     </div>
 
@@ -844,6 +942,7 @@ function render() {
     ${state.printerMessage ? `<div class="card"><p class="subtle">${state.printerMessage}</p></div>` : ''}
     ${state.error ? `<div class="card"><p class="error">${state.error}</p></div>` : ''}
     ${attentionOverlay}
+    ${settingsPanelHtml}
   `;
 }
 
@@ -1209,6 +1308,15 @@ app.addEventListener('input', (event) => {
   if (!(target instanceof HTMLInputElement)) return;
   if (target.id === 'pairing-code-input') {
     state.pairingCode = target.value.toUpperCase();
+    return;
+  }
+
+  if (target.dataset.action === 'set-alert-volume') {
+    const nextVolume = Math.min(1, Math.max(0, Number(target.value) / 100));
+    state.alertSettings.volume = nextVolume;
+    persistAlertSettings();
+    debugLog('alert_settings_updated', state.alertSettings);
+    render();
   }
 });
 
@@ -1274,12 +1382,36 @@ app.addEventListener('click', async (event) => {
     return;
   }
 
-  if (target.id === 'printer-info-btn') {
-    await showPrinterInfo();
+  if (target.dataset.action === 'toggle-alert' && target instanceof HTMLInputElement) {
+    const type = target.dataset.alertType;
+    if (type === 'sound') {
+      state.alertSettings.soundEnabled = target.checked;
+    } else if (type === 'order') {
+      state.alertSettings.orderEnabled = target.checked;
+    } else if (type === 'reservation') {
+      state.alertSettings.reservationEnabled = target.checked;
+    } else {
+      return;
+    }
+    persistAlertSettings();
+    debugLog('alert_settings_updated', state.alertSettings);
+    render();
     return;
   }
 
+  if (target.dataset.action === 'open-settings-panel') {
+    state.isSettingsPanelOpen = true;
+    debugLog('receiver_settings_opened');
+    render();
+    return;
+  }
 
+  if (target.dataset.action === 'close-settings-panel') {
+    state.isSettingsPanelOpen = false;
+    debugLog('receiver_settings_closed');
+    render();
+    return;
+  }
 
   if (target.dataset.action === 'set-prep' && target.dataset.id) {
     const minutes = Number(target.dataset.minutes || 0);
@@ -1425,6 +1557,7 @@ window.addEventListener('beforeunload', () => {
 
 async function boot() {
   debugLog('app_boot');
+  loadAlertSettings();
   hydratePrintJobTrackingFromStorage();
   render();
 
