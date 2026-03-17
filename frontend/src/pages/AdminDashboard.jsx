@@ -298,7 +298,7 @@ function AdminMenuQrCard() {
               >
                 <div className="flex flex-col items-center mb-5">
                   {shouldShowLogo ? (
-                    <div className="w-24 h-20 mb-3 flex items-center justify-center">
+                    <div className="w-24 h-20 mb-2 flex items-center justify-center">
                       <img
                         src={resolvedLogoUrl}
                         alt={restaurantName}
@@ -308,7 +308,7 @@ function AdminMenuQrCard() {
                       />
                     </div>
                   ) : (
-                    <div className="w-14 h-14 rounded-full bg-gray-100 border border-gray-200 flex items-center justify-center text-lg font-semibold text-gray-600 mb-3">
+                    <div className="w-14 h-14 rounded-full bg-gray-100 border border-gray-200 flex items-center justify-center text-lg font-semibold text-gray-600 mb-2">
                       {fallbackInitial}
                     </div>
                   )}
