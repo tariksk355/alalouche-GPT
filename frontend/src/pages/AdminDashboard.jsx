@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { createPageUrl } from "@/utils";
 import { formatTime, formatDate, formatDateFull } from "@/components/formatDate";
 import AdminAnalytics from "@/components/admin/AdminAnalytics";
@@ -9,6 +9,8 @@ import { createAdminMenuItem, deleteAdminMenuItem, listAdminMenuCatalog, updateA
 import { createAdminCustomer, deleteAdminCustomer, listAdminCustomers, updateAdminCustomer } from "@/lib/api/adminCustomers";
 import { getAdminPrinterSettings, updateAdminPrinterSettings } from "@/lib/api/adminSettings";
 import { getAdminMarketingRecipientCount, sendAdminMarketingBulkEmail } from "@/lib/api/adminMarketing";
+import { useTenant } from "@/lib/TenantContext";
+import html2canvas from "html2canvas";
 
 const ADMIN_ACTIVE_TAB_STORAGE_KEY = "admin_dashboard_active_tab_v1";
 
@@ -147,16 +149,28 @@ function AdminDevices() {
 }
 
 function AdminMenuQrCard() {
+  const { tenant } = useTenant();
   const [menuUrl, setMenuUrl] = useState("");
   const [copied, setCopied] = useState(false);
+  const [downloadError, setDownloadError] = useState("");
+  const [isDownloadingCard, setIsDownloadingCard] = useState(false);
+  const cardRef = useRef(null);
   const qrImageUrl = menuUrl
     ? `https://api.qrserver.com/v1/create-qr-code/?size=320x320&format=png&margin=20&data=${encodeURIComponent(menuUrl)}`
     : "";
+
+  const restaurantName = useMemo(
+    () => tenant?.name || "Restaurant",
+    [tenant?.name],
+  );
+  const restaurantLogoUrl = tenant?.branding?.logoUrl || "";
+  const fallbackInitial = (restaurantName || "R").charAt(0).toUpperCase();
 
   const generateMenuUrl = () => {
     if (typeof window === "undefined") return;
     setMenuUrl(`${window.location.origin}${createPageUrl("Menu")}?mode=menu-only`);
     setCopied(false);
+    setDownloadError("");
   };
 
   const copyMenuUrl = async () => {
@@ -184,6 +198,32 @@ function AdminMenuQrCard() {
     URL.revokeObjectURL(url);
   };
 
+  const downloadStyledCardPng = async () => {
+    if (!cardRef.current || !menuUrl) return;
+
+    setIsDownloadingCard(true);
+    setDownloadError("");
+
+    try {
+      const canvas = await html2canvas(cardRef.current, {
+        scale: 2,
+        useCORS: true,
+        backgroundColor: "#ffffff",
+      });
+      const pngUrl = canvas.toDataURL("image/png");
+      const anchor = document.createElement("a");
+      anchor.href = pngUrl;
+      anchor.download = "carte-menu-table.png";
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+    } catch {
+      setDownloadError("Impossible de télécharger la carte stylisée pour le moment.");
+    } finally {
+      setIsDownloadingCard(false);
+    }
+  };
+
   return (
     <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm space-y-4">
       <h3 className="font-semibold text-lg text-gray-900">QR Menu</h3>
@@ -198,17 +238,56 @@ function AdminMenuQrCard() {
         <button onClick={copyMenuUrl} disabled={!menuUrl} className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg disabled:opacity-50">
           {copied ? "Lien copié" : "Copier le lien"}
         </button>
+        <button onClick={downloadStyledCardPng} disabled={!menuUrl || isDownloadingCard} className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg disabled:opacity-50">
+          {isDownloadingCard ? "Téléchargement..." : "Télécharger la carte"}
+        </button>
         <button onClick={downloadQrPng} disabled={!menuUrl} className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg disabled:opacity-50">
           Télécharger le QR
         </button>
       </div>
 
+      {downloadError && <p className="text-sm text-red-600">{downloadError}</p>}
+
       {menuUrl && (
         <>
           <div className="text-xs text-gray-500 break-all bg-gray-50 border border-gray-200 rounded p-2">{menuUrl}</div>
           <div>
-            <p className="text-sm font-medium text-gray-800 mb-2">Aperçu</p>
-            <img src={qrImageUrl} alt="QR Menu" className="w-44 h-44 border border-gray-200 rounded-lg bg-white p-2" />
+            <p className="text-sm font-medium text-gray-800 mb-2">Aperçu carte de table</p>
+            <div className="inline-flex p-4 bg-gray-100 rounded-2xl border border-gray-200">
+              <div
+                ref={cardRef}
+                className="w-[300px] bg-white border border-gray-200 rounded-2xl px-6 py-6 text-center shadow-sm"
+              >
+                <div className="flex flex-col items-center mb-4">
+                  {restaurantLogoUrl ? (
+                    <img
+                      src={restaurantLogoUrl}
+                      alt={restaurantName}
+                      crossOrigin="anonymous"
+                      className="w-14 h-14 object-contain mb-2"
+                    />
+                  ) : (
+                    <div className="w-14 h-14 rounded-full bg-gray-100 border border-gray-200 flex items-center justify-center text-xl font-semibold text-gray-600 mb-2">
+                      {fallbackInitial}
+                    </div>
+                  )}
+                  <h4 className="text-base font-semibold text-gray-900">{restaurantName}</h4>
+                </div>
+
+                <div className="mx-auto w-[210px] h-[210px] border border-gray-200 rounded-xl bg-white p-3">
+                  <img
+                    src={qrImageUrl}
+                    alt="QR Menu"
+                    crossOrigin="anonymous"
+                    className="w-full h-full rounded-md"
+                  />
+                </div>
+
+                <p className="mt-4 text-[18px] font-semibold text-gray-900">Scannez pour voir le menu</p>
+                <p className="mt-2 text-sm text-gray-500">Menu digital à consulter sur votre téléphone</p>
+                <p className="mt-1 text-xs text-gray-400">Navigation en mode menu uniquement</p>
+              </div>
+            </div>
           </div>
         </>
       )}
