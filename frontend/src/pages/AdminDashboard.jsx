@@ -155,6 +155,7 @@ function AdminMenuQrCard() {
   const [downloadError, setDownloadError] = useState("");
   const [isDownloadingCard, setIsDownloadingCard] = useState(false);
   const [hasLogoLoadError, setHasLogoLoadError] = useState(false);
+  const [hasLogoLoaded, setHasLogoLoaded] = useState(false);
   const cardRef = useRef(null);
   const qrImageUrl = menuUrl
     ? `https://api.qrserver.com/v1/create-qr-code/?size=320x320&format=png&margin=20&data=${encodeURIComponent(menuUrl)}`
@@ -189,13 +190,76 @@ function AdminMenuQrCard() {
     return firstValid ? firstValid.trim() : "";
   };
 
-  const restaurantLogoUrl = useMemo(() => resolveRestaurantLogoUrl(tenant), [tenant]);
-  const shouldShowLogo = Boolean(restaurantLogoUrl) && !hasLogoLoadError;
+  const resolvedLogoUrl = useMemo(() => resolveRestaurantLogoUrl(tenant), [tenant]);
+  const resolvedLogoSourcePath = useMemo(() => {
+    if (!tenant || typeof tenant !== "object") return null;
+    const branding = tenant?.branding && typeof tenant.branding === "object" ? tenant.branding : null;
+    const candidates = [
+      { path: "tenant.branding.logoUrl", value: branding?.logoUrl },
+      { path: "tenant.branding.logo_url", value: branding?.logo_url },
+      { path: "tenant.branding.logo", value: branding?.logo },
+      { path: "tenant.logoUrl", value: tenant?.logoUrl },
+      { path: "tenant.logo_url", value: tenant?.logo_url },
+      { path: "tenant.logo", value: tenant?.logo },
+    ];
+    const matched = candidates.find((entry) => typeof entry.value === "string" && entry.value.trim().length > 0);
+    return matched?.path || null;
+  }, [tenant]);
+  const shouldShowLogo = Boolean(resolvedLogoUrl) && !hasLogoLoadError;
+  const didAttemptLogoRender = Boolean(resolvedLogoUrl);
   const fallbackInitial = (restaurantName || "R").charAt(0).toUpperCase();
 
   useEffect(() => {
     setHasLogoLoadError(false);
-  }, [restaurantLogoUrl]);
+    setHasLogoLoaded(false);
+  }, [resolvedLogoUrl]);
+
+  useEffect(() => {
+    if (!menuUrl) return;
+    const brandingKeys = tenant?.branding && typeof tenant.branding === "object"
+      ? Object.keys(tenant.branding)
+      : [];
+    console.info("[QR_CARD_LOGO_DIAG]", {
+      tenantName: tenant?.name || null,
+      brandingKeys,
+      resolvedLogoUrl,
+      resolvedLogoSourcePath,
+      didAttemptLogoRender,
+      fallbackShown: !shouldShowLogo,
+      imageLoadedState: hasLogoLoaded,
+      imageErrorState: hasLogoLoadError,
+    });
+  }, [
+    menuUrl,
+    tenant?.name,
+    tenant?.branding,
+    resolvedLogoUrl,
+    resolvedLogoSourcePath,
+    didAttemptLogoRender,
+    shouldShowLogo,
+    hasLogoLoaded,
+    hasLogoLoadError,
+  ]);
+
+  const handleLogoLoad = () => {
+    setHasLogoLoaded(true);
+    setHasLogoLoadError(false);
+    console.info("[QR_CARD_LOGO_LOAD]", {
+      resolvedLogoUrl,
+      resolvedLogoSourcePath,
+      status: "loaded",
+    });
+  };
+
+  const handleLogoError = () => {
+    setHasLogoLoadError(true);
+    setHasLogoLoaded(false);
+    console.warn("[QR_CARD_LOGO_LOAD]", {
+      resolvedLogoUrl,
+      resolvedLogoSourcePath,
+      status: "error",
+    });
+  };
 
   const generateMenuUrl = () => {
     if (typeof window === "undefined") return;
@@ -292,10 +356,11 @@ function AdminMenuQrCard() {
                 <div className="flex flex-col items-center mb-4">
                   {shouldShowLogo ? (
                     <img
-                      src={restaurantLogoUrl}
+                      src={resolvedLogoUrl}
                       alt={restaurantName}
                       crossOrigin="anonymous"
-                      onError={() => setHasLogoLoadError(true)}
+                      onLoad={handleLogoLoad}
+                      onError={handleLogoError}
                       className="w-16 h-16 object-contain object-center mb-2"
                     />
                   ) : (
