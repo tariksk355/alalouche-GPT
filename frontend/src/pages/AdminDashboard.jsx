@@ -296,17 +296,19 @@ function AdminMenuQrCard() {
                 ref={cardRef}
                 className="w-[300px] bg-white border border-gray-200 rounded-2xl px-6 py-6 text-center shadow-sm"
               >
-                <div className="flex flex-col items-center mb-4">
+                <div className="flex flex-col items-center mb-5">
                   {shouldShowLogo ? (
-                    <img
-                      src={resolvedLogoUrl}
-                      alt={restaurantName}
-                      crossOrigin="anonymous"
-                      onError={handleLogoError}
-                      className="w-16 h-16 object-contain object-center mb-2"
-                    />
+                    <div className="w-24 h-20 mb-3 flex items-center justify-center">
+                      <img
+                        src={resolvedLogoUrl}
+                        alt={restaurantName}
+                        crossOrigin="anonymous"
+                        onError={handleLogoError}
+                        className="w-full h-full object-contain object-center"
+                      />
+                    </div>
                   ) : (
-                    <div className="w-12 h-12 rounded-full bg-gray-100 border border-gray-200 flex items-center justify-center text-base font-semibold text-gray-600 mb-2">
+                    <div className="w-14 h-14 rounded-full bg-gray-100 border border-gray-200 flex items-center justify-center text-lg font-semibold text-gray-600 mb-3">
                       {fallbackInitial}
                     </div>
                   )}
