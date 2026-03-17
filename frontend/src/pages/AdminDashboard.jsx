@@ -169,7 +169,27 @@ function AdminMenuQrCard() {
       .trim();
     return sanitized || sourceName;
   }, [tenant?.name]);
-  const restaurantLogoUrl = tenant?.branding?.logoUrl || "";
+  const resolveRestaurantLogoUrl = (tenantConfig) => {
+    if (!tenantConfig || typeof tenantConfig !== "object") return "";
+
+    const branding = tenantConfig?.branding && typeof tenantConfig.branding === "object"
+      ? tenantConfig.branding
+      : null;
+
+    const candidates = [
+      branding?.logoUrl,
+      branding?.logo_url,
+      branding?.logo,
+      tenantConfig?.logoUrl,
+      tenantConfig?.logo_url,
+      tenantConfig?.logo,
+    ];
+
+    const firstValid = candidates.find((value) => typeof value === "string" && value.trim().length > 0);
+    return firstValid ? firstValid.trim() : "";
+  };
+
+  const restaurantLogoUrl = useMemo(() => resolveRestaurantLogoUrl(tenant), [tenant]);
   const shouldShowLogo = Boolean(restaurantLogoUrl) && !hasLogoLoadError;
   const fallbackInitial = (restaurantName || "R").charAt(0).toUpperCase();
 
