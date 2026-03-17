@@ -154,17 +154,28 @@ function AdminMenuQrCard() {
   const [copied, setCopied] = useState(false);
   const [downloadError, setDownloadError] = useState("");
   const [isDownloadingCard, setIsDownloadingCard] = useState(false);
+  const [hasLogoLoadError, setHasLogoLoadError] = useState(false);
   const cardRef = useRef(null);
   const qrImageUrl = menuUrl
     ? `https://api.qrserver.com/v1/create-qr-code/?size=320x320&format=png&margin=20&data=${encodeURIComponent(menuUrl)}`
     : "";
 
-  const restaurantName = useMemo(
-    () => tenant?.name || "Restaurant",
-    [tenant?.name],
-  );
+  const restaurantName = useMemo(() => {
+    const sourceName = (tenant?.name || "Restaurant").trim();
+    const sanitized = sourceName
+      .replace(/\s*\(\s*local\s*\)\s*$/i, "")
+      .replace(/\s*-\s*local\s*$/i, "")
+      .replace(/\s+local\s*$/i, "")
+      .trim();
+    return sanitized || sourceName;
+  }, [tenant?.name]);
   const restaurantLogoUrl = tenant?.branding?.logoUrl || "";
+  const shouldShowLogo = Boolean(restaurantLogoUrl) && !hasLogoLoadError;
   const fallbackInitial = (restaurantName || "R").charAt(0).toUpperCase();
+
+  useEffect(() => {
+    setHasLogoLoadError(false);
+  }, [restaurantLogoUrl]);
 
   const generateMenuUrl = () => {
     if (typeof window === "undefined") return;
@@ -259,15 +270,16 @@ function AdminMenuQrCard() {
                 className="w-[300px] bg-white border border-gray-200 rounded-2xl px-6 py-6 text-center shadow-sm"
               >
                 <div className="flex flex-col items-center mb-4">
-                  {restaurantLogoUrl ? (
+                  {shouldShowLogo ? (
                     <img
                       src={restaurantLogoUrl}
                       alt={restaurantName}
                       crossOrigin="anonymous"
-                      className="w-14 h-14 object-contain mb-2"
+                      onError={() => setHasLogoLoadError(true)}
+                      className="w-16 h-16 object-contain object-center mb-2"
                     />
                   ) : (
-                    <div className="w-14 h-14 rounded-full bg-gray-100 border border-gray-200 flex items-center justify-center text-xl font-semibold text-gray-600 mb-2">
+                    <div className="w-12 h-12 rounded-full bg-gray-100 border border-gray-200 flex items-center justify-center text-base font-semibold text-gray-600 mb-2">
                       {fallbackInitial}
                     </div>
                   )}
