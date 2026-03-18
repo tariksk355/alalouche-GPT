@@ -17,7 +17,7 @@ This document is for reproducible local setup of the backend only.
   - `GET /receiver/orders`
   - `POST /receiver/orders/:id/status`
 
-Admin bearer auth is required in production paths. `x-admin-token` remains as a deprecated non-production compatibility path and always requires explicit tenant context (`x-restaurant-id`).
+Admin bearer auth is the intended admin path. The deprecated `x-admin-token` compatibility path is disabled in production and only works in non-production when `ALLOW_LEGACY_ADMIN_HEADERS=true`, and it still requires explicit tenant context via `x-restaurant-id`.
 
 
 ## Tenant resolution (Batch A)
@@ -239,6 +239,8 @@ This validates tenant isolation across two restaurants for:
 - admin tenant scopes
 - pairing legacy compatibility constraints
 - explicit invalid tenant hint no-fallback behavior
+
+> Note: the legacy pairing compatibility checks require the backend to be started with `ALLOW_LEGACY_ADMIN_HEADERS=true` in non-production.
 
 ---
 
