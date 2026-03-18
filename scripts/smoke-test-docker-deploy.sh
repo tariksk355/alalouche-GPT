@@ -6,6 +6,7 @@ FRONTEND_IMAGE="${FRONTEND_IMAGE:-alalouche-frontend:smoke}"
 BACKEND_PORT="${BACKEND_PORT:-3000}"
 FRONTEND_PORT="${FRONTEND_PORT:-8080}"
 BACKEND_ENV_FILE="${BACKEND_ENV_FILE:-}"
+FRONTEND_API_BASE_URL="${FRONTEND_API_BASE_URL:-https://api.smoke.invalid}"
 
 if ! command -v docker >/dev/null 2>&1; then
   echo "[smoke] docker not found in PATH" >&2
@@ -37,7 +38,7 @@ echo "[smoke] Building backend image: $BACKEND_IMAGE"
 docker build -t "$BACKEND_IMAGE" ./backend
 
 echo "[smoke] Building frontend image: $FRONTEND_IMAGE"
-docker build -t "$FRONTEND_IMAGE" ./frontend
+docker build --build-arg VITE_API_BASE_URL="$FRONTEND_API_BASE_URL" -t "$FRONTEND_IMAGE" ./frontend
 
 echo "[smoke] Starting backend container"
 docker run -d --name alalouche-backend-smoke \

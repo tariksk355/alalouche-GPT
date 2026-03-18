@@ -8,7 +8,7 @@ import { getAdminKpis, listAdminOrders, listAdminReservations, updateAdminOrderS
 import { createAdminMenuItem, deleteAdminMenuItem, listAdminMenuCatalog, updateAdminMenuItem, uploadAdminMenuImage } from "@/lib/api/adminMenuCatalog";
 import { createAdminCustomer, deleteAdminCustomer, listAdminCustomers, updateAdminCustomer } from "@/lib/api/adminCustomers";
 import { getAdminPrinterSettings, updateAdminPrinterSettings } from "@/lib/api/adminSettings";
-import { getAdminMarketingRecipientCount, sendAdminMarketingBulkEmail } from "@/lib/api/adminMarketing";
+import { getAdminMarketingRecipientCount, listAdminMarketingRecipients, sendAdminMarketingBulkEmail } from "@/lib/api/adminMarketing";
 import { useTenant } from "@/lib/TenantContext";
 import html2canvas from "html2canvas";
 
@@ -885,7 +885,7 @@ function AdminCustomers() {
   const [search, setSearch] = useState("");
   const [showForm, setShowForm] = useState(false);
   const [editingCustomer, setEditingCustomer] = useState(null);
-  const [form, setForm] = useState({ fullName: "", phone: "", email: "" });
+  const [form, setForm] = useState({ fullName: "", phone: "", email: "", subscribedEmail: false });
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [success, setSuccess] = useState("");
@@ -910,7 +910,7 @@ function AdminCustomers() {
 
   const openAdd = () => {
     setEditingCustomer(null);
-    setForm({ fullName: "", phone: "", email: "" });
+    setForm({ fullName: "", phone: "", email: "", subscribedEmail: false });
     setShowForm(true);
   };
 
@@ -920,6 +920,7 @@ function AdminCustomers() {
       fullName: customer.fullName || "",
       phone: customer.phone || "",
       email: customer.email || "",
+      subscribedEmail: customer.subscribedEmail === true,
     });
     setShowForm(true);
   };
@@ -998,6 +999,18 @@ function AdminCustomers() {
             <label className="block text-sm text-gray-500 mb-1">Email *</label>
             <input required type="email" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} className="w-full bg-gray-50 border border-gray-200 text-gray-900 px-3 py-2 rounded-lg focus:outline-none" />
           </div>
+          <label className="md:col-span-2 flex items-start gap-3 rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={form.subscribedEmail}
+              onChange={e => setForm({ ...form, subscribedEmail: e.target.checked })}
+              className="mt-1 h-4 w-4 rounded border-gray-300 text-[#b5122a] focus:ring-[#b5122a]"
+            />
+            <span>
+              <span className="block text-sm font-medium text-gray-900">Abonné aux emails marketing</span>
+              <span className="block text-xs text-gray-500">Ce client pourra recevoir les campagnes envoyées depuis l’onglet Marketing.</span>
+            </span>
+          </label>
           <div className="md:col-span-2 flex gap-3 justify-end">
             <button type="submit" disabled={saving} className="px-6 py-2 bg-[#b5122a] text-white rounded-lg font-medium hover:bg-[#8f0e21] disabled:opacity-60">{saving ? '...' : editingCustomer ? 'Enregistrer' : 'Ajouter'}</button>
             <button type="button" onClick={() => { setShowForm(false); setEditingCustomer(null); }} className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200">Annuler</button>
@@ -1014,6 +1027,9 @@ function AdminCustomers() {
               <div className="text-xs text-gray-400 mt-1">Créé le {formatDate(c.createdAt)} • MAJ le {formatDate(c.updatedAt)}</div>
             </div>
             <div className="flex items-center gap-3">
+              <span className={`text-xs font-medium px-2.5 py-1 rounded-full ${c.subscribedEmail ? "bg-green-50 text-green-700 border border-green-200" : "bg-gray-100 text-gray-500 border border-gray-200"}`}>
+                {c.subscribedEmail ? "Abonné email" : "Non abonné"}
+              </span>
               <span className="text-[#b5122a] font-bold text-sm">{c.orderCount || 0} commande{(c.orderCount || 0) !== 1 ? 's' : ''}</span>
               <button onClick={() => openEdit(c)} className="text-xs text-blue-600 hover:text-blue-700 border border-gray-200 px-2 py-1 rounded">Éditer</button>
               <button onClick={() => handleDelete(c)} className="text-xs text-red-500 hover:text-red-600 border border-gray-200 px-2 py-1 rounded">Supprimer</button>
@@ -1032,19 +1048,41 @@ function AdminMarketing() {
   const [success, setSuccess] = useState("");
   const [error, setError] = useState("");
   const [customerCount, setCustomerCount] = useState(0);
+  const [recipients, setRecipients] = useState([]);
+  const [loadingRecipients, setLoadingRecipients] = useState(false);
+  const [excludedRecipientIds, setExcludedRecipientIds] = useState([]);
 
-  const loadRecipientCount = async () => {
+  const loadRecipients = async () => {
+    setLoadingRecipients(true);
+    setError("");
     try {
-      const count = await getAdminMarketingRecipientCount();
+      const [count, subscribedRecipients] = await Promise.all([
+        getAdminMarketingRecipientCount(),
+        listAdminMarketingRecipients(),
+      ]);
       setCustomerCount(count);
+      setRecipients(subscribedRecipients);
+      setExcludedRecipientIds((prev) => prev.filter((id) => subscribedRecipients.some((recipient) => recipient.id === id)));
     } catch (e) {
       setError(e.message || "Impossible de charger les destinataires marketing.");
+    } finally {
+      setLoadingRecipients(false);
     }
   };
 
   useEffect(() => {
-    loadRecipientCount();
+    loadRecipients();
   }, []);
+
+  const targetedCount = Math.max(recipients.length - excludedRecipientIds.length, 0);
+
+  const toggleExcludedRecipient = (customerId) => {
+    setExcludedRecipientIds((prev) =>
+      prev.includes(customerId)
+        ? prev.filter((id) => id !== customerId)
+        : [...prev, customerId]
+    );
+  };
 
   const sendBulkEmail = async (e) => {
     e.preventDefault();
@@ -1057,16 +1095,19 @@ function AdminMarketing() {
       const result = await sendAdminMarketingBulkEmail({
         subject: emailForm.subject,
         body: emailForm.body,
+        excludedCustomerIds: excludedRecipientIds,
       });
 
       if (result.recipientsMatched === 0) {
         setSuccess("Aucun client abonné à l'email marketing.");
       } else {
-        setSuccess(`✅ Envoi traité pour ${result.recipientsDispatched} client(s) (sur ${result.recipientsMatched} abonné(s)).`);
+        const exclusionMessage = result.excludedCount > 0 ? ` (${result.excludedCount} exclu${result.excludedCount > 1 ? "s" : ""})` : "";
+        setSuccess(`✅ Envoi traité pour ${result.recipientsDispatched} client(s) sur ${result.recipientsMatched} ciblé(s)${exclusionMessage}.`);
       }
 
       setEmailForm({ subject: "", body: "" });
-      await loadRecipientCount();
+      setExcludedRecipientIds([]);
+      await loadRecipients();
     } catch (e) {
       setError(e.message || "Impossible d'envoyer la campagne marketing.");
     } finally {
@@ -1085,8 +1126,53 @@ function AdminMarketing() {
       <form onSubmit={sendBulkEmail} className="bg-white rounded-xl border border-gray-200 p-6 space-y-4 shadow-sm">
         <p className="text-gray-500 text-sm">{customerCount} clients abonnés aux emails</p>
         <AdminNotice type="info">
-          Cette action envoie immédiatement la campagne à tous les clients abonnés. Vérifiez le sujet et le message avant validation.
+          Cette action envoie immédiatement la campagne aux clients abonnés. Vous pouvez exclure certains destinataires avant l’envoi.
         </AdminNotice>
+        <div className="rounded-lg border border-gray-200 bg-gray-50 p-4">
+          <div className="flex items-center justify-between gap-3 mb-3">
+            <div>
+              <p className="text-sm font-medium text-gray-900">Destinataires abonnés</p>
+              <p className="text-xs text-gray-500">{targetedCount} destinataire{targetedCount > 1 ? "s" : ""} ciblé{targetedCount > 1 ? "s" : ""} après exclusions.</p>
+            </div>
+            {excludedRecipientIds.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setExcludedRecipientIds([])}
+                className="text-xs text-gray-500 hover:text-gray-700"
+              >
+                Réinitialiser les exclusions
+              </button>
+            )}
+          </div>
+          {loadingRecipients ? (
+            <AdminLoadingState label="Chargement des abonnés..." />
+          ) : recipients.length === 0 ? (
+            <AdminEmptyState label="Aucun client abonné à l'email marketing." />
+          ) : (
+            <div className="space-y-2 max-h-72 overflow-auto">
+              {recipients.map((recipient) => {
+                const isExcluded = excludedRecipientIds.includes(recipient.id);
+                return (
+                  <label key={recipient.id} className={`flex items-start gap-3 rounded-lg border px-3 py-3 cursor-pointer ${isExcluded ? "border-red-200 bg-red-50" : "border-gray-200 bg-white"}`}>
+                    <input
+                      type="checkbox"
+                      checked={isExcluded}
+                      onChange={() => toggleExcludedRecipient(recipient.id)}
+                      className="mt-1 h-4 w-4 rounded border-gray-300 text-[#b5122a] focus:ring-[#b5122a]"
+                    />
+                    <div className="min-w-0">
+                      <div className="text-sm font-medium text-gray-900">{recipient.fullName}</div>
+                      <div className="text-xs text-gray-500 break-all">{recipient.email}</div>
+                    </div>
+                    <span className={`ml-auto text-xs font-medium ${isExcluded ? "text-red-600" : "text-green-600"}`}>
+                      {isExcluded ? "Exclu" : "Inclus"}
+                    </span>
+                  </label>
+                );
+              })}
+            </div>
+          )}
+        </div>
         <div>
           <label className="block text-sm text-gray-500 mb-1">Sujet *</label>
           <input required value={emailForm.subject} onChange={e => setEmailForm({ ...emailForm, subject: e.target.value })}
@@ -1097,8 +1183,8 @@ function AdminMarketing() {
           <textarea required rows={8} value={emailForm.body} onChange={e => setEmailForm({ ...emailForm, body: e.target.value })}
             className="w-full bg-gray-50 border border-gray-200 text-gray-900 px-4 py-2 rounded-lg focus:outline-none focus:border-gray-400 resize-none" placeholder="Votre message..." />
         </div>
-        <button type="submit" disabled={loading} className="w-full py-3 bg-[#b5122a] text-white font-semibold rounded-lg hover:bg-[#8f0e21] disabled:opacity-60 transition-colors">
-          {loading ? "Envoi en cours..." : "Envoyer à tous les abonnés"}
+        <button type="submit" disabled={loading || targetedCount === 0} className="w-full py-3 bg-[#b5122a] text-white font-semibold rounded-lg hover:bg-[#8f0e21] disabled:opacity-60 transition-colors">
+          {loading ? "Envoi en cours..." : targetedCount === customerCount ? "Envoyer à tous les abonnés" : `Envoyer à ${targetedCount} abonné${targetedCount > 1 ? "s" : ""}`}
         </button>
       </form>
     </div>

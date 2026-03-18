@@ -5,6 +5,7 @@ This document is for reproducible local setup of the backend only.
 ## What this backend includes
 
 - `GET /health`
+- `GET /ready`
 - Device pairing flow endpoints:
   - `POST /admin/device-pairing-codes`
   - `POST /devices/pairing-requests`
@@ -16,7 +17,7 @@ This document is for reproducible local setup of the backend only.
   - `GET /receiver/orders`
   - `POST /receiver/orders/:id/status`
 
-Admin bearer auth is required in production paths. `x-admin-token` remains as a deprecated non-production compatibility path and always requires explicit tenant context (`x-restaurant-id`).
+Admin bearer auth is the intended admin path. The deprecated `x-admin-token` compatibility path is disabled in production and only works in non-production when `ALLOW_LEGACY_ADMIN_HEADERS=true`, and it still requires explicit tenant context via `x-restaurant-id`.
 
 
 ## Tenant resolution (Batch A)
@@ -38,9 +39,12 @@ Public config bootstrap endpoint:
 
 - `DATABASE_URL` (always required)
 - `AUTH_TOKEN_SECRET` (required in `NODE_ENV=production`)
-- `EMAIL_PROVIDER` (`none` or `resend`; defaults to `none`)
-- `RESEND_API_KEY` (required when `EMAIL_PROVIDER=resend`)
-- `EMAIL_FROM` (required when `EMAIL_PROVIDER=resend`)
+- `MARKETING_EMAIL_PROVIDER` (`none` or `resend`; falls back to `EMAIL_PROVIDER` only for marketing backward compatibility)
+- `MARKETING_EMAIL_FROM` (optional override; falls back to `EMAIL_FROM` for marketing)
+- `RESEND_API_KEY` (required when marketing uses Resend)
+- `TRANSACTIONAL_EMAIL_PROVIDER` (`none` or `smtp`)
+- `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM`
+- `SMTP_REPLY_TO` (optional)
 
 For admin menu image upload (`POST /admin/menu-catalog/images/upload`), also configure:
 - `S3_BUCKET`
@@ -59,7 +63,13 @@ Optional upload/storage envs:
 ### Health endpoints
 
 - Liveness: `GET /health`
-- Readiness: `GET /ready` (includes a lightweight DB check)
+  - returns HTTP 200 when the NestJS process is up
+  - does **not** hit the database
+  - response is concise and machine-friendly (`status`, `service`, `uptimeSeconds`, `timestamp`)
+- Readiness: `GET /ready`
+  - returns HTTP 200 only when the API can successfully execute a lightweight `SELECT 1` against PostgreSQL
+  - returns HTTP 503 with a generic `NOT_READY` error if the database is unavailable
+  - response stays concise and does not expose secrets or internal connection details
 
 ### Request correlation + logging
 
@@ -86,9 +96,10 @@ In production, 5xx messages are sanitized to avoid leaking internals.
 ## Email delivery provider (current slice)
 
 - Backend email delivery boundary is `NotificationService` only.
-- Supported `EMAIL_PROVIDER` values: `none` and `resend`.
-- Legacy webhook provider path has been removed in favor of explicit Resend-only provider wiring for active sends.
-- Marketing sends and transactional status notifications both use Resend when enabled.
+- Admin bulk marketing emails use Resend via `MARKETING_EMAIL_PROVIDER` (`none` or `resend`).
+- For backward compatibility during transition, marketing falls back to `EMAIL_PROVIDER` / `EMAIL_FROM` only when `MARKETING_EMAIL_PROVIDER` is unset.
+- Transactional customer emails for order/reservation creation + status notifications use `TRANSACTIONAL_EMAIL_PROVIDER` (`none` or `smtp`).
+- Transactional flow does **not** read `EMAIL_PROVIDER`; once split, SMTP config is the only active provider path for transactional sends.
 
 
 ## Production container usage
@@ -104,8 +115,8 @@ In production, 5xx messages are sanitized to avoid leaking internals.
 - `DATABASE_URL`
 - `AUTH_TOKEN_SECRET`
 - `NODE_ENV=production`
-- `EMAIL_PROVIDER` (`none` or `resend`)
-- `RESEND_API_KEY` + `EMAIL_FROM` when `EMAIL_PROVIDER=resend`
+- `MARKETING_EMAIL_PROVIDER=resend` + `RESEND_API_KEY` + (`MARKETING_EMAIL_FROM` or `EMAIL_FROM`) for admin bulk marketing
+- `TRANSACTIONAL_EMAIL_PROVIDER=smtp` + `SMTP_HOST` + `SMTP_PORT` + `SMTP_SECURE` + `SMTP_USER` + `SMTP_PASS` + `SMTP_FROM` for transactional customer emails
 
 ### Example local container run
 
@@ -116,7 +127,16 @@ docker run --rm -p 3000:3000 \
   -e PORT=3000 \
   -e DATABASE_URL='postgresql://user:pass@host:25060/db?sslmode=require' \
   -e AUTH_TOKEN_SECRET='change-me' \
-  -e EMAIL_PROVIDER=none \
+  -e MARKETING_EMAIL_PROVIDER=resend \
+  -e MARKETING_EMAIL_FROM='marketing@example.com' \
+  -e RESEND_API_KEY='replace-me' \
+  -e TRANSACTIONAL_EMAIL_PROVIDER=smtp \
+  -e SMTP_HOST='smtp.example.com' \
+  -e SMTP_PORT='587' \
+  -e SMTP_SECURE='false' \
+  -e SMTP_USER='smtp-user' \
+  -e SMTP_PASS='smtp-pass' \
+  -e SMTP_FROM='noreply@example.com' \
   alalouche-backend
 ```
 
@@ -176,7 +196,8 @@ npm run prisma:seed
 ```
 
 Seed creates:
-- one default restaurant (`DEFAULT_RESTAURANT_ID`)
+- one primary restaurant (`DEFAULT_RESTAURANT_ID` in local/dev, or `alalouche` if seeded in production)
+- an extra demo tenant only outside production by default (`SEED_INCLUDE_DEMO_TENANT=true` can force it)
 - optional sample orders when `SEED_SAMPLE_ORDERS=true`
 
 ### 7) Start backend
@@ -201,13 +222,14 @@ With backend running in another terminal:
 
 This executes:
 1. `GET /health`
-2. `POST /admin/auth/login`
-3. `POST /admin/device-pairing-codes` (bearer auth)
-4. `POST /devices/pairing-requests`
-5. `GET /admin/device-pairing-requests`
-6. `POST /admin/device-pairing-requests/:id/confirm`
-7. `POST /devices/verify`
-8. `GET /devices/me` and `GET /receiver/orders`
+2. `GET /ready`
+3. `POST /admin/auth/login`
+4. `POST /admin/device-pairing-codes` (bearer auth)
+5. `POST /devices/pairing-requests`
+6. `GET /admin/device-pairing-requests`
+7. `POST /admin/device-pairing-requests/:id/confirm`
+8. `POST /devices/verify`
+9. `GET /devices/me` and `GET /receiver/orders`
 
 You can override defaults:
 
@@ -230,6 +252,8 @@ This validates tenant isolation across two restaurants for:
 - admin tenant scopes
 - pairing legacy compatibility constraints
 - explicit invalid tenant hint no-fallback behavior
+
+> Note: the legacy pairing compatibility checks require the backend to be started with `ALLOW_LEGACY_ADMIN_HEADERS=true` in non-production.
 
 ---
 
@@ -266,13 +290,19 @@ export ADMIN_USERNAME=admin
 export ADMIN_PASSWORD=admin1234
 ```
 
-1) Health
+1) Liveness
 
 ```bash
 curl -s "$API/health" | jq
 ```
 
-2) Admin login + create pairing code
+2) Readiness
+
+```bash
+curl -s "$API/ready" | jq
+```
+
+3) Admin login + create pairing code
 
 ```bash
 ADMIN_LOGIN_RESP=$(curl -s -X POST "$API/admin/auth/login" \
