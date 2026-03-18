@@ -8,7 +8,7 @@ This guide documents the current production packaging for this repository.
 - Frontend production image: `frontend/Dockerfile`
 - Backend startup migration hook: `RUN_DB_MIGRATIONS` + `prisma migrate deploy`
 - Health endpoints for probes:
-  - Backend: `GET /health`, `GET /ready`
+  - Backend: `GET /health` (process up), `GET /ready` (process up + DB reachable)
   - Frontend (nginx): `GET /health`
 
 ## Backend deployment (App Platform or Droplet)
@@ -111,7 +111,7 @@ The env file should include at least:
 The smoke script validates:
 - backend image builds
 - frontend image builds
-- backend container boots and passes `/health` and `/ready`
+- backend container boots and passes `/health` (basic liveness) and `/ready` (DB readiness)
 - frontend container serves `/health`
 - frontend SPA fallback returns HTTP 200 for non-existent routes
 

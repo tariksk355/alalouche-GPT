@@ -5,6 +5,7 @@ This document is for reproducible local setup of the backend only.
 ## What this backend includes
 
 - `GET /health`
+- `GET /ready`
 - Device pairing flow endpoints:
   - `POST /admin/device-pairing-codes`
   - `POST /devices/pairing-requests`
@@ -59,7 +60,13 @@ Optional upload/storage envs:
 ### Health endpoints
 
 - Liveness: `GET /health`
-- Readiness: `GET /ready` (includes a lightweight DB check)
+  - returns HTTP 200 when the NestJS process is up
+  - does **not** hit the database
+  - response is concise and machine-friendly (`status`, `service`, `uptimeSeconds`, `timestamp`)
+- Readiness: `GET /ready`
+  - returns HTTP 200 only when the API can successfully execute a lightweight `SELECT 1` against PostgreSQL
+  - returns HTTP 503 with a generic `NOT_READY` error if the database is unavailable
+  - response stays concise and does not expose secrets or internal connection details
 
 ### Request correlation + logging
 
@@ -201,13 +208,14 @@ With backend running in another terminal:
 
 This executes:
 1. `GET /health`
-2. `POST /admin/auth/login`
-3. `POST /admin/device-pairing-codes` (bearer auth)
-4. `POST /devices/pairing-requests`
-5. `GET /admin/device-pairing-requests`
-6. `POST /admin/device-pairing-requests/:id/confirm`
-7. `POST /devices/verify`
-8. `GET /devices/me` and `GET /receiver/orders`
+2. `GET /ready`
+3. `POST /admin/auth/login`
+4. `POST /admin/device-pairing-codes` (bearer auth)
+5. `POST /devices/pairing-requests`
+6. `GET /admin/device-pairing-requests`
+7. `POST /admin/device-pairing-requests/:id/confirm`
+8. `POST /devices/verify`
+9. `GET /devices/me` and `GET /receiver/orders`
 
 You can override defaults:
 
@@ -266,13 +274,19 @@ export ADMIN_USERNAME=admin
 export ADMIN_PASSWORD=admin1234
 ```
 
-1) Health
+1) Liveness
 
 ```bash
 curl -s "$API/health" | jq
 ```
 
-2) Admin login + create pairing code
+2) Readiness
+
+```bash
+curl -s "$API/ready" | jq
+```
+
+3) Admin login + create pairing code
 
 ```bash
 ADMIN_LOGIN_RESP=$(curl -s -X POST "$API/admin/auth/login" \
