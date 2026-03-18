@@ -39,9 +39,12 @@ Public config bootstrap endpoint:
 
 - `DATABASE_URL` (always required)
 - `AUTH_TOKEN_SECRET` (required in `NODE_ENV=production`)
-- `EMAIL_PROVIDER` (`none` or `resend`; defaults to `none`)
-- `RESEND_API_KEY` (required when `EMAIL_PROVIDER=resend`)
-- `EMAIL_FROM` (required when `EMAIL_PROVIDER=resend`)
+- `MARKETING_EMAIL_PROVIDER` (`none` or `resend`; falls back to `EMAIL_PROVIDER` only for marketing backward compatibility)
+- `MARKETING_EMAIL_FROM` (optional override; falls back to `EMAIL_FROM` for marketing)
+- `RESEND_API_KEY` (required when marketing uses Resend)
+- `TRANSACTIONAL_EMAIL_PROVIDER` (`none` or `smtp`)
+- `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM`
+- `SMTP_REPLY_TO` (optional)
 
 For admin menu image upload (`POST /admin/menu-catalog/images/upload`), also configure:
 - `S3_BUCKET`
@@ -93,9 +96,10 @@ In production, 5xx messages are sanitized to avoid leaking internals.
 ## Email delivery provider (current slice)
 
 - Backend email delivery boundary is `NotificationService` only.
-- Supported `EMAIL_PROVIDER` values: `none` and `resend`.
-- Legacy webhook provider path has been removed in favor of explicit Resend-only provider wiring for active sends.
-- Marketing sends and transactional status notifications both use Resend when enabled.
+- Admin bulk marketing emails use Resend via `MARKETING_EMAIL_PROVIDER` (`none` or `resend`).
+- For backward compatibility during transition, marketing falls back to `EMAIL_PROVIDER` / `EMAIL_FROM` only when `MARKETING_EMAIL_PROVIDER` is unset.
+- Transactional customer emails for order/reservation creation + status notifications use `TRANSACTIONAL_EMAIL_PROVIDER` (`none` or `smtp`).
+- Transactional flow does **not** read `EMAIL_PROVIDER`; once split, SMTP config is the only active provider path for transactional sends.
 
 
 ## Production container usage
@@ -111,8 +115,8 @@ In production, 5xx messages are sanitized to avoid leaking internals.
 - `DATABASE_URL`
 - `AUTH_TOKEN_SECRET`
 - `NODE_ENV=production`
-- `EMAIL_PROVIDER` (`none` or `resend`)
-- `RESEND_API_KEY` + `EMAIL_FROM` when `EMAIL_PROVIDER=resend`
+- `MARKETING_EMAIL_PROVIDER=resend` + `RESEND_API_KEY` + (`MARKETING_EMAIL_FROM` or `EMAIL_FROM`) for admin bulk marketing
+- `TRANSACTIONAL_EMAIL_PROVIDER=smtp` + `SMTP_HOST` + `SMTP_PORT` + `SMTP_SECURE` + `SMTP_USER` + `SMTP_PASS` + `SMTP_FROM` for transactional customer emails
 
 ### Example local container run
 
@@ -123,7 +127,16 @@ docker run --rm -p 3000:3000 \
   -e PORT=3000 \
   -e DATABASE_URL='postgresql://user:pass@host:25060/db?sslmode=require' \
   -e AUTH_TOKEN_SECRET='change-me' \
-  -e EMAIL_PROVIDER=none \
+  -e MARKETING_EMAIL_PROVIDER=resend \
+  -e MARKETING_EMAIL_FROM='marketing@example.com' \
+  -e RESEND_API_KEY='replace-me' \
+  -e TRANSACTIONAL_EMAIL_PROVIDER=smtp \
+  -e SMTP_HOST='smtp.example.com' \
+  -e SMTP_PORT='587' \
+  -e SMTP_SECURE='false' \
+  -e SMTP_USER='smtp-user' \
+  -e SMTP_PASS='smtp-pass' \
+  -e SMTP_FROM='noreply@example.com' \
   alalouche-backend
 ```
 
