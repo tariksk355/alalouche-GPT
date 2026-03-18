@@ -24,14 +24,15 @@ docker build -t alalouche-backend ./backend
 - `NODE_ENV=production`
 - `PORT=3000`
 - `DATABASE_URL` (Managed PostgreSQL connection string, typically with SSL)
-- `AUTH_TOKEN_SECRET`
+- `AUTH_TOKEN_SECRET` (strong unique secret, at least 32 characters)
+- `CORS_ALLOWED_ORIGINS` (comma-separated explicit browser origins, e.g. `https://orders.example.com`)
 - `EMAIL_PROVIDER=none|resend`
 - `RESEND_API_KEY` and `EMAIL_FROM` if `EMAIL_PROVIDER=resend`
 
 Optional:
 - `RUN_DB_MIGRATIONS=true|false` (default `true`)
 - `TENANT_BASE_DOMAIN`
-- `DEFAULT_RESTAURANT_ID` (dev fallback only)
+- `DEFAULT_RESTAURANT_ID` (dev fallback only; leave unset in production)
 
 ### Run (example)
 
@@ -40,7 +41,8 @@ docker run --rm -p 3000:3000 \
   -e NODE_ENV=production \
   -e PORT=3000 \
   -e DATABASE_URL='postgresql://user:pass@db-host:25060/db?sslmode=require' \
-  -e AUTH_TOKEN_SECRET='replace-me' \
+  -e AUTH_TOKEN_SECRET='replace-with-a-long-random-secret-of-at-least-32-chars' \
+  -e CORS_ALLOWED_ORIGINS='https://orders.example.com' \
   -e EMAIL_PROVIDER=none \
   alalouche-backend
 ```
@@ -58,7 +60,9 @@ Current baseline strategy is `prisma migrate deploy` at container startup via en
 ### Build
 
 ```bash
-docker build -t alalouche-frontend ./frontend
+docker build \
+  --build-arg VITE_API_BASE_URL='https://api.orders.example.com' \
+  -t alalouche-frontend ./frontend
 ```
 
 ### Runtime
@@ -93,12 +97,15 @@ docker run --rm -p 8080:80 alalouche-frontend
 Use the helper script from repo root:
 
 ```bash
-BACKEND_ENV_FILE=/absolute/path/to/backend.prod.env ./scripts/smoke-test-docker-deploy.sh
+BACKEND_ENV_FILE=/absolute/path/to/backend.prod.env \
+FRONTEND_API_BASE_URL='https://api.orders.example.com' \
+./scripts/smoke-test-docker-deploy.sh
 ```
 
 The env file should include at least:
 - `DATABASE_URL`
 - `AUTH_TOKEN_SECRET`
+- `CORS_ALLOWED_ORIGINS`
 - `EMAIL_PROVIDER` (and Resend vars when using `resend`)
 
 The smoke script validates:
