@@ -183,7 +183,8 @@ npm run prisma:seed
 ```
 
 Seed creates:
-- one default restaurant (`DEFAULT_RESTAURANT_ID`)
+- one primary restaurant (`DEFAULT_RESTAURANT_ID` in local/dev, or `alalouche` if seeded in production)
+- an extra demo tenant only outside production by default (`SEED_INCLUDE_DEMO_TENANT=true` can force it)
 - optional sample orders when `SEED_SAMPLE_ORDERS=true`
 
 ### 7) Start backend

@@ -1,4 +1,5 @@
 const TENANT_SLUG_HINT_KEY = 'saas:tenant_slug_hint';
+const LOCALHOST_HOSTNAMES = new Set(['localhost', '127.0.0.1', '0.0.0.0', '::1']);
 
 let currentTenantSlug = null;
 
@@ -7,7 +8,23 @@ function normalizeSlug(value) {
   return normalized || null;
 }
 
+function shouldUseStoredSlugHint() {
+  if (typeof window === 'undefined') {
+    return false;
+  }
+
+  if (import.meta.env.DEV) {
+    return true;
+  }
+
+  return LOCALHOST_HOSTNAMES.has(window.location.hostname);
+}
+
 function readStoredSlugHint() {
+  if (!shouldUseStoredSlugHint()) {
+    return null;
+  }
+
   try {
     return normalizeSlug(localStorage.getItem(TENANT_SLUG_HINT_KEY));
   } catch {
@@ -16,6 +33,10 @@ function readStoredSlugHint() {
 }
 
 function writeStoredSlugHint(slug) {
+  if (!shouldUseStoredSlugHint()) {
+    return;
+  }
+
   try {
     if (!slug) {
       localStorage.removeItem(TENANT_SLUG_HINT_KEY);
@@ -50,7 +71,7 @@ export function setCurrentTenantSlug(slug) {
 }
 
 export function getCurrentTenantSlug() {
-  return currentTenantSlug || readStoredSlugHint() || readSlugFromUrl();
+  return readSlugFromUrl() || currentTenantSlug || readStoredSlugHint();
 }
 
 export function getTenantRequestHeaders() {
