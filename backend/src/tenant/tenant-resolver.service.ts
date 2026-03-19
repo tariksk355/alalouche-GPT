@@ -39,11 +39,11 @@ export class TenantResolverService {
       return null;
     }
 
-    if (process.env.NODE_ENV === 'production') {
+    if (this.isProduction()) {
       return null;
     }
 
-    const fallbackRestaurantId = process.env.DEFAULT_RESTAURANT_ID;
+    const fallbackRestaurantId = (process.env.DEFAULT_RESTAURANT_ID || '').trim();
     if (!fallbackRestaurantId) {
       return null;
     }
@@ -58,6 +58,10 @@ export class TenantResolverService {
       slug: restaurant.slug,
       source: 'dev_default',
     };
+  }
+
+  private isProduction(): boolean {
+    return (process.env.NODE_ENV || '').trim().toLowerCase() === 'production';
   }
 
   private hasExplicitTenantHint(req: Request): boolean {

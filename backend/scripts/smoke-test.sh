@@ -9,10 +9,13 @@ PAIRING_RESTAURANT_SLUG="${PAIRING_RESTAURANT_SLUG:-alalouche}"
 command -v curl >/dev/null || { echo "curl is required"; exit 1; }
 command -v jq >/dev/null || { echo "jq is required"; exit 1; }
 
-echo "[1/8] GET /health"
+echo "[1/9] GET /health"
 curl -s "$API_URL/health" | jq
 
-echo "[2/8] POST /admin/auth/login"
+echo "[2/9] GET /ready"
+curl -s "$API_URL/ready" | jq
+
+echo "[3/9] POST /admin/auth/login"
 ADMIN_LOGIN_RESP=$(curl -s -X POST "$API_URL/admin/auth/login" \
   -H "Content-Type: application/json" \
   -d "{\"username\":\"$ADMIN_USERNAME\",\"password\":\"$ADMIN_PASSWORD\"}")
@@ -24,7 +27,7 @@ if [[ -z "$ADMIN_BEARER" || "$ADMIN_BEARER" == "null" ]]; then
   exit 1
 fi
 
-echo "[3/8] POST /admin/device-pairing-codes (bearer token)"
+echo "[4/9] POST /admin/device-pairing-codes (bearer token)"
 PAIRING_CODE_RESP=$(curl -s -X POST "$API_URL/admin/device-pairing-codes" \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer $ADMIN_BEARER" \
@@ -33,29 +36,29 @@ PAIRING_CODE_RESP=$(curl -s -X POST "$API_URL/admin/device-pairing-codes" \
 echo "$PAIRING_CODE_RESP" | jq
 PAIRING_CODE=$(echo "$PAIRING_CODE_RESP" | jq -r '.data.code')
 
-echo "[4/8] POST /devices/pairing-requests"
+echo "[5/9] POST /devices/pairing-requests"
 PAIRING_REQUEST_RESP=$(curl -s -X POST "$API_URL/devices/pairing-requests" \
   -H "Content-Type: application/json" \
   -d "{\"pairingCode\":\"$PAIRING_CODE\",\"deviceName\":\"Sunmi Dev Unit\",\"deviceModel\":\"V2\",\"platform\":\"android\",\"appVersion\":\"1.0.0\",\"installId\":\"dev-install-001\"}")
 echo "$PAIRING_REQUEST_RESP" | jq
 PAIRING_REQUEST_ID=$(echo "$PAIRING_REQUEST_RESP" | jq -r '.data.pairingRequestId')
 
-echo "[5/8] GET /admin/device-pairing-requests"
+echo "[6/9] GET /admin/device-pairing-requests"
 curl -s "$API_URL/admin/device-pairing-requests" \
   -H "Authorization: Bearer $ADMIN_BEARER" | jq
 
-echo "[6/8] POST /admin/device-pairing-requests/:id/confirm"
+echo "[7/9] POST /admin/device-pairing-requests/:id/confirm"
 curl -s -X POST "$API_URL/admin/device-pairing-requests/$PAIRING_REQUEST_ID/confirm" \
   -H "Authorization: Bearer $ADMIN_BEARER" | jq
 
-echo "[7/8] POST /devices/verify"
+echo "[8/9] POST /devices/verify"
 VERIFY_RESP=$(curl -s -X POST "$API_URL/devices/verify" \
   -H "Content-Type: application/json" \
   -d "{\"pairingRequestId\":\"$PAIRING_REQUEST_ID\"}")
 echo "$VERIFY_RESP" | jq
 DEVICE_TOKEN=$(echo "$VERIFY_RESP" | jq -r '.data.deviceToken')
 
-echo "[8/8] GET /devices/me + /receiver/orders"
+echo "[9/9] GET /devices/me + /receiver/orders"
 curl -s "$API_URL/devices/me" -H "Authorization: Bearer $DEVICE_TOKEN" | jq
 curl -s "$API_URL/receiver/orders" -H "Authorization: Bearer $DEVICE_TOKEN" | jq
 
