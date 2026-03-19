@@ -548,6 +548,18 @@ export class NotificationService {
     };
   }
 
+  private sanitizeRestaurantDisplayName(name: string): string {
+    const trimmed = name.trim();
+    if (!trimmed) return 'Our restaurant';
+
+    const sanitized = trimmed
+      .replace(/\s*\(\s*local\s*\)\s*$/i, '')
+      .replace(/\s*-\s*local\s*$/i, '')
+      .replace(/\s+local\s*$/i, '');
+
+    return sanitized.trim() || trimmed;
+  }
+
   private getRestaurantEmailContext(restaurant: {
     id: string;
     name: string;
@@ -569,10 +581,14 @@ export class NotificationService {
     const accentColorCandidate = [branding.accentColor, branding.primaryColor, branding.brandColor].find(
       (value) => typeof value === 'string' && value.trim().length > 0,
     );
+    const addressCandidate = [
+      contactInfo.address,
+      [contactInfo.addressLine1, contactInfo.postalCode, contactInfo.city].filter((value) => typeof value === 'string' && value.trim()).join(' '),
+    ].find((value) => typeof value === 'string' && value.trim().length > 0);
 
     return {
       id: restaurant.id,
-      name: restaurant.name,
+      name: this.sanitizeRestaurantDisplayName(restaurant.name),
       timezone: restaurant.timezone || 'Europe/Zurich',
       locale: restaurant.locale || 'en-CH',
       currency: restaurant.currency || 'CHF',
@@ -581,7 +597,7 @@ export class NotificationService {
       accentColor: typeof accentColorCandidate === 'string' ? accentColorCandidate.trim() : '#1f2937',
       contactPhone: typeof contactInfo.phone === 'string' ? contactInfo.phone.trim() : null,
       contactEmail: typeof contactInfo.email === 'string' ? contactInfo.email.trim() : null,
-      contactAddress: typeof contactInfo.address === 'string' ? contactInfo.address.trim() : null,
+      contactAddress: typeof addressCandidate === 'string' ? addressCandidate.trim() : null,
     };
   }
 
@@ -765,20 +781,26 @@ export class NotificationService {
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>${this.escapeHtml(params.title)}</title>
   </head>
-  <body style="margin:0;padding:0;background:#f3f4f6;font-family:Arial,Helvetica,sans-serif;color:#111827;">
+  <body style="margin:0;padding:0;background:#f5f1ec;font-family:Arial,Helvetica,sans-serif;color:#111827;">
     <div style="display:none;max-height:0;overflow:hidden;opacity:0;">${this.escapeHtml(params.preheader)}</div>
-    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f3f4f6;padding:24px 12px;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f5f1ec;padding:28px 12px;">
       <tr>
         <td align="center">
-          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:640px;background:#ffffff;border-radius:16px;overflow:hidden;">
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:640px;background:#ffffff;border-radius:20px;overflow:hidden;border:1px solid #ece7e1;">
             <tr>
-              <td style="background:${this.escapeHtml(params.context.primaryColor)};padding:28px 32px 22px;text-align:center;">
+              <td style="background:${this.escapeHtml(params.context.primaryColor)};height:6px;font-size:0;line-height:0;">&nbsp;</td>
+            </tr>
+            <tr>
+              <td style="background:#fbf8f4;padding:26px 32px 24px;text-align:center;border-bottom:1px solid #eee7df;">
                 ${
                   params.context.logoUrl
-                    ? `<img src="${this.escapeHtml(params.context.logoUrl)}" alt="${this.escapeHtml(params.context.name)} logo" style="max-width:120px;max-height:72px;width:auto;height:auto;display:block;margin:0 auto 14px;" />`
+                    ? `<div style="margin:0 auto 16px;display:inline-block;background:#ffffff;border:1px solid #ede7df;border-radius:16px;padding:14px 18px;">
+                        <img src="${this.escapeHtml(params.context.logoUrl)}" alt="${this.escapeHtml(params.context.name)} logo" style="max-width:180px;max-height:82px;width:auto;height:auto;display:block;margin:0 auto;" />
+                      </div>`
                     : ''
                 }
-                <div style="color:#ffffff;font-size:28px;font-weight:700;line-height:1.2;">${this.escapeHtml(params.context.name)}</div>
+                <div style="color:#111827;font-size:30px;font-weight:700;line-height:1.2;">${this.escapeHtml(params.context.name)}</div>
+                <div style="margin-top:8px;color:#6b7280;font-size:13px;letter-spacing:0.08em;text-transform:uppercase;">Customer confirmation</div>
               </td>
             </tr>
             <tr>
@@ -786,11 +808,11 @@ export class NotificationService {
                 <div style="display:inline-block;background:${this.escapeHtml(params.badgeBackground)};color:${this.escapeHtml(params.badgeColor)};padding:7px 12px;border-radius:999px;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.04em;">
                   ${this.escapeHtml(params.badgeLabel)}
                 </div>
-                <h1 style="margin:18px 0 12px;font-size:28px;line-height:1.2;color:#111827;">${this.escapeHtml(params.title)}</h1>
-                <p style="margin:0 0 24px;color:#4b5563;font-size:15px;line-height:1.7;">${this.escapeHtml(params.intro)}</p>
-                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #e5e7eb;border-radius:12px;padding:0 20px;background:#ffffff;">
+                <h1 style="margin:18px 0 12px;font-size:30px;line-height:1.2;color:#111827;">${this.escapeHtml(params.title)}</h1>
+                <p style="margin:0 0 26px;color:#4b5563;font-size:15px;line-height:1.8;">${this.escapeHtml(params.intro)}</p>
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #ece7e1;border-radius:16px;padding:0 20px;background:#fffdfa;">
                   <tr>
-                    <td style="padding:8px 20px 4px;">
+                    <td style="padding:10px 22px 6px;">
                       <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
                         ${detailRowsHtml}
                       </table>
@@ -799,7 +821,7 @@ export class NotificationService {
                 </table>
                 ${
                   params.notes
-                    ? `<div style="margin-top:20px;padding:18px 20px;background:#f9fafb;border-radius:12px;border:1px solid #e5e7eb;">
+                    ? `<div style="margin-top:22px;padding:18px 20px;background:#faf7f2;border-radius:14px;border:1px solid #ece7e1;">
                         <div style="font-size:12px;font-weight:700;letter-spacing:0.04em;text-transform:uppercase;color:#6b7280;margin-bottom:8px;">Notes</div>
                         <div style="font-size:14px;line-height:1.7;color:#374151;">${this.escapeHtml(params.notes)}</div>
                       </div>`
@@ -807,17 +829,17 @@ export class NotificationService {
                 }
                 ${
                   params.closing
-                    ? `<p style="margin:24px 0 0;color:#4b5563;font-size:14px;line-height:1.7;">${this.escapeHtml(params.closing)}</p>`
+                    ? `<p style="margin:26px 0 0;color:#4b5563;font-size:14px;line-height:1.8;">${this.escapeHtml(params.closing)}</p>`
                     : ''
                 }
               </td>
             </tr>
             <tr>
-              <td style="padding:22px 32px;background:#111827;text-align:center;">
-                <div style="color:#ffffff;font-size:14px;font-weight:700;margin-bottom:6px;">${this.escapeHtml(params.context.name)}</div>
+              <td style="padding:22px 32px;background:#f8f3ed;border-top:1px solid #eee7df;text-align:center;">
+                <div style="color:${this.escapeHtml(params.context.accentColor)};font-size:14px;font-weight:700;margin-bottom:6px;">${this.escapeHtml(params.context.name)}</div>
                 ${
                   contactBits.length > 0
-                    ? `<div style="color:#d1d5db;font-size:13px;line-height:1.6;">${contactBits
+                    ? `<div style="color:#6b7280;font-size:13px;line-height:1.7;">${contactBits
                         .map((value) => this.escapeHtml(String(value)))
                         .join(' · ')}</div>`
                     : ''
