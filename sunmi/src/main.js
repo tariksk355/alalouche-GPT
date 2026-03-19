@@ -948,6 +948,8 @@ function render() {
           <span class="status-pill">${formatReservationStatus(reservation.status)}</span>
         </div>
         <div class="subtle">${reservation.guestCount || '-'} couverts • ${formatReservationDate(reservation.reservationDate)}</div>
+        ${reservation.customerPhone ? `<div class="subtle">Téléphone: ${escapeHtml(reservation.customerPhone)}</div>` : ''}
+        ${reservation.customerEmail ? `<div class="subtle">Email: ${escapeHtml(reservation.customerEmail)}</div>` : ''}
         ${reservation.notes ? `<div class="subtle">Note: ${reservation.notes}</div>` : ''}
         <div class="btn-row">
           <button class="btn-accept" data-action="reservation_confirmed" data-id="${reservation.id}">Confirmer</button>
