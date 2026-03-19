@@ -57,6 +57,7 @@ interface RestaurantEmailContext {
   locale: string;
   currency: string;
   logoUrl: string | null;
+  logoSourcePath: string | null;
   primaryColor: string;
   accentColor: string;
   contactPhone: string | null;
@@ -68,6 +69,10 @@ interface TransactionalEmailMessage {
   subject: string;
   text: string;
   html: string;
+  debug: {
+    logoUrl: string | null;
+    logoSourcePath: string | null;
+  };
 }
 
 @Injectable()
@@ -560,6 +565,26 @@ export class NotificationService {
     return sanitized.trim() || trimmed;
   }
 
+  private resolveBrandingLogo(branding: Record<string, unknown>): { url: string | null; sourcePath: string | null } {
+    const nestedLogo = branding.logo && typeof branding.logo === 'object' ? (branding.logo as Record<string, unknown>) : null;
+    const candidates: Array<{ sourcePath: string; value: unknown }> = [
+      { sourcePath: 'branding.logoUrl', value: branding.logoUrl },
+      { sourcePath: 'branding.logo_url', value: branding.logo_url },
+      { sourcePath: 'branding.logo', value: branding.logo },
+      { sourcePath: 'branding.logo.url', value: nestedLogo?.url },
+    ];
+
+    const match = candidates.find((candidate) => typeof candidate.value === 'string' && candidate.value.trim().length > 0);
+    if (!match) {
+      return { url: null, sourcePath: null };
+    }
+
+    return {
+      url: String(match.value).trim(),
+      sourcePath: match.sourcePath,
+    };
+  }
+
   private getRestaurantEmailContext(restaurant: {
     id: string;
     name: string;
@@ -571,11 +596,7 @@ export class NotificationService {
   }): RestaurantEmailContext {
     const branding = (restaurant.branding as Record<string, unknown> | null) || {};
     const contactInfo = (restaurant.contactInfo as Record<string, unknown> | null) || {};
-    const nestedLogo = branding.logo && typeof branding.logo === 'object' ? (branding.logo as Record<string, unknown>) : null;
-
-    const logoCandidate = [branding.logoUrl, branding.logo_url, branding.logo, nestedLogo?.url].find(
-      (value) => typeof value === 'string' && value.trim().length > 0,
-    );
+    const resolvedLogo = this.resolveBrandingLogo(branding);
     const addressCandidate = [
       contactInfo.address,
       [contactInfo.addressLine1, contactInfo.postalCode, contactInfo.city].filter((value) => typeof value === 'string' && value.trim()).join(' '),
@@ -587,7 +608,8 @@ export class NotificationService {
       timezone: restaurant.timezone || 'Europe/Zurich',
       locale: 'fr-CH',
       currency: restaurant.currency || 'CHF',
-      logoUrl: typeof logoCandidate === 'string' ? logoCandidate.trim() : null,
+      logoUrl: resolvedLogo.url,
+      logoSourcePath: resolvedLogo.sourcePath,
       primaryColor: '#111111',
       accentColor: '#111111',
       contactPhone: typeof contactInfo.phone === 'string' ? contactInfo.phone.trim() : null,
@@ -950,6 +972,10 @@ export class NotificationService {
             ? `Si vous avez la moindre question, n’hésitez pas à nous contacter${context.contactPhone ? ` au ${context.contactPhone}` : ''}${context.contactEmail ? ` ou via ${context.contactEmail}` : ''}.`
             : 'Merci pour votre confiance.',
       }),
+      debug: {
+        logoUrl: context.logoUrl,
+        logoSourcePath: context.logoSourcePath,
+      },
     };
   }
 
@@ -1029,6 +1055,10 @@ export class NotificationService {
             ? `Si vous souhaitez modifier votre réservation, contactez-nous${context.contactPhone ? ` au ${context.contactPhone}` : ''}${context.contactEmail ? ` ou via ${context.contactEmail}` : ''}.`
             : 'Au plaisir de vous accueillir.',
       }),
+      debug: {
+        logoUrl: context.logoUrl,
+        logoSourcePath: context.logoSourcePath,
+      },
     };
   }
 
@@ -1111,7 +1141,15 @@ export class NotificationService {
         htmlContainsFrenchMarker,
         htmlContainsLogoImg,
         htmlContainsBlackWhitePalette,
+        resolvedLogoUrl: message.debug.logoUrl,
+        logoSourcePath: message.debug.logoSourcePath,
         htmlLogoSrc,
+        logoDiagnostic:
+          message.debug.logoUrl && htmlContainsLogoImg
+            ? 'logo_img_rendered_in_html'
+            : message.debug.logoUrl
+              ? 'logo_url_present_but_img_missing'
+              : 'logo_data_missing_or_unusable',
       }),
     );
 
