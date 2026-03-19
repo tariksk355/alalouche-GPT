@@ -75,6 +75,12 @@ interface TransactionalEmailMessage {
   };
 }
 
+interface MarketingEmailMessage {
+  subject: string;
+  text: string;
+  html: string;
+}
+
 @Injectable()
 export class NotificationService {
   private readonly logger = new Logger(NotificationService.name);
@@ -169,6 +175,7 @@ export class NotificationService {
     to: string;
     subject: string;
     text: string;
+    html?: string;
   }) {
     const response = await fetch('https://api.resend.com/emails', {
       method: 'POST',
@@ -181,6 +188,7 @@ export class NotificationService {
         to: [params.to],
         subject: params.subject,
         text: params.text,
+        ...(params.html ? { html: params.html } : {}),
       }),
     });
 
@@ -520,6 +528,7 @@ export class NotificationService {
     }
 
     const recipients = this.normalizeUniqueEmails(command.recipientEmails);
+    const marketingMessage = await this.buildMarketingEmail(command);
     let dispatchedCount = 0;
 
     for (const recipient of recipients) {
@@ -527,8 +536,9 @@ export class NotificationService {
         apiKey,
         from,
         to: recipient,
-        subject: command.subject,
-        text: command.body,
+        subject: marketingMessage.subject,
+        text: marketingMessage.text,
+        html: marketingMessage.html,
       });
 
       if (!result.ok) {
@@ -550,6 +560,121 @@ export class NotificationService {
       dispatchedCount,
       status: 'queued',
       note: 'dispatched_via_resend',
+    };
+  }
+
+  private async buildMarketingEmail(command: MarketingBulkEmailCommand): Promise<MarketingEmailMessage> {
+    const restaurant = await this.prisma.restaurant.findUnique({
+      where: { id: command.restaurantId },
+      select: {
+        id: true,
+        name: true,
+        branding: true,
+        contactInfo: true,
+        timezone: true,
+        locale: true,
+        currency: true,
+      },
+    });
+
+    const context = this.getRestaurantEmailContext(
+      restaurant || {
+        id: command.restaurantId,
+        name: 'Notre restaurant',
+        branding: null,
+        contactInfo: null,
+        timezone: 'Europe/Zurich',
+        locale: 'fr-CH',
+        currency: 'CHF',
+      },
+    );
+
+    const intro = 'Nous sommes heureux de partager cette communication avec vous.';
+    const bodyLines = command.body
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line, index, lines) => line.length > 0 || (index > 0 && lines[index - 1].length > 0));
+    const bodyHtml = bodyLines
+      .map((line) => (line.length > 0 ? `<p style="margin:0 0 18px;color:#374151;font-size:15px;line-height:1.85;">${this.escapeHtml(line)}</p>` : '<div style="height:10px;line-height:10px;font-size:0;">&nbsp;</div>'))
+      .join('');
+
+    const contactBits = [context.contactPhone, context.contactEmail, context.contactAddress].filter(Boolean);
+    const textLines = [
+      context.name,
+      '',
+      command.subject,
+      '',
+      command.body.trim(),
+      '',
+      ...(contactBits.length > 0 ? ['Contact :', contactBits.map((value) => String(value)).join(' · ')] : []),
+    ];
+
+    return {
+      subject: command.subject,
+      text: textLines.join('\n'),
+      html: `<!DOCTYPE html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>${this.escapeHtml(command.subject)}</title>
+  </head>
+  <body style="margin:0;padding:0;background:#f3f4f6;font-family:Arial,Helvetica,sans-serif;color:#111111;">
+    <div style="display:none;max-height:0;overflow:hidden;opacity:0;">${this.escapeHtml(command.subject)}</div>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f3f4f6;padding:28px 12px;">
+      <tr>
+        <td align="center">
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:680px;background:#ffffff;border-radius:22px;overflow:hidden;border:1px solid #e5e7eb;">
+            <tr>
+              <td style="background:#111111;height:8px;font-size:0;line-height:0;">&nbsp;</td>
+            </tr>
+            <tr>
+              <td style="padding:34px 36px 28px;text-align:center;border-bottom:1px solid #e5e7eb;">
+                ${
+                  context.logoUrl
+                    ? `<div style="margin:0 auto 18px;display:inline-block;background:#ffffff;border:1px solid #e5e7eb;border-radius:18px;padding:16px 22px;">
+                        <img src="${this.escapeHtml(context.logoUrl)}" alt="${this.escapeHtml(context.name)} logo" width="180" style="max-width:180px;max-height:88px;width:auto;height:auto;display:block;margin:0 auto;border:0;outline:none;text-decoration:none;-ms-interpolation-mode:bicubic;" />
+                      </div>`
+                    : ''
+                }
+                <div style="color:#111111;font-size:14px;font-weight:700;letter-spacing:0.16em;text-transform:uppercase;">${this.escapeHtml(context.name)}</div>
+                <h1 style="margin:18px 0 10px;font-size:34px;line-height:1.18;color:#111111;">${this.escapeHtml(command.subject)}</h1>
+                <p style="margin:0;color:#6b7280;font-size:15px;line-height:1.8;">${this.escapeHtml(intro)}</p>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:34px 36px 20px;">
+                <div style="padding:28px 28px 10px;background:#ffffff;border:1px solid #e5e7eb;border-radius:18px;box-shadow:0 8px 30px rgba(17,17,17,0.04);">
+                  ${bodyHtml || '<p style="margin:0;color:#374151;font-size:15px;line-height:1.85;">Merci pour votre attention.</p>'}
+                </div>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:0 36px 34px;">
+                <div style="padding:18px 20px;background:#f9fafb;border:1px solid #e5e7eb;border-radius:16px;">
+                  <div style="font-size:12px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:#6b7280;margin-bottom:8px;">À bientôt</div>
+                  <div style="font-size:15px;line-height:1.8;color:#374151;">Nous espérons avoir le plaisir de vous accueillir prochainement chez ${this.escapeHtml(context.name)}.</div>
+                </div>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:24px 36px;background:#111111;text-align:center;">
+                <div style="color:#ffffff;font-size:15px;font-weight:700;margin-bottom:6px;">${this.escapeHtml(context.name)}</div>
+                ${
+                  contactBits.length > 0
+                    ? `<div style="color:#d1d5db;font-size:13px;line-height:1.8;">${contactBits
+                        .map((value) => this.escapeHtml(String(value)))
+                        .join(' · ')}</div>`
+                    : '<div style="color:#d1d5db;font-size:13px;line-height:1.8;">Merci de votre fidélité.</div>'
+                }
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>`,
     };
   }
 
