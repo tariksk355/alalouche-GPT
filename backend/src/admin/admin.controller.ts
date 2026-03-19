@@ -29,6 +29,7 @@ import { UpdateAdminMenuItemDto } from './dto/update-admin-menu-item.dto';
 import { AdminAnalyticsService } from './admin-analytics.service';
 import { AdminSettingsService } from './admin-settings.service';
 import { UpdateAdminPrinterSettingsDto } from './dto/update-admin-printer-settings.dto';
+import { UpdateAdminBrandingSettingsDto } from './dto/update-admin-branding-settings.dto';
 import { AdminMarketingService } from './admin-marketing.service';
 import { SendAdminMarketingEmailDto } from './dto/send-admin-marketing-email.dto';
 import { AdminMenuImageStorageService } from './admin-menu-image-storage.service';
@@ -153,6 +154,29 @@ export class AdminController {
     return ok({ reservation });
   }
 
+
+  @Get('settings/branding')
+  async getBrandingSettings(
+    @Headers('authorization') authorization?: string,
+    @Headers('x-admin-token') adminToken?: string,
+    @Headers('x-restaurant-id') legacyRestaurantId?: string,
+  ) {
+    const auth = this.requireAdmin(authorization, adminToken, legacyRestaurantId);
+    const settings = await this.adminSettingsService.getBrandingSettings(auth.restaurantId);
+    return ok({ settings });
+  }
+
+  @Patch('settings/branding')
+  async updateBrandingSettings(
+    @Body() dto: UpdateAdminBrandingSettingsDto,
+    @Headers('authorization') authorization?: string,
+    @Headers('x-admin-token') adminToken?: string,
+    @Headers('x-restaurant-id') legacyRestaurantId?: string,
+  ) {
+    const auth = this.requireAdmin(authorization, adminToken, legacyRestaurantId);
+    const settings = await this.adminSettingsService.updateBrandingSettings(auth.restaurantId, dto);
+    return ok({ settings });
+  }
 
   @Get('settings/printer')
   async getPrinterSettings(

@@ -29,3 +29,19 @@ export async function updateAdminPrinterSettings(payload) {
   });
   return data.data.settings;
 }
+
+export async function getAdminBrandingSettings() {
+  const data = await backendClient.request('/admin/settings/branding', {
+    headers: authHeaders(),
+  });
+  return data.data.settings;
+}
+
+export async function updateAdminBrandingSettings(payload) {
+  const data = await backendClient.request('/admin/settings/branding', {
+    method: 'PATCH',
+    headers: authHeaders(),
+    body: JSON.stringify(payload),
+  });
+  return data.data.settings;
+}
