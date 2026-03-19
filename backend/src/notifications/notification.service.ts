@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Socket, connect as connectNet } from 'node:net';
 import { TLSSocket, connect as connectTls } from 'node:tls';
+import { PrismaService } from '../prisma/prisma.service';
 
 export type NotificationEventType =
   | 'order.status_changed'
@@ -49,9 +50,31 @@ interface SmtpClient {
   close: () => void;
 }
 
+interface RestaurantEmailContext {
+  id: string;
+  name: string;
+  timezone: string;
+  locale: string;
+  currency: string;
+  logoUrl: string | null;
+  primaryColor: string;
+  accentColor: string;
+  contactPhone: string | null;
+  contactEmail: string | null;
+  contactAddress: string | null;
+}
+
+interface TransactionalEmailMessage {
+  subject: string;
+  text: string;
+  html: string;
+}
+
 @Injectable()
 export class NotificationService {
   private readonly logger = new Logger(NotificationService.name);
+
+  constructor(private readonly prisma: PrismaService) {}
 
   private getMarketingProvider(): 'none' | 'resend' | 'unsupported' {
     const provider = (
@@ -362,6 +385,7 @@ export class NotificationService {
     to: string;
     subject: string;
     text: string;
+    html?: string;
   }) {
     let client: SmtpClient | null = null;
 
@@ -402,6 +426,7 @@ export class NotificationService {
       await client.writeLine('DATA');
       await this.expectSmtpResponse(client, [354], 'SMTP DATA');
 
+      const boundary = `boundary_${Date.now().toString(16)}_${Math.random().toString(16).slice(2)}`;
       const headers = [
         `From: ${params.config.from}`,
         `To: ${params.to}`,
@@ -409,10 +434,30 @@ export class NotificationService {
         ...(params.config.replyTo ? [`Reply-To: ${params.config.replyTo}`] : []),
         `Date: ${new Date().toUTCString()}`,
         'MIME-Version: 1.0',
-        'Content-Type: text/plain; charset=UTF-8',
+        ...(params.html
+          ? [`Content-Type: multipart/alternative; boundary="${boundary}"`]
+          : ['Content-Type: text/plain; charset=UTF-8', 'Content-Transfer-Encoding: 8bit']),
       ];
 
-      const data = `${headers.join('\r\n')}\r\n\r\n${this.escapeSmtpData(params.text)}\r\n.`;
+      const body = params.html
+        ? [
+            `--${boundary}`,
+            'Content-Type: text/plain; charset=UTF-8',
+            'Content-Transfer-Encoding: 8bit',
+            '',
+            this.escapeSmtpData(params.text),
+            '',
+            `--${boundary}`,
+            'Content-Type: text/html; charset=UTF-8',
+            'Content-Transfer-Encoding: 8bit',
+            '',
+            this.escapeSmtpData(params.html),
+            '',
+            `--${boundary}--`,
+          ].join('\r\n')
+        : this.escapeSmtpData(params.text);
+
+      const data = `${headers.join('\r\n')}\r\n\r\n${body}\r\n.`;
       await client.writeLine(data);
       await this.expectSmtpResponse(client, [250], 'SMTP message body');
 
@@ -503,24 +548,499 @@ export class NotificationService {
     };
   }
 
-  private buildEventEmail(event: NotificationEvent): { subject: string; text: string } {
+  private getRestaurantEmailContext(restaurant: {
+    id: string;
+    name: string;
+    timezone: string;
+    locale: string;
+    currency: string;
+    branding: unknown;
+    contactInfo: unknown;
+  }): RestaurantEmailContext {
+    const branding = (restaurant.branding as Record<string, unknown> | null) || {};
+    const contactInfo = (restaurant.contactInfo as Record<string, unknown> | null) || {};
+
+    const logoCandidate = [branding.logoUrl, branding.logo_url, branding.logo].find(
+      (value) => typeof value === 'string' && value.trim().length > 0,
+    );
+    const primaryColorCandidate = [branding.primaryColor, branding.brandColor, branding.accentColor].find(
+      (value) => typeof value === 'string' && value.trim().length > 0,
+    );
+    const accentColorCandidate = [branding.accentColor, branding.primaryColor, branding.brandColor].find(
+      (value) => typeof value === 'string' && value.trim().length > 0,
+    );
+
+    return {
+      id: restaurant.id,
+      name: restaurant.name,
+      timezone: restaurant.timezone || 'Europe/Zurich',
+      locale: restaurant.locale || 'en-CH',
+      currency: restaurant.currency || 'CHF',
+      logoUrl: typeof logoCandidate === 'string' ? logoCandidate.trim() : null,
+      primaryColor: typeof primaryColorCandidate === 'string' ? primaryColorCandidate.trim() : '#b5122a',
+      accentColor: typeof accentColorCandidate === 'string' ? accentColorCandidate.trim() : '#1f2937',
+      contactPhone: typeof contactInfo.phone === 'string' ? contactInfo.phone.trim() : null,
+      contactEmail: typeof contactInfo.email === 'string' ? contactInfo.email.trim() : null,
+      contactAddress: typeof contactInfo.address === 'string' ? contactInfo.address.trim() : null,
+    };
+  }
+
+  private escapeHtml(value: string): string {
+    return value
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  private formatDateTime(value: string | Date | null | undefined, context: RestaurantEmailContext): string | null {
+    if (!value) return null;
+    const date = value instanceof Date ? value : new Date(value);
+    if (Number.isNaN(date.getTime())) return null;
+
+    return new Intl.DateTimeFormat(context.locale || 'en-CH', {
+      weekday: 'long',
+      day: 'numeric',
+      month: 'long',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      timeZone: context.timezone || 'Europe/Zurich',
+    }).format(date);
+  }
+
+  private formatCurrency(value: unknown, context: RestaurantEmailContext): string | null {
+    const amount = typeof value === 'number' ? value : Number(value);
+    if (!Number.isFinite(amount)) return null;
+    return new Intl.NumberFormat(context.locale || 'en-CH', {
+      style: 'currency',
+      currency: context.currency || 'CHF',
+    }).format(amount);
+  }
+
+  private formatOrderType(value: unknown): string | null {
+    if (typeof value !== 'string') return null;
+    const normalized = value.trim().toLowerCase();
+    if (!normalized) return null;
+    if (normalized === 'delivery') return 'Delivery';
+    if (normalized === 'takeaway') return 'Pickup';
+    if (normalized === 'pickup') return 'Pickup';
+    if (normalized === 'dine_in') return 'Dine-in';
+    return normalized.replace(/[_-]+/g, ' ').replace(/\b\w/g, (char) => char.toUpperCase());
+  }
+
+  private getOrderStatusContent(status: string) {
+    switch (status) {
+      case 'new':
+        return {
+          subjectLabel: 'Order received',
+          title: 'We have received your order',
+          intro: 'Thank you for your order. Our team has received it and will start preparing it shortly.',
+          badgeLabel: 'Received',
+          badgeBackground: '#fef3c7',
+          badgeColor: '#92400e',
+        };
+      case 'accepted':
+        return {
+          subjectLabel: 'Order in preparation',
+          title: 'Your order is being prepared',
+          intro: 'Good news — your order has been accepted and is now being prepared.',
+          badgeLabel: 'In preparation',
+          badgeBackground: '#dbeafe',
+          badgeColor: '#1d4ed8',
+        };
+      case 'ready':
+        return {
+          subjectLabel: 'Order ready',
+          title: 'Your order is ready',
+          intro: 'Your order is now ready. If you selected pickup, you can come by at your convenience.',
+          badgeLabel: 'Ready',
+          badgeBackground: '#dcfce7',
+          badgeColor: '#166534',
+        };
+      case 'completed':
+        return {
+          subjectLabel: 'Order completed',
+          title: 'Thank you for your order',
+          intro: 'Your order has been completed. We hope you enjoy it and look forward to serving you again.',
+          badgeLabel: 'Completed',
+          badgeBackground: '#f3f4f6',
+          badgeColor: '#374151',
+        };
+      case 'cancelled':
+        return {
+          subjectLabel: 'Order update',
+          title: 'Update about your order',
+          intro: 'There has been an update to your order. Please contact the restaurant if you need any assistance.',
+          badgeLabel: 'Cancelled',
+          badgeBackground: '#fee2e2',
+          badgeColor: '#991b1b',
+        };
+      default:
+        return {
+          subjectLabel: 'Order update',
+          title: 'Update about your order',
+          intro: 'There is an update regarding your order.',
+          badgeLabel: 'Updated',
+          badgeBackground: '#f3f4f6',
+          badgeColor: '#374151',
+        };
+    }
+  }
+
+  private getReservationStatusContent(status: string) {
+    switch (status) {
+      case 'pending':
+        return {
+          subjectLabel: 'Reservation request received',
+          title: 'We have received your reservation request',
+          intro: 'Thank you for your reservation request. Our team will review availability and confirm it as soon as possible.',
+          badgeLabel: 'Pending confirmation',
+          badgeBackground: '#fef3c7',
+          badgeColor: '#92400e',
+        };
+      case 'confirmed':
+        return {
+          subjectLabel: 'Reservation confirmed',
+          title: 'Your reservation is confirmed',
+          intro: 'Great news — your table has been confirmed. We look forward to welcoming you.',
+          badgeLabel: 'Confirmed',
+          badgeBackground: '#dcfce7',
+          badgeColor: '#166534',
+        };
+      case 'cancelled':
+        return {
+          subjectLabel: 'Reservation update',
+          title: 'Update about your reservation',
+          intro: 'There has been an update to your reservation. Please contact the restaurant if you would like to arrange another time.',
+          badgeLabel: 'Cancelled',
+          badgeBackground: '#fee2e2',
+          badgeColor: '#991b1b',
+        };
+      default:
+        return {
+          subjectLabel: 'Reservation update',
+          title: 'Update about your reservation',
+          intro: 'There is an update regarding your reservation.',
+          badgeLabel: 'Updated',
+          badgeBackground: '#f3f4f6',
+          badgeColor: '#374151',
+        };
+    }
+  }
+
+  private buildEmailShell(params: {
+    context: RestaurantEmailContext;
+    preheader: string;
+    title: string;
+    intro: string;
+    badgeLabel: string;
+    badgeBackground: string;
+    badgeColor: string;
+    detailRows: Array<{ label: string; value: string }>;
+    notes?: string | null;
+    closing?: string | null;
+  }): string {
+    const detailRowsHtml = params.detailRows
+      .map(
+        (row) => `
+          <tr>
+            <td style="padding:12px 0;border-bottom:1px solid #e5e7eb;color:#6b7280;font-size:13px;font-weight:600;width:38%;">
+              ${this.escapeHtml(row.label)}
+            </td>
+            <td style="padding:12px 0;border-bottom:1px solid #e5e7eb;color:#111827;font-size:14px;text-align:right;">
+              ${this.escapeHtml(row.value)}
+            </td>
+          </tr>`,
+      )
+      .join('');
+
+    const contactBits = [params.context.contactPhone, params.context.contactEmail, params.context.contactAddress].filter(Boolean);
+
+    return `<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>${this.escapeHtml(params.title)}</title>
+  </head>
+  <body style="margin:0;padding:0;background:#f3f4f6;font-family:Arial,Helvetica,sans-serif;color:#111827;">
+    <div style="display:none;max-height:0;overflow:hidden;opacity:0;">${this.escapeHtml(params.preheader)}</div>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f3f4f6;padding:24px 12px;">
+      <tr>
+        <td align="center">
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:640px;background:#ffffff;border-radius:16px;overflow:hidden;">
+            <tr>
+              <td style="background:${this.escapeHtml(params.context.primaryColor)};padding:28px 32px 22px;text-align:center;">
+                ${
+                  params.context.logoUrl
+                    ? `<img src="${this.escapeHtml(params.context.logoUrl)}" alt="${this.escapeHtml(params.context.name)} logo" style="max-width:120px;max-height:72px;width:auto;height:auto;display:block;margin:0 auto 14px;" />`
+                    : ''
+                }
+                <div style="color:#ffffff;font-size:28px;font-weight:700;line-height:1.2;">${this.escapeHtml(params.context.name)}</div>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:32px;">
+                <div style="display:inline-block;background:${this.escapeHtml(params.badgeBackground)};color:${this.escapeHtml(params.badgeColor)};padding:7px 12px;border-radius:999px;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.04em;">
+                  ${this.escapeHtml(params.badgeLabel)}
+                </div>
+                <h1 style="margin:18px 0 12px;font-size:28px;line-height:1.2;color:#111827;">${this.escapeHtml(params.title)}</h1>
+                <p style="margin:0 0 24px;color:#4b5563;font-size:15px;line-height:1.7;">${this.escapeHtml(params.intro)}</p>
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #e5e7eb;border-radius:12px;padding:0 20px;background:#ffffff;">
+                  <tr>
+                    <td style="padding:8px 20px 4px;">
+                      <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+                        ${detailRowsHtml}
+                      </table>
+                    </td>
+                  </tr>
+                </table>
+                ${
+                  params.notes
+                    ? `<div style="margin-top:20px;padding:18px 20px;background:#f9fafb;border-radius:12px;border:1px solid #e5e7eb;">
+                        <div style="font-size:12px;font-weight:700;letter-spacing:0.04em;text-transform:uppercase;color:#6b7280;margin-bottom:8px;">Notes</div>
+                        <div style="font-size:14px;line-height:1.7;color:#374151;">${this.escapeHtml(params.notes)}</div>
+                      </div>`
+                    : ''
+                }
+                ${
+                  params.closing
+                    ? `<p style="margin:24px 0 0;color:#4b5563;font-size:14px;line-height:1.7;">${this.escapeHtml(params.closing)}</p>`
+                    : ''
+                }
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:22px 32px;background:#111827;text-align:center;">
+                <div style="color:#ffffff;font-size:14px;font-weight:700;margin-bottom:6px;">${this.escapeHtml(params.context.name)}</div>
+                ${
+                  contactBits.length > 0
+                    ? `<div style="color:#d1d5db;font-size:13px;line-height:1.6;">${contactBits
+                        .map((value) => this.escapeHtml(String(value)))
+                        .join(' · ')}</div>`
+                    : ''
+                }
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>`;
+  }
+
+  private async buildOrderEventEmail(
+    event: NotificationEvent,
+    context: RestaurantEmailContext,
+  ): Promise<TransactionalEmailMessage> {
+    const orderId = typeof event.payload.orderId === 'string' ? event.payload.orderId : null;
+    const order = orderId
+      ? await this.prisma.order.findFirst({
+          where: { id: orderId, restaurantId: event.restaurantId },
+        })
+      : null;
+
+    const payload = (order?.payload as Record<string, unknown> | null) || {};
+    const status = String(order?.status || event.payload.status || 'updated').toLowerCase();
+    const orderNumber = String(order?.orderNumber || event.payload.orderNumber || event.payload.orderId || 'your order');
+    const customerName =
+      typeof order?.customerName === 'string'
+        ? order.customerName
+        : typeof event.payload.customerName === 'string'
+          ? event.payload.customerName
+          : 'there';
+    const customerPhone =
+      typeof payload.customerPhone === 'string'
+        ? payload.customerPhone
+        : typeof event.payload.customerPhone === 'string'
+          ? event.payload.customerPhone
+          : null;
+    const orderType = this.formatOrderType(payload.orderType);
+    const estimatedReadyAt =
+      typeof payload.readyAt === 'string'
+        ? this.formatDateTime(payload.readyAt, context)
+        : typeof event.payload.prepMinutes === 'number'
+          ? `About ${event.payload.prepMinutes} minutes`
+          : null;
+    const totalAmount = this.formatCurrency(payload.totalAmount ?? order?.totalAmount?.toString(), context);
+    const items = Array.isArray(payload.items)
+      ? payload.items
+          .filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === 'object')
+          .map((item) => {
+            const name = typeof item.name === 'string' ? item.name : 'Item';
+            const quantity = Number(item.quantity || 1);
+            return `${quantity} × ${name}`;
+          })
+      : [];
+    const statusContent = this.getOrderStatusContent(status);
+
+    const detailRows = [
+      { label: 'Order reference', value: orderNumber },
+      ...(orderType ? [{ label: 'Order type', value: orderType }] : []),
+      ...(estimatedReadyAt
+        ? [{ label: status === 'accepted' ? 'Estimated ready time' : 'Timing', value: estimatedReadyAt }]
+        : []),
+      ...(customerPhone ? [{ label: 'Phone', value: customerPhone }] : []),
+      ...(totalAmount ? [{ label: 'Total', value: totalAmount }] : []),
+      ...(items.length > 0 ? [{ label: 'Order summary', value: items.join(', ') }] : []),
+    ];
+
+    const subject = `${statusContent.subjectLabel} - ${context.name}${orderNumber ? ` - ${orderNumber}` : ''}`;
+    const textLines = [
+      `Hello ${customerName},`,
+      '',
+      statusContent.intro,
+      '',
+      `Restaurant: ${context.name}`,
+      `Order reference: ${orderNumber}`,
+      ...(orderType ? [`Order type: ${orderType}`] : []),
+      ...(estimatedReadyAt ? [`${status === 'accepted' ? 'Estimated ready time' : 'Timing'}: ${estimatedReadyAt}`] : []),
+      ...(customerPhone ? [`Phone: ${customerPhone}`] : []),
+      ...(totalAmount ? [`Total: ${totalAmount}`] : []),
+      ...(items.length > 0 ? ['Order summary:', ...items.map((item) => `- ${item}`)] : []),
+      '',
+      `Current status: ${statusContent.badgeLabel}`,
+      '',
+      ...(context.contactPhone || context.contactEmail
+        ? [`Questions? Contact us${context.contactPhone ? ` on ${context.contactPhone}` : ''}${context.contactEmail ? ` or at ${context.contactEmail}` : ''}.`]
+        : []),
+      `Thank you,`,
+      context.name,
+    ];
+
+    return {
+      subject,
+      text: textLines.join('\n'),
+      html: this.buildEmailShell({
+        context,
+        preheader: `${statusContent.subjectLabel} for ${orderNumber}`,
+        title: statusContent.title,
+        intro: `Hello ${customerName}, ${statusContent.intro.charAt(0).toLowerCase()}${statusContent.intro.slice(1)}`,
+        badgeLabel: statusContent.badgeLabel,
+        badgeBackground: statusContent.badgeBackground,
+        badgeColor: statusContent.badgeColor,
+        detailRows,
+        closing:
+          context.contactPhone || context.contactEmail
+            ? `If you have any questions, feel free to reach out${context.contactPhone ? ` on ${context.contactPhone}` : ''}${context.contactEmail ? ` or via ${context.contactEmail}` : ''}.`
+            : 'Thank you for choosing us.',
+      }),
+    };
+  }
+
+  private async buildReservationEventEmail(
+    event: NotificationEvent,
+    context: RestaurantEmailContext,
+  ): Promise<TransactionalEmailMessage> {
+    const reservationId = typeof event.payload.reservationId === 'string' ? event.payload.reservationId : null;
+    const reservation = reservationId
+      ? await this.prisma.reservation.findFirst({
+          where: { id: reservationId, restaurantId: event.restaurantId },
+        })
+      : null;
+
+    const status = String(reservation?.status || event.payload.status || 'updated').toLowerCase();
+    const reservationDate = this.formatDateTime(
+      reservation?.reservationDate || (typeof event.payload.reservationDate === 'string' ? event.payload.reservationDate : null),
+      context,
+    );
+    const customerName =
+      typeof reservation?.customerName === 'string'
+        ? reservation.customerName
+        : typeof event.payload.customerName === 'string'
+          ? event.payload.customerName
+          : 'there';
+    const guestCount =
+      typeof reservation?.guestCount === 'number'
+        ? reservation.guestCount
+        : Number.isFinite(Number(event.payload.guestCount))
+          ? Number(event.payload.guestCount)
+          : null;
+    const notes = typeof reservation?.notes === 'string' ? reservation.notes : null;
+    const statusContent = this.getReservationStatusContent(status);
+    const guestLabel = guestCount ? `${guestCount} guest${guestCount > 1 ? 's' : ''}` : null;
+
+    const detailRows = [
+      ...(reservationDate ? [{ label: 'Reservation time', value: reservationDate }] : []),
+      ...(guestLabel ? [{ label: 'Party size', value: guestLabel }] : []),
+      ...(customerName ? [{ label: 'Guest name', value: customerName }] : []),
+      { label: 'Status', value: statusContent.badgeLabel },
+    ];
+
+    const subject = `${statusContent.subjectLabel} - ${context.name}`;
+    const textLines = [
+      `Hello ${customerName},`,
+      '',
+      statusContent.intro,
+      '',
+      `Restaurant: ${context.name}`,
+      ...(reservationDate ? [`Reservation time: ${reservationDate}`] : []),
+      ...(guestLabel ? [`Party size: ${guestLabel}`] : []),
+      `Status: ${statusContent.badgeLabel}`,
+      ...(notes ? ['', 'Notes:', notes] : []),
+      '',
+      ...(context.contactPhone || context.contactEmail
+        ? [`If you need anything, contact us${context.contactPhone ? ` on ${context.contactPhone}` : ''}${context.contactEmail ? ` or at ${context.contactEmail}` : ''}.`]
+        : []),
+      `Thank you,`,
+      context.name,
+    ];
+
+    return {
+      subject,
+      text: textLines.join('\n'),
+      html: this.buildEmailShell({
+        context,
+        preheader: `${statusContent.subjectLabel} from ${context.name}`,
+        title: statusContent.title,
+        intro: `Hello ${customerName}, ${statusContent.intro.charAt(0).toLowerCase()}${statusContent.intro.slice(1)}`,
+        badgeLabel: statusContent.badgeLabel,
+        badgeBackground: statusContent.badgeBackground,
+        badgeColor: statusContent.badgeColor,
+        detailRows,
+        notes,
+        closing:
+          context.contactPhone || context.contactEmail
+            ? `If you need to make a change, please contact us${context.contactPhone ? ` on ${context.contactPhone}` : ''}${context.contactEmail ? ` or via ${context.contactEmail}` : ''}.`
+            : 'We look forward to welcoming you.',
+      }),
+    };
+  }
+
+  private async buildEventEmail(event: NotificationEvent): Promise<TransactionalEmailMessage> {
+    const restaurant = await this.prisma.restaurant.findUnique({
+      where: { id: event.restaurantId },
+      select: {
+        id: true,
+        name: true,
+        branding: true,
+        contactInfo: true,
+        timezone: true,
+        locale: true,
+        currency: true,
+      },
+    });
+
+    const context = this.getRestaurantEmailContext(
+      restaurant || {
+        id: event.restaurantId,
+        name: 'Our restaurant',
+        branding: null,
+        contactInfo: null,
+        timezone: 'Europe/Zurich',
+        locale: 'en-CH',
+        currency: 'CHF',
+      },
+    );
+
     if (event.type === 'order.status_changed') {
-      const orderNumber = String(event.payload.orderNumber || event.payload.orderId || '');
-      const status = String(event.payload.status || 'updated');
-      return {
-        subject: orderNumber ? `Order ${orderNumber} update` : 'Order update',
-        text: `Your order status is now: ${status}.`,
-      };
+      return this.buildOrderEventEmail(event, context);
     }
 
-    const reservationDate = typeof event.payload.reservationDate === 'string' ? event.payload.reservationDate : '';
-    const status = String(event.payload.status || 'updated');
-    return {
-      subject: 'Reservation update',
-      text: reservationDate
-        ? `Your reservation (${reservationDate}) status is now: ${status}.`
-        : `Your reservation status is now: ${status}.`,
-    };
+    return this.buildReservationEventEmail(event, context);
   }
 
   async publish(event: NotificationEvent): Promise<void> {
@@ -551,12 +1071,13 @@ export class NotificationService {
     const smtpConfig = this.getSmtpConfig();
     if (!smtpConfig) return;
 
-    const message = this.buildEventEmail(event);
+    const message = await this.buildEventEmail(event);
     const result = await this.sendViaSmtp({
       config: smtpConfig,
       to: recipient,
       subject: message.subject,
       text: message.text,
+      html: message.html,
     });
 
     if (!result.ok) {

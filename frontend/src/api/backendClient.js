@@ -1,5 +1,5 @@
 import { getTenantRequestHeaders } from '@/lib/tenantRuntime';
-import { API_BASE_URL } from '@/lib/api/config';
+import { API_BASE_URL, buildApiUrl } from '@/lib/api/config';
 
 /**
  * @param {string} path
@@ -17,7 +17,8 @@ async function request(path, options = {}) {
     defaultHeaders['Content-Type'] = 'application/json';
   }
 
-  const response = await fetch(`${API_BASE_URL}${path}`, {
+  const requestUrl = buildApiUrl(path);
+  const response = await fetch(requestUrl, {
     ...fetchOptions,
     headers: defaultHeaders,
   });
