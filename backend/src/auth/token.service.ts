@@ -19,7 +19,7 @@ export class TokenService {
       exp: Math.floor(Date.now() / 1000) + this.expiresInSeconds,
     };
     const encoded = Buffer.from(JSON.stringify(body)).toString('base64url');
-    const signature = createHmac('sha256', this.secret).update(encoded).digest('base64url');
+    const signature = createHmac('sha256', this.signingSecret).update(encoded).digest('base64url');
     return `${encoded}.${signature}`;
   }
 
@@ -29,8 +29,8 @@ export class TokenService {
       throw new Error('Invalid token format');
     }
 
-    const expected = createHmac('sha256', this.secret).update(encoded).digest('base64url');
-    if (expected !== signature) {
+    const isValid = this.verificationSecrets.some((secret) => createHmac('sha256', secret).update(encoded).digest('base64url') === signature);
+    if (!isValid) {
       throw new Error('Invalid token signature');
     }
 
@@ -43,9 +43,9 @@ export class TokenService {
     return payload;
   }
 
-  private get secret(): string {
-    const configured = (process.env.AUTH_TOKEN_SECRET || '').trim();
-    if (configured) {
+  private get signingSecret(): string {
+    const configured = process.env.AUTH_TOKEN_SECRET;
+    if (typeof configured === 'string' && configured.trim()) {
       return configured;
     }
 
@@ -54,5 +54,18 @@ export class TokenService {
     }
 
     return 'dev-auth-token-secret';
+  }
+
+  private get verificationSecrets(): string[] {
+    const configured = process.env.AUTH_TOKEN_SECRET;
+    if (typeof configured === 'string' && configured.trim()) {
+      return [...new Set([configured, configured.trim()].filter((value) => value.length > 0))];
+    }
+
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error('AUTH_TOKEN_SECRET must be configured in production.');
+    }
+
+    return ['dev-auth-token-secret'];
   }
 }

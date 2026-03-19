@@ -53,8 +53,12 @@ function toAmzDate(now: Date): { amzDate: string; dateStamp: string } {
 
 @Injectable()
 export class AdminMenuImageStorageService {
-  private getManagedPrefix(restaurantId: string): string {
+  private getMenuManagedPrefix(restaurantId: string): string {
     return `restaurants/${sanitizePathSegment(restaurantId)}/menu/`;
+  }
+
+  private getBrandingManagedPrefix(restaurantId: string): string {
+    return `restaurants/${sanitizePathSegment(restaurantId)}/branding/`;
   }
 
   getMaxUploadBytes(): number {
@@ -66,6 +70,14 @@ export class AdminMenuImageStorageService {
   }
 
   async uploadMenuImage(restaurantId: string, file: UploadedMenuImageFile): Promise<{ key: string; url: string }> {
+    return this.uploadManagedImage(this.getMenuManagedPrefix(restaurantId), file);
+  }
+
+  async uploadBrandingLogo(restaurantId: string, file: UploadedMenuImageFile): Promise<{ key: string; url: string }> {
+    return this.uploadManagedImage(this.getBrandingManagedPrefix(restaurantId), file);
+  }
+
+  private async uploadManagedImage(managedPrefix: string, file: UploadedMenuImageFile): Promise<{ key: string; url: string }> {
     if (!file) {
       throw new BadRequestException({ error: 'IMAGE_FILE_REQUIRED', message: 'No image file provided.' });
     }
@@ -97,7 +109,7 @@ export class AdminMenuImageStorageService {
     const objectAcl = process.env.S3_OBJECT_ACL || 'public-read';
     const cacheControl = process.env.S3_CACHE_CONTROL || 'public, max-age=31536000, immutable';
 
-    const key = `${this.getManagedPrefix(restaurantId)}${Date.now()}-${randomUUID()}${extensionFromFile(file)}`;
+    const key = `${managedPrefix}${Date.now()}-${randomUUID()}${extensionFromFile(file)}`;
 
     await this.sendObjectRequest('PUT', key, file, {
       objectAcl,
@@ -108,16 +120,22 @@ export class AdminMenuImageStorageService {
   }
 
   async deleteMenuImageIfManaged(restaurantId: string, imageUrl: string | null | undefined): Promise<void> {
-    const key = this.extractManagedKeyFromUrl(restaurantId, imageUrl);
+    const key = this.extractManagedKeyFromUrl(this.getMenuManagedPrefix(restaurantId), imageUrl);
     if (!key) return;
 
     await this.sendObjectRequest('DELETE', key);
   }
 
-  private extractManagedKeyFromUrl(restaurantId: string, imageUrl: string | null | undefined): string | null {
+  async deleteBrandingLogoIfManaged(restaurantId: string, imageUrl: string | null | undefined): Promise<void> {
+    const key = this.extractManagedKeyFromUrl(this.getBrandingManagedPrefix(restaurantId), imageUrl);
+    if (!key) return;
+
+    await this.sendObjectRequest('DELETE', key);
+  }
+
+  private extractManagedKeyFromUrl(managedPrefix: string, imageUrl: string | null | undefined): string | null {
     if (!imageUrl) return null;
 
-    const managedPrefix = this.getManagedPrefix(restaurantId);
     const configuredBaseUrl = process.env.S3_PUBLIC_BASE_URL?.replace(/\/$/, '');
 
     if (configuredBaseUrl && imageUrl.startsWith(`${configuredBaseUrl}/`)) {

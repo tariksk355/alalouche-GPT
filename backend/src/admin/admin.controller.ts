@@ -174,8 +174,47 @@ export class AdminController {
     @Headers('x-restaurant-id') legacyRestaurantId?: string,
   ) {
     const auth = this.requireAdmin(authorization, adminToken, legacyRestaurantId);
+    const previous = await this.adminSettingsService.getBrandingSettings(auth.restaurantId);
     const settings = await this.adminSettingsService.updateBrandingSettings(auth.restaurantId, dto);
+
+    if (previous.logoUrl && previous.logoUrl !== settings.logoUrl) {
+      void this.adminMenuImageStorageService.deleteBrandingLogoIfManaged(auth.restaurantId, previous.logoUrl).catch(() => undefined);
+    }
+
     return ok({ settings });
+  }
+
+  @Post('settings/branding/logo-upload')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      limits: {
+        fileSize: parseInt(process.env.S3_UPLOAD_MAX_BYTES || '', 10) || 5 * 1024 * 1024,
+      },
+    }),
+  )
+  async uploadBrandingLogo(
+    @UploadedFile() file: UploadedMenuImageFile,
+    @Headers('authorization') authorization?: string,
+    @Headers('x-admin-token') adminToken?: string,
+    @Headers('x-restaurant-id') legacyRestaurantId?: string,
+  ) {
+    const auth = this.requireAdmin(authorization, adminToken, legacyRestaurantId);
+    if (!file) {
+      throw new BadRequestException({
+        error: 'IMAGE_FILE_REQUIRED',
+        message: 'No image file provided.',
+      });
+    }
+
+    const previous = await this.adminSettingsService.getBrandingSettings(auth.restaurantId);
+    const image = await this.adminMenuImageStorageService.uploadBrandingLogo(auth.restaurantId, file);
+    const settings = await this.adminSettingsService.updateBrandingSettings(auth.restaurantId, { logoUrl: image.url });
+
+    if (previous.logoUrl && previous.logoUrl !== settings.logoUrl) {
+      void this.adminMenuImageStorageService.deleteBrandingLogoIfManaged(auth.restaurantId, previous.logoUrl).catch(() => undefined);
+    }
+
+    return ok({ settings, imageUrl: image.url, key: image.key });
   }
 
   @Get('settings/printer')

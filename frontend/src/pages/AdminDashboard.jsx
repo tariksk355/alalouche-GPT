@@ -1,13 +1,15 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import { createPageUrl } from "@/utils";
+import { backendClient } from "@/api/backendClient";
 import { formatTime, formatDate, formatDateFull } from "@/components/formatDate";
 import AdminAnalytics from "@/components/admin/AdminAnalytics";
 import DeviceProvisioning from "@/components/admin/DeviceProvisioning";
+import { recordAdminLoginDiagnostic } from "@/lib/adminLoginDiagnostics";
 import { clearStoredAdminSession, getStoredAdminSession } from "@/lib/customerAuth";
 import { getAdminKpis, listAdminOrders, listAdminReservations, updateAdminOrderStatus, updateAdminReservationStatus } from "@/lib/api/adminOps";
 import { createAdminMenuItem, deleteAdminMenuItem, listAdminMenuCatalog, updateAdminMenuItem, uploadAdminMenuImage } from "@/lib/api/adminMenuCatalog";
 import { createAdminCustomer, deleteAdminCustomer, listAdminCustomers, updateAdminCustomer } from "@/lib/api/adminCustomers";
-import { getAdminBrandingSettings, getAdminPrinterSettings, updateAdminBrandingSettings, updateAdminPrinterSettings } from "@/lib/api/adminSettings";
+import { getAdminBrandingSettings, getAdminPrinterSettings, updateAdminBrandingSettings, updateAdminPrinterSettings, uploadAdminBrandingLogo } from "@/lib/api/adminSettings";
 import { getAdminMarketingRecipientCount, listAdminMarketingRecipients, sendAdminMarketingBulkEmail } from "@/lib/api/adminMarketing";
 import { useTenant } from "@/lib/TenantContext";
 import html2canvas from "html2canvas";
@@ -46,6 +48,7 @@ function AdminEmptyState({ label }) {
 
 
 export default function AdminDashboard() {
+  recordAdminLoginDiagnostic("dashboard_rendered");
   const [admin, setAdmin] = useState(null);
   const [activeTab, setActiveTab] = useState(() => {
     try {
@@ -67,12 +70,58 @@ export default function AdminDashboard() {
   }, [activeTab]);
 
   useEffect(() => {
-    const stored = getStoredAdminSession();
-    if (!stored) {
-      window.location.href = createPageUrl("AdminLogin");
-      return;
+    let cancelled = false;
+    recordAdminLoginDiagnostic("dashboard_bootstrap_started");
+
+    async function bootstrapAdmin() {
+      const stored = getStoredAdminSession();
+      recordAdminLoginDiagnostic("dashboard_session_loaded", {
+        hasToken: Boolean(stored?.token),
+        adminId: stored?.admin?.id || null,
+      });
+      if (!stored?.token) {
+        clearStoredAdminSession();
+        recordAdminLoginDiagnostic("dashboard_missing_token_redirect", {
+          to: createPageUrl("AdminLogin"),
+        });
+        window.location.href = createPageUrl("AdminLogin");
+        return;
+      }
+
+      try {
+        recordAdminLoginDiagnostic("dashboard_me_request_started");
+        const resp = await backendClient.request('/admin/auth/me', {
+          headers: {
+            Authorization: `Bearer ${stored.token}`,
+          },
+        });
+        recordAdminLoginDiagnostic("dashboard_me_request_succeeded", {
+          adminId: resp?.data?.admin?.id || stored?.admin?.id || null,
+        });
+
+        if (!cancelled) {
+          setAdmin({
+            token: stored.token,
+            ...(resp.data?.admin || stored.admin || {}),
+          });
+        }
+      } catch (error) {
+        recordAdminLoginDiagnostic("dashboard_me_request_failed", {
+          message: error?.message || "REQUEST_FAILED",
+          code: error?.code || null,
+        });
+        clearStoredAdminSession();
+        if (!cancelled) {
+          window.location.href = createPageUrl("AdminLogin");
+        }
+      }
     }
-    setAdmin(stored);
+
+    bootstrapAdmin();
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const handleLogout = () => {
@@ -1203,6 +1252,7 @@ function AdminSettings() {
   const [brandingError, setBrandingError] = useState("");
   const [printerLoading, setPrinterLoading] = useState(false);
   const [brandingLoading, setBrandingLoading] = useState(false);
+  const [brandingUploadLoading, setBrandingUploadLoading] = useState(false);
 
   useEffect(() => {
     loadSettings();
@@ -1257,6 +1307,25 @@ function AdminSettings() {
     }
   };
 
+  const handleBrandingFileUpload = async (e) => {
+    const selectedFile = e.target.files?.[0];
+    if (!selectedFile) return;
+
+    setBrandingUploadLoading(true);
+    setBrandingError("");
+    try {
+      const uploaded = await uploadAdminBrandingLogo(selectedFile);
+      setBrandingSettings(uploaded.settings);
+      setBrandingSuccess(`Logo uploadé et sauvegardé : ${selectedFile.name}`);
+      setTimeout(() => setBrandingSuccess(""), 3000);
+    } catch (uploadError) {
+      setBrandingError(uploadError.message || "Impossible d'uploader le logo du restaurant.");
+    } finally {
+      setBrandingUploadLoading(false);
+      e.target.value = "";
+    }
+  };
+
   if (!printerSettings || !brandingSettings) return <AdminLoadingState />;
 
   return (
@@ -1272,24 +1341,52 @@ function AdminSettings() {
         </div>
         {brandingSuccess && <AdminNotice>{brandingSuccess}</AdminNotice>}
         {brandingError && <AdminNotice type="error">{brandingError}</AdminNotice>}
-        <div>
-          <label className="block text-sm text-gray-500 mb-2">URL du logo</label>
-          <input
-            type="url"
-            value={brandingSettings.logoUrl || ""}
-            onChange={(e) => setBrandingSettings((current) => ({ ...current, logoUrl: e.target.value }))}
-            className="w-full bg-gray-50 border border-gray-200 text-gray-900 px-4 py-2 rounded-lg focus:outline-none focus:border-gray-400"
-            placeholder="https://.../logo.png"
-          />
-          <p className="text-xs text-gray-500 mt-2">Laissez vide pour supprimer le logo stocké et conserver les fallbacks gracieux existants.</p>
+        <div className="space-y-3">
+          <div>
+            <label className="block text-sm text-gray-500 mb-2">Uploader un logo</label>
+            <input
+              type="file"
+              accept="image/png,image/jpeg,image/webp,image/gif"
+              onChange={handleBrandingFileUpload}
+              className="block w-full text-sm text-gray-600 file:mr-4 file:rounded-lg file:border-0 file:bg-[#b5122a] file:px-4 file:py-2 file:font-medium file:text-white hover:file:bg-[#8f0e21]"
+            />
+            <p className="text-xs text-gray-500 mt-2">Cette option réutilise le même stockage objet public que les images produits afin d'obtenir une URL directe, stable et compatible e-mail.</p>
+          </div>
+          <div>
+            <label className="block text-sm text-gray-500 mb-2">Ou renseigner manuellement l'URL du logo</label>
+            <input
+              type="url"
+              value={brandingSettings.logoUrl || ""}
+              onChange={(e) => setBrandingSettings((current) => ({ ...current, logoUrl: e.target.value }))}
+              className="w-full bg-gray-50 border border-gray-200 text-gray-900 px-4 py-2 rounded-lg focus:outline-none focus:border-gray-400"
+              placeholder="https://.../logo.png"
+            />
+            <p className="text-xs text-amber-700 mt-2">Attention : certains liens collés (Google Drive, liens de partage/aperçu, pages HTML) ne sont pas des URL directes d'image publique et peuvent échouer dans les e-mails. Préférez l'upload ci-dessus ou une URL d'image publique directe.</p>
+          </div>
+          {brandingSettings.logoUrl ? (
+            <div className="rounded-lg border border-gray-200 bg-gray-50 p-4">
+              <div className="text-sm text-gray-500 mb-2">Aperçu actuel</div>
+              <img src={brandingSettings.logoUrl} alt="Logo restaurant" className="h-20 w-auto object-contain" />
+            </div>
+          ) : null}
         </div>
-        <button
-          onClick={handleSaveBranding}
-          disabled={brandingLoading}
-          className="w-full py-3 bg-[#b5122a] text-white font-semibold rounded-lg hover:bg-[#8f0e21] disabled:opacity-60 transition-colors"
-        >
-          {brandingLoading ? "Sauvegarde..." : "Sauvegarder le logo"}
-        </button>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <button
+            onClick={handleSaveBranding}
+            disabled={brandingLoading || brandingUploadLoading}
+            className="w-full py-3 bg-[#b5122a] text-white font-semibold rounded-lg hover:bg-[#8f0e21] disabled:opacity-60 transition-colors"
+          >
+            {brandingLoading ? "Sauvegarde..." : "Sauvegarder l'URL du logo"}
+          </button>
+          <button
+            type="button"
+            onClick={() => setBrandingSettings((current) => ({ ...current, logoUrl: "" }))}
+            disabled={brandingLoading || brandingUploadLoading}
+            className="w-full py-3 border border-gray-200 text-gray-700 font-semibold rounded-lg hover:border-gray-400 disabled:opacity-60 transition-colors"
+          >
+            {brandingUploadLoading ? "Upload..." : "Effacer le logo"}
+          </button>
+        </div>
       </div>
 
       <div className="bg-white rounded-xl border border-gray-200 p-6 space-y-6 shadow-sm">

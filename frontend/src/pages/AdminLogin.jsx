@@ -1,13 +1,16 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import { backendClient } from '@/api/backendClient';
 import { setStoredAdminSession } from '@/lib/customerAuth';
+import { clearAdminLoginDiagnostics, recordAdminLoginDiagnostic } from '@/lib/adminLoginDiagnostics';
 import { useTenant } from '@/lib/TenantContext';
 
 const DEFAULT_LOGO =
   'https://qtrypzzcjebvfcihiynt.supabase.co/storage/v1/object/public/base44-prod/public/user_6988e8d4fc295c9d940c5901/05562fbc0_Alalouche-logo.png';
 
 export default function AdminLogin() {
+  const navigate = useNavigate();
   const { tenant } = useTenant();
   const [form, setForm] = useState({ username: '', password: '' });
   const [error, setError] = useState('');
@@ -22,15 +25,32 @@ export default function AdminLogin() {
     e.preventDefault();
     setLoading(true);
     setError('');
+    clearAdminLoginDiagnostics();
+    recordAdminLoginDiagnostic('login_submit_started', { username: form.username });
     try {
       const resp = await backendClient.request('/admin/auth/login', {
         method: 'POST',
         body: JSON.stringify({ username: form.username, password: form.password }),
       });
+      recordAdminLoginDiagnostic('login_response_received', {
+        hasToken: Boolean(resp?.data?.token),
+        hasAdmin: Boolean(resp?.data?.admin),
+      });
 
       setStoredAdminSession(resp.data);
-      window.location.href = createPageUrl('AdminDashboard');
+      recordAdminLoginDiagnostic('login_session_stored', {
+        adminId: resp?.data?.admin?.id || null,
+      });
+      recordAdminLoginDiagnostic('login_navigation_started', {
+        to: createPageUrl('AdminDashboard'),
+        mode: 'spa_navigate',
+      });
+      navigate(createPageUrl('AdminDashboard'));
     } catch (err) {
+      recordAdminLoginDiagnostic('login_failed', {
+        message: err?.message || 'LOGIN_FAILED',
+        code: err?.code || null,
+      });
       setError(err.message || 'Identifiants incorrects.');
     } finally {
       setLoading(false);
