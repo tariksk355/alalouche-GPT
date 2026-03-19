@@ -29,6 +29,7 @@ import { UpdateAdminMenuItemDto } from './dto/update-admin-menu-item.dto';
 import { AdminAnalyticsService } from './admin-analytics.service';
 import { AdminSettingsService } from './admin-settings.service';
 import { UpdateAdminPrinterSettingsDto } from './dto/update-admin-printer-settings.dto';
+import { UpdateAdminBrandingSettingsDto } from './dto/update-admin-branding-settings.dto';
 import { AdminMarketingService } from './admin-marketing.service';
 import { SendAdminMarketingEmailDto } from './dto/send-admin-marketing-email.dto';
 import { AdminMenuImageStorageService } from './admin-menu-image-storage.service';
@@ -53,16 +54,15 @@ export class AdminController {
       return this.authService.verifyAccessToken(bearer, 'admin');
     }
 
-    const isProduction = process.env.NODE_ENV === 'production';
-    if (isProduction) {
+    if (!this.isLegacyHeaderAuthEnabled()) {
       throw new UnauthorizedException({
         error: 'ADMIN_AUTH_REQUIRED',
-        message: 'Admin bearer token is required.',
+        message: 'Admin bearer token is required. Legacy header-based admin auth is disabled.',
       });
     }
 
-    // Legacy compatibility path (non-production only): stub admin header token + explicit restaurant header.
-    const expected = process.env.ADMIN_TOKEN || 'dev-admin';
+    // Legacy compatibility path (development-only and explicitly enabled): stub admin header token + explicit restaurant header.
+    const expected = (process.env.ADMIN_TOKEN || 'dev-admin').trim();
     if (!adminToken || adminToken !== expected || !legacyRestaurantId) {
       throw new UnauthorizedException({
         error: 'ADMIN_AUTH_REQUIRED',
@@ -76,6 +76,11 @@ export class AdminController {
       restaurantId: legacyRestaurantId,
       username: 'legacy_admin',
     };
+  }
+
+  private isLegacyHeaderAuthEnabled(): boolean {
+    const nodeEnv = (process.env.NODE_ENV || '').trim().toLowerCase();
+    return nodeEnv !== 'production' && process.env.ALLOW_LEGACY_ADMIN_HEADERS === 'true';
   }
 
 
@@ -149,6 +154,68 @@ export class AdminController {
     return ok({ reservation });
   }
 
+
+  @Get('settings/branding')
+  async getBrandingSettings(
+    @Headers('authorization') authorization?: string,
+    @Headers('x-admin-token') adminToken?: string,
+    @Headers('x-restaurant-id') legacyRestaurantId?: string,
+  ) {
+    const auth = this.requireAdmin(authorization, adminToken, legacyRestaurantId);
+    const settings = await this.adminSettingsService.getBrandingSettings(auth.restaurantId);
+    return ok({ settings });
+  }
+
+  @Patch('settings/branding')
+  async updateBrandingSettings(
+    @Body() dto: UpdateAdminBrandingSettingsDto,
+    @Headers('authorization') authorization?: string,
+    @Headers('x-admin-token') adminToken?: string,
+    @Headers('x-restaurant-id') legacyRestaurantId?: string,
+  ) {
+    const auth = this.requireAdmin(authorization, adminToken, legacyRestaurantId);
+    const previous = await this.adminSettingsService.getBrandingSettings(auth.restaurantId);
+    const settings = await this.adminSettingsService.updateBrandingSettings(auth.restaurantId, dto);
+
+    if (previous.logoUrl && previous.logoUrl !== settings.logoUrl) {
+      void this.adminMenuImageStorageService.deleteBrandingLogoIfManaged(auth.restaurantId, previous.logoUrl).catch(() => undefined);
+    }
+
+    return ok({ settings });
+  }
+
+  @Post('settings/branding/logo-upload')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      limits: {
+        fileSize: parseInt(process.env.S3_UPLOAD_MAX_BYTES || '', 10) || 5 * 1024 * 1024,
+      },
+    }),
+  )
+  async uploadBrandingLogo(
+    @UploadedFile() file: UploadedMenuImageFile,
+    @Headers('authorization') authorization?: string,
+    @Headers('x-admin-token') adminToken?: string,
+    @Headers('x-restaurant-id') legacyRestaurantId?: string,
+  ) {
+    const auth = this.requireAdmin(authorization, adminToken, legacyRestaurantId);
+    if (!file) {
+      throw new BadRequestException({
+        error: 'IMAGE_FILE_REQUIRED',
+        message: 'No image file provided.',
+      });
+    }
+
+    const previous = await this.adminSettingsService.getBrandingSettings(auth.restaurantId);
+    const image = await this.adminMenuImageStorageService.uploadBrandingLogo(auth.restaurantId, file);
+    const settings = await this.adminSettingsService.updateBrandingSettings(auth.restaurantId, { logoUrl: image.url });
+
+    if (previous.logoUrl && previous.logoUrl !== settings.logoUrl) {
+      void this.adminMenuImageStorageService.deleteBrandingLogoIfManaged(auth.restaurantId, previous.logoUrl).catch(() => undefined);
+    }
+
+    return ok({ settings, imageUrl: image.url, key: image.key });
+  }
 
   @Get('settings/printer')
   async getPrinterSettings(

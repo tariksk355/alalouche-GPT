@@ -98,19 +98,18 @@ export class DevicePairingController {
       };
     }
 
-    const isProduction = process.env.NODE_ENV === 'production';
-    if (isProduction) {
+    if (!this.isLegacyHeaderAuthEnabled()) {
       throw new UnauthorizedException({
         error: 'ADMIN_AUTH_REQUIRED',
-        message: 'Admin bearer token is required for pairing admin operations.',
+        message: 'Admin bearer token is required for pairing admin operations. Legacy header-based admin auth is disabled.',
       });
     }
 
-    const expected = process.env.ADMIN_TOKEN || 'dev-admin';
+    const expected = (process.env.ADMIN_TOKEN || 'dev-admin').trim();
     if (!adminToken || adminToken !== expected || !legacyRestaurantId) {
       throw new UnauthorizedException({
         error: 'ADMIN_AUTH_REQUIRED',
-        message: 'Admin bearer token is required. Legacy x-admin-token also requires x-restaurant-id (non-production only).',
+        message: 'Admin bearer token is required. Legacy x-admin-token also requires x-restaurant-id (development-only).',
       });
     }
 
@@ -118,5 +117,10 @@ export class DevicePairingController {
       restaurantId: legacyRestaurantId,
       actor: 'legacy_admin',
     };
+  }
+
+  private isLegacyHeaderAuthEnabled(): boolean {
+    const nodeEnv = (process.env.NODE_ENV || '').trim().toLowerCase();
+    return nodeEnv !== 'production' && process.env.ALLOW_LEGACY_ADMIN_HEADERS === 'true';
   }
 }

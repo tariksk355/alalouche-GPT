@@ -9,6 +9,12 @@ function hashPassword(password) {
   return `${salt}:${hash}`;
 }
 
+
+function normalizeNodeEnv() {
+  const raw = (process.env.NODE_ENV || 'development').trim().toLowerCase();
+  return raw || 'development';
+}
+
 function defaultBranding(name) {
   return {
     logoUrl: null,
@@ -89,26 +95,31 @@ async function upsertRestaurant({ id, slug, name, primaryDomain, email, phone })
 }
 
 async function main() {
-  const primaryRestaurantId = process.env.DEFAULT_RESTAURANT_ID || 'demo-restaurant';
+  const nodeEnv = normalizeNodeEnv();
+  const isProduction = nodeEnv === 'production';
+  const primaryRestaurantId = (process.env.DEFAULT_RESTAURANT_ID || '').trim() || (isProduction ? 'alalouche' : 'demo-restaurant');
   const withSampleOrders = process.env.SEED_SAMPLE_ORDERS === 'true';
+  const includeDemoTenant = !isProduction || process.env.SEED_INCLUDE_DEMO_TENANT === 'true';
 
   const primaryRestaurant = await upsertRestaurant({
     id: primaryRestaurantId,
     slug: 'alalouche',
-    name: 'À la Louche (Local)',
+    name: 'À la Louche',
     primaryDomain: null,
     email: 'info@alalouche.local',
     phone: '0263034561',
   });
 
-  const secondaryRestaurant = await upsertRestaurant({
-    id: 'demo-second-restaurant',
-    slug: 'demo-bistro',
-    name: 'Demo Bistro',
-    primaryDomain: null,
-    email: 'hello@demobistro.local',
-    phone: '0215550101',
-  });
+  const secondaryRestaurant = includeDemoTenant
+    ? await upsertRestaurant({
+        id: 'demo-second-restaurant',
+        slug: 'demo-bistro',
+        name: 'Demo Bistro',
+        primaryDomain: null,
+        email: 'hello@demobistro.local',
+        phone: '0215550101',
+      })
+    : null;
 
   await prisma.adminUser.upsert({
     where: { username: 'admin' },
@@ -125,20 +136,22 @@ async function main() {
     },
   });
 
-  await prisma.adminUser.upsert({
-    where: { username: 'admin_demo_bistro' },
-    update: {
-      displayName: 'Admin Demo Bistro',
-      restaurantId: secondaryRestaurant.id,
-      passwordHash: hashPassword('admin1234'),
-    },
-    create: {
-      username: 'admin_demo_bistro',
-      displayName: 'Admin Demo Bistro',
-      restaurantId: secondaryRestaurant.id,
-      passwordHash: hashPassword('admin1234'),
-    },
-  });
+  if (secondaryRestaurant) {
+    await prisma.adminUser.upsert({
+      where: { username: 'admin_demo_bistro' },
+      update: {
+        displayName: 'Admin Demo Bistro',
+        restaurantId: secondaryRestaurant.id,
+        passwordHash: hashPassword('admin1234'),
+      },
+      create: {
+        username: 'admin_demo_bistro',
+        displayName: 'Admin Demo Bistro',
+        restaurantId: secondaryRestaurant.id,
+        passwordHash: hashPassword('admin1234'),
+      },
+    });
+  }
 
   await prisma.customer.upsert({
     where: { restaurantId_email: { restaurantId: primaryRestaurant.id, email: 'demo.customer@alalouche.local' } },
@@ -156,21 +169,23 @@ async function main() {
     },
   });
 
-  await prisma.customer.upsert({
-    where: { restaurantId_email: { restaurantId: secondaryRestaurant.id, email: 'demo.customer@demobistro.local' } },
-    update: {
-      fullName: 'Demo Bistro Customer',
-      passwordHash: hashPassword('customer1234'),
-      phone: '0215550101',
-    },
-    create: {
-      restaurantId: secondaryRestaurant.id,
-      fullName: 'Demo Bistro Customer',
-      email: 'demo.customer@demobistro.local',
-      passwordHash: hashPassword('customer1234'),
-      phone: '0215550101',
-    },
-  });
+  if (secondaryRestaurant) {
+    await prisma.customer.upsert({
+      where: { restaurantId_email: { restaurantId: secondaryRestaurant.id, email: 'demo.customer@demobistro.local' } },
+      update: {
+        fullName: 'Demo Bistro Customer',
+        passwordHash: hashPassword('customer1234'),
+        phone: '0215550101',
+      },
+      create: {
+        restaurantId: secondaryRestaurant.id,
+        fullName: 'Demo Bistro Customer',
+        email: 'demo.customer@demobistro.local',
+        passwordHash: hashPassword('customer1234'),
+        phone: '0215550101',
+      },
+    });
+  }
 
   if (withSampleOrders) {
     const existing = await prisma.order.count({ where: { restaurantId: primaryRestaurant.id } });
@@ -239,10 +254,11 @@ async function main() {
     }
   }
 
-  console.log('[seed] restaurants:', primaryRestaurant.id, secondaryRestaurant.id);
+  console.log('[seed] restaurants:', primaryRestaurant.id, secondaryRestaurant ? secondaryRestaurant.id : '(primary only)');
   console.log('[seed] sample orders:', withSampleOrders ? 'enabled' : 'disabled');
-  console.log('[seed] admin users: admin/admin1234, admin_demo_bistro/admin1234');
-  console.log('[seed] demo customers: demo.customer@alalouche.local, demo.customer@demobistro.local / customer1234');
+  console.log('[seed] demo tenant:', secondaryRestaurant ? 'included' : 'skipped');
+  console.log('[seed] admin users:', secondaryRestaurant ? 'admin/admin1234, admin_demo_bistro/admin1234' : 'admin/admin1234');
+  console.log('[seed] demo customers:', secondaryRestaurant ? 'demo.customer@alalouche.local, demo.customer@demobistro.local / customer1234' : 'demo.customer@alalouche.local / customer1234');
 }
 
 main()

@@ -1,6 +1,5 @@
 import { getTenantRequestHeaders } from '@/lib/tenantRuntime';
-
-const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000').replace(/\/$/, '');
+import { API_BASE_URL, buildApiUrl } from '@/lib/api/config';
 
 /**
  * @param {string} path
@@ -18,7 +17,8 @@ async function request(path, options = {}) {
     defaultHeaders['Content-Type'] = 'application/json';
   }
 
-  const response = await fetch(`${API_BASE_URL}${path}`, {
+  const requestUrl = buildApiUrl(path);
+  const response = await fetch(requestUrl, {
     ...fetchOptions,
     headers: defaultHeaders,
   });

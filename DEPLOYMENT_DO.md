@@ -8,7 +8,7 @@ This guide documents the current production packaging for this repository.
 - Frontend production image: `frontend/Dockerfile`
 - Backend startup migration hook: `RUN_DB_MIGRATIONS` + `prisma migrate deploy`
 - Health endpoints for probes:
-  - Backend: `GET /health`, `GET /ready`
+  - Backend: `GET /health` (process up), `GET /ready` (process up + DB reachable)
   - Frontend (nginx): `GET /health`
 
 ## Backend deployment (App Platform or Droplet)
@@ -24,14 +24,19 @@ docker build -t alalouche-backend ./backend
 - `NODE_ENV=production`
 - `PORT=3000`
 - `DATABASE_URL` (Managed PostgreSQL connection string, typically with SSL)
-- `AUTH_TOKEN_SECRET`
-- `EMAIL_PROVIDER=none|resend`
-- `RESEND_API_KEY` and `EMAIL_FROM` if `EMAIL_PROVIDER=resend`
+- `AUTH_TOKEN_SECRET` (strong unique secret, at least 32 characters)
+- `CORS_ALLOWED_ORIGINS` (comma-separated explicit browser origins, e.g. `https://orders.example.com`)
+- `MARKETING_EMAIL_PROVIDER=none|resend` (`EMAIL_PROVIDER` remains a marketing-only fallback during transition)
+- `RESEND_API_KEY`
+- `MARKETING_EMAIL_FROM` or fallback `EMAIL_FROM` when marketing uses Resend
+- `TRANSACTIONAL_EMAIL_PROVIDER=none|smtp`
+- `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM`
+- `SMTP_REPLY_TO` (optional)
 
 Optional:
 - `RUN_DB_MIGRATIONS=true|false` (default `true`)
 - `TENANT_BASE_DOMAIN`
-- `DEFAULT_RESTAURANT_ID` (dev fallback only)
+- `DEFAULT_RESTAURANT_ID` (dev fallback only; leave unset in production)
 
 ### Run (example)
 
@@ -40,8 +45,18 @@ docker run --rm -p 3000:3000 \
   -e NODE_ENV=production \
   -e PORT=3000 \
   -e DATABASE_URL='postgresql://user:pass@db-host:25060/db?sslmode=require' \
-  -e AUTH_TOKEN_SECRET='replace-me' \
-  -e EMAIL_PROVIDER=none \
+  -e AUTH_TOKEN_SECRET='replace-with-a-long-random-secret-of-at-least-32-chars' \
+  -e CORS_ALLOWED_ORIGINS='https://orders.example.com' \
+  -e MARKETING_EMAIL_PROVIDER=resend \
+  -e MARKETING_EMAIL_FROM='marketing@orders.example.com' \
+  -e RESEND_API_KEY='replace-with-resend-api-key' \
+  -e TRANSACTIONAL_EMAIL_PROVIDER=smtp \
+  -e SMTP_HOST='smtp.example.com' \
+  -e SMTP_PORT='587' \
+  -e SMTP_SECURE='false' \
+  -e SMTP_USER='smtp-user' \
+  -e SMTP_PASS='smtp-password' \
+  -e SMTP_FROM='noreply@orders.example.com' \
   alalouche-backend
 ```
 
@@ -58,7 +73,9 @@ Current baseline strategy is `prisma migrate deploy` at container startup via en
 ### Build
 
 ```bash
-docker build -t alalouche-frontend ./frontend
+docker build \
+  --build-arg VITE_API_BASE_URL='https://api.orders.example.com' \
+  -t alalouche-frontend ./frontend
 ```
 
 ### Runtime
@@ -93,18 +110,22 @@ docker run --rm -p 8080:80 alalouche-frontend
 Use the helper script from repo root:
 
 ```bash
-BACKEND_ENV_FILE=/absolute/path/to/backend.prod.env ./scripts/smoke-test-docker-deploy.sh
+BACKEND_ENV_FILE=/absolute/path/to/backend.prod.env \
+FRONTEND_API_BASE_URL='https://api.orders.example.com' \
+./scripts/smoke-test-docker-deploy.sh
 ```
 
 The env file should include at least:
 - `DATABASE_URL`
 - `AUTH_TOKEN_SECRET`
-- `EMAIL_PROVIDER` (and Resend vars when using `resend`)
+- `CORS_ALLOWED_ORIGINS`
+- `MARKETING_EMAIL_PROVIDER` / `MARKETING_EMAIL_FROM` / `RESEND_API_KEY` for admin bulk marketing
+- `TRANSACTIONAL_EMAIL_PROVIDER` plus SMTP vars for order/reservation emails
 
 The smoke script validates:
 - backend image builds
 - frontend image builds
-- backend container boots and passes `/health` and `/ready`
+- backend container boots and passes `/health` (basic liveness) and `/ready` (DB readiness)
 - frontend container serves `/health`
 - frontend SPA fallback returns HTTP 200 for non-existent routes
 

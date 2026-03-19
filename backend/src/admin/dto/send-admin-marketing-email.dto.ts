@@ -1,4 +1,4 @@
-import { IsString, MaxLength, MinLength } from 'class-validator';
+import { IsArray, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
 
 export class SendAdminMarketingEmailDto {
   @IsString()
@@ -10,4 +10,9 @@ export class SendAdminMarketingEmailDto {
   @MinLength(5)
   @MaxLength(20000)
   body!: string;
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  excludedCustomerIds?: string[];
 }

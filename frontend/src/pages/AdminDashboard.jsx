@@ -7,8 +7,8 @@ import { clearStoredAdminSession, getStoredAdminSession } from "@/lib/customerAu
 import { getAdminKpis, listAdminOrders, listAdminReservations, updateAdminOrderStatus, updateAdminReservationStatus } from "@/lib/api/adminOps";
 import { createAdminMenuItem, deleteAdminMenuItem, listAdminMenuCatalog, updateAdminMenuItem, uploadAdminMenuImage } from "@/lib/api/adminMenuCatalog";
 import { createAdminCustomer, deleteAdminCustomer, listAdminCustomers, updateAdminCustomer } from "@/lib/api/adminCustomers";
-import { getAdminPrinterSettings, updateAdminPrinterSettings } from "@/lib/api/adminSettings";
-import { getAdminMarketingRecipientCount, sendAdminMarketingBulkEmail } from "@/lib/api/adminMarketing";
+import { getAdminBrandingSettings, getAdminPrinterSettings, updateAdminBrandingSettings, updateAdminPrinterSettings, uploadAdminBrandingLogo } from "@/lib/api/adminSettings";
+import { getAdminMarketingRecipientCount, listAdminMarketingRecipients, sendAdminMarketingBulkEmail } from "@/lib/api/adminMarketing";
 import { useTenant } from "@/lib/TenantContext";
 import html2canvas from "html2canvas";
 
@@ -24,6 +24,7 @@ const NAV_ITEMS = [
   { id: "customers", label: "Clients", icon: "👥" },
   { id: "marketing", label: "Marketing", icon: "📢" },
   { id: "analytics", label: "Analytiques", icon: "📊" },
+  { id: "settings", label: "Paramètres", icon: "⚙️" },
 ];
 
 function AdminNotice({ type = "success", children }) {
@@ -134,6 +135,7 @@ export default function AdminDashboard() {
           {activeTab === "customers" && <AdminCustomers />}
           {activeTab === "marketing" && <AdminMarketing />}
           {activeTab === "analytics" && <AdminAnalytics />}
+          {activeTab === "settings" && <AdminSettings />}
         </main>
       </div>
     </div>
@@ -885,7 +887,7 @@ function AdminCustomers() {
   const [search, setSearch] = useState("");
   const [showForm, setShowForm] = useState(false);
   const [editingCustomer, setEditingCustomer] = useState(null);
-  const [form, setForm] = useState({ fullName: "", phone: "", email: "" });
+  const [form, setForm] = useState({ fullName: "", phone: "", email: "", subscribedEmail: false });
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [success, setSuccess] = useState("");
@@ -910,7 +912,7 @@ function AdminCustomers() {
 
   const openAdd = () => {
     setEditingCustomer(null);
-    setForm({ fullName: "", phone: "", email: "" });
+    setForm({ fullName: "", phone: "", email: "", subscribedEmail: false });
     setShowForm(true);
   };
 
@@ -920,6 +922,7 @@ function AdminCustomers() {
       fullName: customer.fullName || "",
       phone: customer.phone || "",
       email: customer.email || "",
+      subscribedEmail: customer.subscribedEmail === true,
     });
     setShowForm(true);
   };
@@ -998,6 +1001,18 @@ function AdminCustomers() {
             <label className="block text-sm text-gray-500 mb-1">Email *</label>
             <input required type="email" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} className="w-full bg-gray-50 border border-gray-200 text-gray-900 px-3 py-2 rounded-lg focus:outline-none" />
           </div>
+          <label className="md:col-span-2 flex items-start gap-3 rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={form.subscribedEmail}
+              onChange={e => setForm({ ...form, subscribedEmail: e.target.checked })}
+              className="mt-1 h-4 w-4 rounded border-gray-300 text-[#b5122a] focus:ring-[#b5122a]"
+            />
+            <span>
+              <span className="block text-sm font-medium text-gray-900">Abonné aux emails marketing</span>
+              <span className="block text-xs text-gray-500">Ce client pourra recevoir les campagnes envoyées depuis l’onglet Marketing.</span>
+            </span>
+          </label>
           <div className="md:col-span-2 flex gap-3 justify-end">
             <button type="submit" disabled={saving} className="px-6 py-2 bg-[#b5122a] text-white rounded-lg font-medium hover:bg-[#8f0e21] disabled:opacity-60">{saving ? '...' : editingCustomer ? 'Enregistrer' : 'Ajouter'}</button>
             <button type="button" onClick={() => { setShowForm(false); setEditingCustomer(null); }} className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200">Annuler</button>
@@ -1014,6 +1029,9 @@ function AdminCustomers() {
               <div className="text-xs text-gray-400 mt-1">Créé le {formatDate(c.createdAt)} • MAJ le {formatDate(c.updatedAt)}</div>
             </div>
             <div className="flex items-center gap-3">
+              <span className={`text-xs font-medium px-2.5 py-1 rounded-full ${c.subscribedEmail ? "bg-green-50 text-green-700 border border-green-200" : "bg-gray-100 text-gray-500 border border-gray-200"}`}>
+                {c.subscribedEmail ? "Abonné email" : "Non abonné"}
+              </span>
               <span className="text-[#b5122a] font-bold text-sm">{c.orderCount || 0} commande{(c.orderCount || 0) !== 1 ? 's' : ''}</span>
               <button onClick={() => openEdit(c)} className="text-xs text-blue-600 hover:text-blue-700 border border-gray-200 px-2 py-1 rounded">Éditer</button>
               <button onClick={() => handleDelete(c)} className="text-xs text-red-500 hover:text-red-600 border border-gray-200 px-2 py-1 rounded">Supprimer</button>
@@ -1032,19 +1050,41 @@ function AdminMarketing() {
   const [success, setSuccess] = useState("");
   const [error, setError] = useState("");
   const [customerCount, setCustomerCount] = useState(0);
+  const [recipients, setRecipients] = useState([]);
+  const [loadingRecipients, setLoadingRecipients] = useState(false);
+  const [excludedRecipientIds, setExcludedRecipientIds] = useState([]);
 
-  const loadRecipientCount = async () => {
+  const loadRecipients = async () => {
+    setLoadingRecipients(true);
+    setError("");
     try {
-      const count = await getAdminMarketingRecipientCount();
+      const [count, subscribedRecipients] = await Promise.all([
+        getAdminMarketingRecipientCount(),
+        listAdminMarketingRecipients(),
+      ]);
       setCustomerCount(count);
+      setRecipients(subscribedRecipients);
+      setExcludedRecipientIds((prev) => prev.filter((id) => subscribedRecipients.some((recipient) => recipient.id === id)));
     } catch (e) {
       setError(e.message || "Impossible de charger les destinataires marketing.");
+    } finally {
+      setLoadingRecipients(false);
     }
   };
 
   useEffect(() => {
-    loadRecipientCount();
+    loadRecipients();
   }, []);
+
+  const targetedCount = Math.max(recipients.length - excludedRecipientIds.length, 0);
+
+  const toggleExcludedRecipient = (customerId) => {
+    setExcludedRecipientIds((prev) =>
+      prev.includes(customerId)
+        ? prev.filter((id) => id !== customerId)
+        : [...prev, customerId]
+    );
+  };
 
   const sendBulkEmail = async (e) => {
     e.preventDefault();
@@ -1057,16 +1097,19 @@ function AdminMarketing() {
       const result = await sendAdminMarketingBulkEmail({
         subject: emailForm.subject,
         body: emailForm.body,
+        excludedCustomerIds: excludedRecipientIds,
       });
 
       if (result.recipientsMatched === 0) {
         setSuccess("Aucun client abonné à l'email marketing.");
       } else {
-        setSuccess(`✅ Envoi traité pour ${result.recipientsDispatched} client(s) (sur ${result.recipientsMatched} abonné(s)).`);
+        const exclusionMessage = result.excludedCount > 0 ? ` (${result.excludedCount} exclu${result.excludedCount > 1 ? "s" : ""})` : "";
+        setSuccess(`✅ Envoi traité pour ${result.recipientsDispatched} client(s) sur ${result.recipientsMatched} ciblé(s)${exclusionMessage}.`);
       }
 
       setEmailForm({ subject: "", body: "" });
-      await loadRecipientCount();
+      setExcludedRecipientIds([]);
+      await loadRecipients();
     } catch (e) {
       setError(e.message || "Impossible d'envoyer la campagne marketing.");
     } finally {
@@ -1085,8 +1128,53 @@ function AdminMarketing() {
       <form onSubmit={sendBulkEmail} className="bg-white rounded-xl border border-gray-200 p-6 space-y-4 shadow-sm">
         <p className="text-gray-500 text-sm">{customerCount} clients abonnés aux emails</p>
         <AdminNotice type="info">
-          Cette action envoie immédiatement la campagne à tous les clients abonnés. Vérifiez le sujet et le message avant validation.
+          Cette action envoie immédiatement la campagne aux clients abonnés. Vous pouvez exclure certains destinataires avant l’envoi.
         </AdminNotice>
+        <div className="rounded-lg border border-gray-200 bg-gray-50 p-4">
+          <div className="flex items-center justify-between gap-3 mb-3">
+            <div>
+              <p className="text-sm font-medium text-gray-900">Destinataires abonnés</p>
+              <p className="text-xs text-gray-500">{targetedCount} destinataire{targetedCount > 1 ? "s" : ""} ciblé{targetedCount > 1 ? "s" : ""} après exclusions.</p>
+            </div>
+            {excludedRecipientIds.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setExcludedRecipientIds([])}
+                className="text-xs text-gray-500 hover:text-gray-700"
+              >
+                Réinitialiser les exclusions
+              </button>
+            )}
+          </div>
+          {loadingRecipients ? (
+            <AdminLoadingState label="Chargement des abonnés..." />
+          ) : recipients.length === 0 ? (
+            <AdminEmptyState label="Aucun client abonné à l'email marketing." />
+          ) : (
+            <div className="space-y-2 max-h-72 overflow-auto">
+              {recipients.map((recipient) => {
+                const isExcluded = excludedRecipientIds.includes(recipient.id);
+                return (
+                  <label key={recipient.id} className={`flex items-start gap-3 rounded-lg border px-3 py-3 cursor-pointer ${isExcluded ? "border-red-200 bg-red-50" : "border-gray-200 bg-white"}`}>
+                    <input
+                      type="checkbox"
+                      checked={isExcluded}
+                      onChange={() => toggleExcludedRecipient(recipient.id)}
+                      className="mt-1 h-4 w-4 rounded border-gray-300 text-[#b5122a] focus:ring-[#b5122a]"
+                    />
+                    <div className="min-w-0">
+                      <div className="text-sm font-medium text-gray-900">{recipient.fullName}</div>
+                      <div className="text-xs text-gray-500 break-all">{recipient.email}</div>
+                    </div>
+                    <span className={`ml-auto text-xs font-medium ${isExcluded ? "text-red-600" : "text-green-600"}`}>
+                      {isExcluded ? "Exclu" : "Inclus"}
+                    </span>
+                  </label>
+                );
+              })}
+            </div>
+          )}
+        </div>
         <div>
           <label className="block text-sm text-gray-500 mb-1">Sujet *</label>
           <input required value={emailForm.subject} onChange={e => setEmailForm({ ...emailForm, subject: e.target.value })}
@@ -1097,8 +1185,8 @@ function AdminMarketing() {
           <textarea required rows={8} value={emailForm.body} onChange={e => setEmailForm({ ...emailForm, body: e.target.value })}
             className="w-full bg-gray-50 border border-gray-200 text-gray-900 px-4 py-2 rounded-lg focus:outline-none focus:border-gray-400 resize-none" placeholder="Votre message..." />
         </div>
-        <button type="submit" disabled={loading} className="w-full py-3 bg-[#b5122a] text-white font-semibold rounded-lg hover:bg-[#8f0e21] disabled:opacity-60 transition-colors">
-          {loading ? "Envoi en cours..." : "Envoyer à tous les abonnés"}
+        <button type="submit" disabled={loading || targetedCount === 0} className="w-full py-3 bg-[#b5122a] text-white font-semibold rounded-lg hover:bg-[#8f0e21] disabled:opacity-60 transition-colors">
+          {loading ? "Envoi en cours..." : targetedCount === customerCount ? "Envoyer à tous les abonnés" : `Envoyer à ${targetedCount} abonné${targetedCount > 1 ? "s" : ""}`}
         </button>
       </form>
     </div>
@@ -1107,65 +1195,170 @@ function AdminMarketing() {
 
 // ─── Settings Panel ───────────────────────────────────────────────────────────
 function AdminSettings() {
-  const [settings, setSettings] = useState(null);
-  const [success, setSuccess] = useState("");
-  const [error, setError] = useState("");
-  const [loading, setLoading] = useState(false);
+  const [printerSettings, setPrinterSettings] = useState(null);
+  const [brandingSettings, setBrandingSettings] = useState(null);
+  const [printerSuccess, setPrinterSuccess] = useState("");
+  const [brandingSuccess, setBrandingSuccess] = useState("");
+  const [printerError, setPrinterError] = useState("");
+  const [brandingError, setBrandingError] = useState("");
+  const [printerLoading, setPrinterLoading] = useState(false);
+  const [brandingLoading, setBrandingLoading] = useState(false);
+  const [brandingUploadLoading, setBrandingUploadLoading] = useState(false);
 
   useEffect(() => {
     loadSettings();
   }, []);
 
   const loadSettings = async () => {
-    setError("");
+    setPrinterError("");
+    setBrandingError("");
     try {
-      const data = await getAdminPrinterSettings();
-      setSettings(data);
+      const [printerData, brandingData] = await Promise.all([
+        getAdminPrinterSettings(),
+        getAdminBrandingSettings(),
+      ]);
+      setPrinterSettings(printerData);
+      setBrandingSettings(brandingData);
     } catch (e) {
-      setError(e.message || "Impossible de charger les paramètres.");
-      setSettings({ auto_print: true, paper_width: "58mm", copies: 1, default_prep_time: 30, require_prep_time: true });
+      const message = e.message || "Impossible de charger les paramètres.";
+      setPrinterError(message);
+      setBrandingError(message);
+      setPrinterSettings({ auto_print: true, paper_width: "58mm", copies: 1, default_prep_time: 30, require_prep_time: true });
+      setBrandingSettings({ logoUrl: "", primaryColor: "#b5122a", secondaryColor: "#111827", accentColor: "#b5122a", tagline: "Restaurant" });
     }
   };
 
-  const handleSave = async () => {
-    setLoading(true);
-    setError("");
+  const handleSavePrinter = async () => {
+    setPrinterLoading(true);
+    setPrinterError("");
     try {
-      const updated = await updateAdminPrinterSettings(settings);
-      setSettings(updated);
-      setSuccess("Paramètres sauvegardés !");
-      setTimeout(() => setSuccess(""), 3000);
+      const updated = await updateAdminPrinterSettings(printerSettings);
+      setPrinterSettings(updated);
+      setPrinterSuccess("Paramètres imprimante sauvegardés !");
+      setTimeout(() => setPrinterSuccess(""), 3000);
     } catch (e) {
-      setError(e.message || "Impossible de sauvegarder les paramètres.");
+      setPrinterError(e.message || "Impossible de sauvegarder les paramètres imprimante.");
     } finally {
-      setLoading(false);
+      setPrinterLoading(false);
     }
   };
 
-  if (!settings) return <AdminLoadingState />;
+  const handleSaveBranding = async () => {
+    setBrandingLoading(true);
+    setBrandingError("");
+    try {
+      const updated = await updateAdminBrandingSettings({ logoUrl: brandingSettings.logoUrl || "" });
+      setBrandingSettings(updated);
+      setBrandingSuccess("Logo restaurant sauvegardé !");
+      setTimeout(() => setBrandingSuccess(""), 3000);
+    } catch (e) {
+      setBrandingError(e.message || "Impossible de sauvegarder le logo du restaurant.");
+    } finally {
+      setBrandingLoading(false);
+    }
+  };
+
+  const handleBrandingFileUpload = async (e) => {
+    const selectedFile = e.target.files?.[0];
+    if (!selectedFile) return;
+
+    setBrandingUploadLoading(true);
+    setBrandingError("");
+    try {
+      const uploaded = await uploadAdminBrandingLogo(selectedFile);
+      setBrandingSettings(uploaded.settings);
+      setBrandingSuccess(`Logo uploadé et sauvegardé : ${selectedFile.name}`);
+      setTimeout(() => setBrandingSuccess(""), 3000);
+    } catch (uploadError) {
+      setBrandingError(uploadError.message || "Impossible d'uploader le logo du restaurant.");
+    } finally {
+      setBrandingUploadLoading(false);
+      e.target.value = "";
+    }
+  };
+
+  if (!printerSettings || !brandingSettings) return <AdminLoadingState />;
 
   return (
-    <div className="max-w-lg">
-      {success && <AdminNotice>{success}</AdminNotice>}
-      {error && <AdminNotice type="error">{error}</AdminNotice>}
+    <div className="max-w-3xl space-y-6">
       <div className="bg-white rounded-xl border border-gray-200 p-6 space-y-6 shadow-sm">
         <DeviceProvisioning />
+      </div>
+
+      <div className="bg-white rounded-xl border border-gray-200 p-6 space-y-4 shadow-sm">
+        <div>
+          <h3 className="font-semibold text-lg text-gray-900">Identité visuelle</h3>
+          <p className="text-sm text-gray-500 mt-1">Le logo enregistré ici est stocké dans la configuration branding du restaurant et sera réutilisé par les e-mails et les autres surfaces dépendantes du branding.</p>
+        </div>
+        {brandingSuccess && <AdminNotice>{brandingSuccess}</AdminNotice>}
+        {brandingError && <AdminNotice type="error">{brandingError}</AdminNotice>}
+        <div className="space-y-3">
+          <div>
+            <label className="block text-sm text-gray-500 mb-2">Uploader un logo</label>
+            <input
+              type="file"
+              accept="image/png,image/jpeg,image/webp,image/gif"
+              onChange={handleBrandingFileUpload}
+              className="block w-full text-sm text-gray-600 file:mr-4 file:rounded-lg file:border-0 file:bg-[#b5122a] file:px-4 file:py-2 file:font-medium file:text-white hover:file:bg-[#8f0e21]"
+            />
+            <p className="text-xs text-gray-500 mt-2">Cette option réutilise le même stockage objet public que les images produits afin d'obtenir une URL directe, stable et compatible e-mail.</p>
+          </div>
+          <div>
+            <label className="block text-sm text-gray-500 mb-2">Ou renseigner manuellement l'URL du logo</label>
+            <input
+              type="url"
+              value={brandingSettings.logoUrl || ""}
+              onChange={(e) => setBrandingSettings((current) => ({ ...current, logoUrl: e.target.value }))}
+              className="w-full bg-gray-50 border border-gray-200 text-gray-900 px-4 py-2 rounded-lg focus:outline-none focus:border-gray-400"
+              placeholder="https://.../logo.png"
+            />
+            <p className="text-xs text-amber-700 mt-2">Attention : certains liens collés (Google Drive, liens de partage/aperçu, pages HTML) ne sont pas des URL directes d'image publique et peuvent échouer dans les e-mails. Préférez l'upload ci-dessus ou une URL d'image publique directe.</p>
+          </div>
+          {brandingSettings.logoUrl ? (
+            <div className="rounded-lg border border-gray-200 bg-gray-50 p-4">
+              <div className="text-sm text-gray-500 mb-2">Aperçu actuel</div>
+              <img src={brandingSettings.logoUrl} alt="Logo restaurant" className="h-20 w-auto object-contain" />
+            </div>
+          ) : null}
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <button
+            onClick={handleSaveBranding}
+            disabled={brandingLoading || brandingUploadLoading}
+            className="w-full py-3 bg-[#b5122a] text-white font-semibold rounded-lg hover:bg-[#8f0e21] disabled:opacity-60 transition-colors"
+          >
+            {brandingLoading ? "Sauvegarde..." : "Sauvegarder l'URL du logo"}
+          </button>
+          <button
+            type="button"
+            onClick={() => setBrandingSettings((current) => ({ ...current, logoUrl: "" }))}
+            disabled={brandingLoading || brandingUploadLoading}
+            className="w-full py-3 border border-gray-200 text-gray-700 font-semibold rounded-lg hover:border-gray-400 disabled:opacity-60 transition-colors"
+          >
+            {brandingUploadLoading ? "Upload..." : "Effacer le logo"}
+          </button>
+        </div>
+      </div>
+
+      <div className="bg-white rounded-xl border border-gray-200 p-6 space-y-6 shadow-sm">
+        {printerSuccess && <AdminNotice>{printerSuccess}</AdminNotice>}
+        {printerError && <AdminNotice type="error">{printerError}</AdminNotice>}
         <div>
           <h3 className="font-semibold text-lg mb-4 text-gray-900">Imprimante</h3>
           <div className="space-y-4">
             <div className="flex items-center justify-between">
               <label className="text-gray-700">Impression automatique</label>
-              <button onClick={() => setSettings(s => ({ ...s, auto_print: !s.auto_print }))}
-                className={`w-12 h-6 rounded-full transition-colors ${settings.auto_print ? "bg-[#b5122a]" : "bg-gray-300"} relative`}>
-                <span className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-transform ${settings.auto_print ? "translate-x-7" : "translate-x-1"}`} />
+              <button onClick={() => setPrinterSettings(s => ({ ...s, auto_print: !s.auto_print }))}
+                className={`w-12 h-6 rounded-full transition-colors ${printerSettings.auto_print ? "bg-[#b5122a]" : "bg-gray-300"} relative`}>
+                <span className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-transform ${printerSettings.auto_print ? "translate-x-7" : "translate-x-1"}`} />
               </button>
             </div>
             <div>
               <label className="block text-sm text-gray-500 mb-2">Largeur du papier</label>
               <div className="flex gap-3">
                 {["58mm", "80mm"].map(w => (
-                  <button key={w} onClick={() => setSettings(s => ({ ...s, paper_width: w }))}
-                    className={`px-4 py-2 rounded-lg border transition-colors ${settings.paper_width === w ? "border-[#b5122a] text-[#b5122a] bg-red-50" : "border-gray-200 text-gray-500 hover:border-gray-400"}`}>
+                  <button key={w} onClick={() => setPrinterSettings(s => ({ ...s, paper_width: w }))}
+                    className={`px-4 py-2 rounded-lg border transition-colors ${printerSettings.paper_width === w ? "border-[#b5122a] text-[#b5122a] bg-red-50" : "border-gray-200 text-gray-500 hover:border-gray-400"}`}>
                     {w}
                   </button>
                 ))}
@@ -1175,8 +1368,8 @@ function AdminSettings() {
               <label className="block text-sm text-gray-500 mb-2">Nombre de copies</label>
               <div className="flex gap-3">
                 {[1, 2, 3].map(n => (
-                  <button key={n} onClick={() => setSettings(s => ({ ...s, copies: n }))}
-                    className={`w-10 h-10 rounded-lg border transition-colors ${settings.copies === n ? "border-[#b5122a] text-[#b5122a] bg-red-50" : "border-gray-200 text-gray-500 hover:border-gray-400"}`}>
+                  <button key={n} onClick={() => setPrinterSettings(s => ({ ...s, copies: n }))}
+                    className={`w-10 h-10 rounded-lg border transition-colors ${printerSettings.copies === n ? "border-[#b5122a] text-[#b5122a] bg-red-50" : "border-gray-200 text-gray-500 hover:border-gray-400"}`}>
                     {n}
                   </button>
                 ))}
@@ -1191,8 +1384,8 @@ function AdminSettings() {
               <label className="block text-sm text-gray-500 mb-2">Temps de préparation par défaut</label>
               <div className="flex gap-3 flex-wrap">
                 {[15, 30, 45, 60].map(t => (
-                  <button key={t} onClick={() => setSettings(s => ({ ...s, default_prep_time: t }))}
-                    className={`px-4 py-2 rounded-lg border transition-colors ${settings.default_prep_time === t ? "border-[#b5122a] text-[#b5122a] bg-red-50" : "border-gray-200 text-gray-500 hover:border-gray-400"}`}>
+                  <button key={t} onClick={() => setPrinterSettings(s => ({ ...s, default_prep_time: t }))}
+                    className={`px-4 py-2 rounded-lg border transition-colors ${printerSettings.default_prep_time === t ? "border-[#b5122a] text-[#b5122a] bg-red-50" : "border-gray-200 text-gray-500 hover:border-gray-400"}`}>
                     {t} min
                   </button>
                 ))}
@@ -1200,16 +1393,16 @@ function AdminSettings() {
             </div>
             <div className="flex items-center justify-between">
               <label className="text-gray-700">Sélection de délai obligatoire</label>
-              <button onClick={() => setSettings(s => ({ ...s, require_prep_time: !s.require_prep_time }))}
-                className={`w-12 h-6 rounded-full transition-colors ${settings.require_prep_time ? "bg-[#b5122a]" : "bg-gray-300"} relative`}>
-                <span className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-transform ${settings.require_prep_time ? "translate-x-7" : "translate-x-1"}`} />
+              <button onClick={() => setPrinterSettings(s => ({ ...s, require_prep_time: !s.require_prep_time }))}
+                className={`w-12 h-6 rounded-full transition-colors ${printerSettings.require_prep_time ? "bg-[#b5122a]" : "bg-gray-300"} relative`}>
+                <span className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-transform ${printerSettings.require_prep_time ? "translate-x-7" : "translate-x-1"}`} />
               </button>
             </div>
           </div>
         </div>
-        <button onClick={handleSave} disabled={loading}
+        <button onClick={handleSavePrinter} disabled={printerLoading}
           className="w-full py-3 bg-[#b5122a] text-white font-semibold rounded-lg hover:bg-[#8f0e21] disabled:opacity-60 transition-colors">
-          {loading ? "Sauvegarde..." : "Sauvegarder les paramètres"}
+          {printerLoading ? "Sauvegarde..." : "Sauvegarder les paramètres imprimante"}
         </button>
       </div>
     </div>
