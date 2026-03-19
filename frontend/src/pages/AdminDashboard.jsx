@@ -67,12 +67,42 @@ export default function AdminDashboard() {
   }, [activeTab]);
 
   useEffect(() => {
-    const stored = getStoredAdminSession();
-    if (!stored) {
-      window.location.href = createPageUrl("AdminLogin");
-      return;
+    let cancelled = false;
+
+    async function bootstrapAdmin() {
+      const stored = getStoredAdminSession();
+      if (!stored?.token) {
+        clearStoredAdminSession();
+        window.location.href = createPageUrl("AdminLogin");
+        return;
+      }
+
+      try {
+        const resp = await backendClient.request('/admin/auth/me', {
+          headers: {
+            Authorization: `Bearer ${stored.token}`,
+          },
+        });
+
+        if (!cancelled) {
+          setAdmin({
+            token: stored.token,
+            ...(resp.data?.admin || stored.admin || {}),
+          });
+        }
+      } catch {
+        clearStoredAdminSession();
+        if (!cancelled) {
+          window.location.href = createPageUrl("AdminLogin");
+        }
+      }
     }
-    setAdmin(stored);
+
+    bootstrapAdmin();
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const handleLogout = () => {
