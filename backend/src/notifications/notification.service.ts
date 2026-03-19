@@ -605,6 +605,11 @@ export class NotificationService {
       .replace(/'/g, '&#39;');
   }
 
+  private extractFirstImageSrc(html: string): string | null {
+    const match = html.match(/<img[^>]+src="([^"]+)"/i);
+    return match?.[1] || null;
+  }
+
   private formatDateTime(value: string | Date | null | undefined, context: RestaurantEmailContext): string | null {
     if (!value) return null;
     const date = value instanceof Date ? value : new Date(value);
@@ -1089,6 +1094,27 @@ export class NotificationService {
     if (!smtpConfig) return;
 
     const message = await this.buildEventEmail(event);
+    const htmlContainsFrenchMarker = /bonjour|commande|réservation|confirmation client/i.test(message.html);
+    const htmlContainsLogoImg = /<img\s/i.test(message.html);
+    const htmlContainsBlackWhitePalette = message.html.includes('#111111') && message.html.includes('#f3f4f6');
+    const htmlLogoSrc = message.html ? this.extractFirstImageSrc(message.html) : null;
+
+    this.logger.log(
+      JSON.stringify({
+        event: 'transactional_email_rendered',
+        notificationType: event.type,
+        restaurantId: event.restaurantId,
+        recipient,
+        subject: message.subject,
+        hasHtml: Boolean(message.html),
+        mimeMode: message.html ? 'multipart_alternative' : 'text_only',
+        htmlContainsFrenchMarker,
+        htmlContainsLogoImg,
+        htmlContainsBlackWhitePalette,
+        htmlLogoSrc,
+      }),
+    );
+
     const result = await this.sendViaSmtp({
       config: smtpConfig,
       to: recipient,
