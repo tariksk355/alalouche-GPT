@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import { createPageUrl } from "@/utils";
+import { backendClient } from "@/api/backendClient";
 import { formatTime, formatDate, formatDateFull } from "@/components/formatDate";
 import AdminAnalytics from "@/components/admin/AdminAnalytics";
 import DeviceProvisioning from "@/components/admin/DeviceProvisioning";
