@@ -7,7 +7,7 @@ import { clearStoredAdminSession, getStoredAdminSession } from "@/lib/customerAu
 import { getAdminKpis, listAdminOrders, listAdminReservations, updateAdminOrderStatus, updateAdminReservationStatus } from "@/lib/api/adminOps";
 import { createAdminMenuItem, deleteAdminMenuItem, listAdminMenuCatalog, updateAdminMenuItem, uploadAdminMenuImage } from "@/lib/api/adminMenuCatalog";
 import { createAdminCustomer, deleteAdminCustomer, listAdminCustomers, updateAdminCustomer } from "@/lib/api/adminCustomers";
-import { getAdminPrinterSettings, updateAdminPrinterSettings } from "@/lib/api/adminSettings";
+import { getAdminBrandingSettings, getAdminPrinterSettings, updateAdminBrandingSettings, updateAdminPrinterSettings } from "@/lib/api/adminSettings";
 import { getAdminMarketingRecipientCount, listAdminMarketingRecipients, sendAdminMarketingBulkEmail } from "@/lib/api/adminMarketing";
 import { useTenant } from "@/lib/TenantContext";
 import html2canvas from "html2canvas";
@@ -24,6 +24,7 @@ const NAV_ITEMS = [
   { id: "customers", label: "Clients", icon: "👥" },
   { id: "marketing", label: "Marketing", icon: "📢" },
   { id: "analytics", label: "Analytiques", icon: "📊" },
+  { id: "settings", label: "Paramètres", icon: "⚙️" },
 ];
 
 function AdminNotice({ type = "success", children }) {
@@ -134,6 +135,7 @@ export default function AdminDashboard() {
           {activeTab === "customers" && <AdminCustomers />}
           {activeTab === "marketing" && <AdminMarketing />}
           {activeTab === "analytics" && <AdminAnalytics />}
+          {activeTab === "settings" && <AdminSettings />}
         </main>
       </div>
     </div>
@@ -1193,65 +1195,122 @@ function AdminMarketing() {
 
 // ─── Settings Panel ───────────────────────────────────────────────────────────
 function AdminSettings() {
-  const [settings, setSettings] = useState(null);
-  const [success, setSuccess] = useState("");
-  const [error, setError] = useState("");
-  const [loading, setLoading] = useState(false);
+  const [printerSettings, setPrinterSettings] = useState(null);
+  const [brandingSettings, setBrandingSettings] = useState(null);
+  const [printerSuccess, setPrinterSuccess] = useState("");
+  const [brandingSuccess, setBrandingSuccess] = useState("");
+  const [printerError, setPrinterError] = useState("");
+  const [brandingError, setBrandingError] = useState("");
+  const [printerLoading, setPrinterLoading] = useState(false);
+  const [brandingLoading, setBrandingLoading] = useState(false);
 
   useEffect(() => {
     loadSettings();
   }, []);
 
   const loadSettings = async () => {
-    setError("");
+    setPrinterError("");
+    setBrandingError("");
     try {
-      const data = await getAdminPrinterSettings();
-      setSettings(data);
+      const [printerData, brandingData] = await Promise.all([
+        getAdminPrinterSettings(),
+        getAdminBrandingSettings(),
+      ]);
+      setPrinterSettings(printerData);
+      setBrandingSettings(brandingData);
     } catch (e) {
-      setError(e.message || "Impossible de charger les paramètres.");
-      setSettings({ auto_print: true, paper_width: "58mm", copies: 1, default_prep_time: 30, require_prep_time: true });
+      const message = e.message || "Impossible de charger les paramètres.";
+      setPrinterError(message);
+      setBrandingError(message);
+      setPrinterSettings({ auto_print: true, paper_width: "58mm", copies: 1, default_prep_time: 30, require_prep_time: true });
+      setBrandingSettings({ logoUrl: "", primaryColor: "#b5122a", secondaryColor: "#111827", accentColor: "#b5122a", tagline: "Restaurant" });
     }
   };
 
-  const handleSave = async () => {
-    setLoading(true);
-    setError("");
+  const handleSavePrinter = async () => {
+    setPrinterLoading(true);
+    setPrinterError("");
     try {
-      const updated = await updateAdminPrinterSettings(settings);
-      setSettings(updated);
-      setSuccess("Paramètres sauvegardés !");
-      setTimeout(() => setSuccess(""), 3000);
+      const updated = await updateAdminPrinterSettings(printerSettings);
+      setPrinterSettings(updated);
+      setPrinterSuccess("Paramètres imprimante sauvegardés !");
+      setTimeout(() => setPrinterSuccess(""), 3000);
     } catch (e) {
-      setError(e.message || "Impossible de sauvegarder les paramètres.");
+      setPrinterError(e.message || "Impossible de sauvegarder les paramètres imprimante.");
     } finally {
-      setLoading(false);
+      setPrinterLoading(false);
     }
   };
 
-  if (!settings) return <AdminLoadingState />;
+  const handleSaveBranding = async () => {
+    setBrandingLoading(true);
+    setBrandingError("");
+    try {
+      const updated = await updateAdminBrandingSettings({ logoUrl: brandingSettings.logoUrl || "" });
+      setBrandingSettings(updated);
+      setBrandingSuccess("Logo restaurant sauvegardé !");
+      setTimeout(() => setBrandingSuccess(""), 3000);
+    } catch (e) {
+      setBrandingError(e.message || "Impossible de sauvegarder le logo du restaurant.");
+    } finally {
+      setBrandingLoading(false);
+    }
+  };
+
+  if (!printerSettings || !brandingSettings) return <AdminLoadingState />;
 
   return (
-    <div className="max-w-lg">
-      {success && <AdminNotice>{success}</AdminNotice>}
-      {error && <AdminNotice type="error">{error}</AdminNotice>}
+    <div className="max-w-3xl space-y-6">
       <div className="bg-white rounded-xl border border-gray-200 p-6 space-y-6 shadow-sm">
         <DeviceProvisioning />
+      </div>
+
+      <div className="bg-white rounded-xl border border-gray-200 p-6 space-y-4 shadow-sm">
+        <div>
+          <h3 className="font-semibold text-lg text-gray-900">Identité visuelle</h3>
+          <p className="text-sm text-gray-500 mt-1">Le logo enregistré ici est stocké dans la configuration branding du restaurant et sera réutilisé par les e-mails et les autres surfaces dépendantes du branding.</p>
+        </div>
+        {brandingSuccess && <AdminNotice>{brandingSuccess}</AdminNotice>}
+        {brandingError && <AdminNotice type="error">{brandingError}</AdminNotice>}
+        <div>
+          <label className="block text-sm text-gray-500 mb-2">URL du logo</label>
+          <input
+            type="url"
+            value={brandingSettings.logoUrl || ""}
+            onChange={(e) => setBrandingSettings((current) => ({ ...current, logoUrl: e.target.value }))}
+            className="w-full bg-gray-50 border border-gray-200 text-gray-900 px-4 py-2 rounded-lg focus:outline-none focus:border-gray-400"
+            placeholder="https://.../logo.png"
+          />
+          <p className="text-xs text-gray-500 mt-2">Laissez vide pour supprimer le logo stocké et conserver les fallbacks gracieux existants.</p>
+        </div>
+        <button
+          onClick={handleSaveBranding}
+          disabled={brandingLoading}
+          className="w-full py-3 bg-[#b5122a] text-white font-semibold rounded-lg hover:bg-[#8f0e21] disabled:opacity-60 transition-colors"
+        >
+          {brandingLoading ? "Sauvegarde..." : "Sauvegarder le logo"}
+        </button>
+      </div>
+
+      <div className="bg-white rounded-xl border border-gray-200 p-6 space-y-6 shadow-sm">
+        {printerSuccess && <AdminNotice>{printerSuccess}</AdminNotice>}
+        {printerError && <AdminNotice type="error">{printerError}</AdminNotice>}
         <div>
           <h3 className="font-semibold text-lg mb-4 text-gray-900">Imprimante</h3>
           <div className="space-y-4">
             <div className="flex items-center justify-between">
               <label className="text-gray-700">Impression automatique</label>
-              <button onClick={() => setSettings(s => ({ ...s, auto_print: !s.auto_print }))}
-                className={`w-12 h-6 rounded-full transition-colors ${settings.auto_print ? "bg-[#b5122a]" : "bg-gray-300"} relative`}>
-                <span className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-transform ${settings.auto_print ? "translate-x-7" : "translate-x-1"}`} />
+              <button onClick={() => setPrinterSettings(s => ({ ...s, auto_print: !s.auto_print }))}
+                className={`w-12 h-6 rounded-full transition-colors ${printerSettings.auto_print ? "bg-[#b5122a]" : "bg-gray-300"} relative`}>
+                <span className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-transform ${printerSettings.auto_print ? "translate-x-7" : "translate-x-1"}`} />
               </button>
             </div>
             <div>
               <label className="block text-sm text-gray-500 mb-2">Largeur du papier</label>
               <div className="flex gap-3">
                 {["58mm", "80mm"].map(w => (
-                  <button key={w} onClick={() => setSettings(s => ({ ...s, paper_width: w }))}
-                    className={`px-4 py-2 rounded-lg border transition-colors ${settings.paper_width === w ? "border-[#b5122a] text-[#b5122a] bg-red-50" : "border-gray-200 text-gray-500 hover:border-gray-400"}`}>
+                  <button key={w} onClick={() => setPrinterSettings(s => ({ ...s, paper_width: w }))}
+                    className={`px-4 py-2 rounded-lg border transition-colors ${printerSettings.paper_width === w ? "border-[#b5122a] text-[#b5122a] bg-red-50" : "border-gray-200 text-gray-500 hover:border-gray-400"}`}>
                     {w}
                   </button>
                 ))}
@@ -1261,8 +1320,8 @@ function AdminSettings() {
               <label className="block text-sm text-gray-500 mb-2">Nombre de copies</label>
               <div className="flex gap-3">
                 {[1, 2, 3].map(n => (
-                  <button key={n} onClick={() => setSettings(s => ({ ...s, copies: n }))}
-                    className={`w-10 h-10 rounded-lg border transition-colors ${settings.copies === n ? "border-[#b5122a] text-[#b5122a] bg-red-50" : "border-gray-200 text-gray-500 hover:border-gray-400"}`}>
+                  <button key={n} onClick={() => setPrinterSettings(s => ({ ...s, copies: n }))}
+                    className={`w-10 h-10 rounded-lg border transition-colors ${printerSettings.copies === n ? "border-[#b5122a] text-[#b5122a] bg-red-50" : "border-gray-200 text-gray-500 hover:border-gray-400"}`}>
                     {n}
                   </button>
                 ))}
@@ -1277,8 +1336,8 @@ function AdminSettings() {
               <label className="block text-sm text-gray-500 mb-2">Temps de préparation par défaut</label>
               <div className="flex gap-3 flex-wrap">
                 {[15, 30, 45, 60].map(t => (
-                  <button key={t} onClick={() => setSettings(s => ({ ...s, default_prep_time: t }))}
-                    className={`px-4 py-2 rounded-lg border transition-colors ${settings.default_prep_time === t ? "border-[#b5122a] text-[#b5122a] bg-red-50" : "border-gray-200 text-gray-500 hover:border-gray-400"}`}>
+                  <button key={t} onClick={() => setPrinterSettings(s => ({ ...s, default_prep_time: t }))}
+                    className={`px-4 py-2 rounded-lg border transition-colors ${printerSettings.default_prep_time === t ? "border-[#b5122a] text-[#b5122a] bg-red-50" : "border-gray-200 text-gray-500 hover:border-gray-400"}`}>
                     {t} min
                   </button>
                 ))}
@@ -1286,16 +1345,16 @@ function AdminSettings() {
             </div>
             <div className="flex items-center justify-between">
               <label className="text-gray-700">Sélection de délai obligatoire</label>
-              <button onClick={() => setSettings(s => ({ ...s, require_prep_time: !s.require_prep_time }))}
-                className={`w-12 h-6 rounded-full transition-colors ${settings.require_prep_time ? "bg-[#b5122a]" : "bg-gray-300"} relative`}>
-                <span className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-transform ${settings.require_prep_time ? "translate-x-7" : "translate-x-1"}`} />
+              <button onClick={() => setPrinterSettings(s => ({ ...s, require_prep_time: !s.require_prep_time }))}
+                className={`w-12 h-6 rounded-full transition-colors ${printerSettings.require_prep_time ? "bg-[#b5122a]" : "bg-gray-300"} relative`}>
+                <span className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-transform ${printerSettings.require_prep_time ? "translate-x-7" : "translate-x-1"}`} />
               </button>
             </div>
           </div>
         </div>
-        <button onClick={handleSave} disabled={loading}
+        <button onClick={handleSavePrinter} disabled={printerLoading}
           className="w-full py-3 bg-[#b5122a] text-white font-semibold rounded-lg hover:bg-[#8f0e21] disabled:opacity-60 transition-colors">
-          {loading ? "Sauvegarde..." : "Sauvegarder les paramètres"}
+          {printerLoading ? "Sauvegarde..." : "Sauvegarder les paramètres imprimante"}
         </button>
       </div>
     </div>

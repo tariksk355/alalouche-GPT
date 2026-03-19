@@ -2,6 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { UpdateAdminPrinterSettingsDto } from './dto/update-admin-printer-settings.dto';
+import { UpdateAdminBrandingSettingsDto } from './dto/update-admin-branding-settings.dto';
 
 export interface PrinterSettings {
   auto_print: boolean;
@@ -9,6 +10,14 @@ export interface PrinterSettings {
   copies: number;
   default_prep_time: 15 | 30 | 45 | 60;
   require_prep_time: boolean;
+}
+
+export interface BrandingSettings {
+  logoUrl: string | null;
+  primaryColor: string;
+  secondaryColor: string;
+  accentColor: string;
+  tagline: string | null;
 }
 
 const DEFAULT_PRINTER_SETTINGS: PrinterSettings = {
@@ -66,6 +75,77 @@ export class AdminSettingsService {
     });
 
     return next;
+  }
+
+  async getBrandingSettings(restaurantId: string): Promise<BrandingSettings> {
+    const restaurant = await this.prisma.restaurant.findUnique({ where: { id: restaurantId } });
+    if (!restaurant) {
+      throw new NotFoundException({ error: 'RESTAURANT_NOT_FOUND', message: 'Restaurant not found.' });
+    }
+
+    return this.normalizeBrandingSettings(restaurant.branding, restaurant.name);
+  }
+
+  async updateBrandingSettings(restaurantId: string, dto: UpdateAdminBrandingSettingsDto): Promise<BrandingSettings> {
+    const restaurant = await this.prisma.restaurant.findUnique({ where: { id: restaurantId } });
+    if (!restaurant) {
+      throw new NotFoundException({ error: 'RESTAURANT_NOT_FOUND', message: 'Restaurant not found.' });
+    }
+
+    const existing = this.normalizeBrandingSettings(restaurant.branding, restaurant.name);
+    const next: BrandingSettings = {
+      ...existing,
+      ...(dto.logoUrl !== undefined ? { logoUrl: this.normalizeOptionalString(dto.logoUrl) } : {}),
+    };
+
+    await this.prisma.restaurant.update({
+      where: { id: restaurantId },
+      data: {
+        branding: next as unknown as Prisma.InputJsonObject,
+      },
+    });
+
+    return next;
+  }
+
+  private normalizeOptionalString(value: unknown): string | null {
+    if (typeof value !== 'string') return null;
+    const trimmed = value.trim();
+    return trimmed || null;
+  }
+
+  private normalizeColor(value: unknown, fallback: string): string {
+    if (typeof value !== 'string') return fallback;
+    const trimmed = value.trim();
+    return /^#[0-9a-fA-F]{6}$/.test(trimmed) ? trimmed : fallback;
+  }
+
+  private getDefaultBrandingSettings(restaurantName: string): BrandingSettings {
+    const trimmedName = restaurantName.trim();
+    return {
+      logoUrl: null,
+      primaryColor: '#b5122a',
+      secondaryColor: '#111827',
+      accentColor: '#b5122a',
+      tagline: trimmedName || 'Restaurant',
+    };
+  }
+
+  private normalizeBrandingSettings(raw: unknown, restaurantName: string): BrandingSettings {
+    const defaults = this.getDefaultBrandingSettings(restaurantName);
+    const branding = raw && typeof raw === 'object' && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
+
+    return {
+      logoUrl:
+        this.normalizeOptionalString(branding.logoUrl) ||
+        this.normalizeOptionalString(branding.logo_url) ||
+        this.normalizeOptionalString(branding.logo) ||
+        defaults.logoUrl,
+      primaryColor: this.normalizeColor(branding.primaryColor, defaults.primaryColor),
+      secondaryColor: this.normalizeColor(branding.secondaryColor, defaults.secondaryColor),
+      accentColor: this.normalizeColor(branding.accentColor, defaults.accentColor),
+      tagline: this.normalizeOptionalString(branding.tagline) || defaults.tagline,
+    };
   }
 
   private normalizePrinterSettings(raw: Record<string, unknown>): PrinterSettings {

@@ -57,6 +57,7 @@ interface RestaurantEmailContext {
   locale: string;
   currency: string;
   logoUrl: string | null;
+  logoSourcePath: string | null;
   primaryColor: string;
   accentColor: string;
   contactPhone: string | null;
@@ -65,6 +66,16 @@ interface RestaurantEmailContext {
 }
 
 interface TransactionalEmailMessage {
+  subject: string;
+  text: string;
+  html: string;
+  debug: {
+    logoUrl: string | null;
+    logoSourcePath: string | null;
+  };
+}
+
+interface MarketingEmailMessage {
   subject: string;
   text: string;
   html: string;
@@ -164,6 +175,7 @@ export class NotificationService {
     to: string;
     subject: string;
     text: string;
+    html?: string;
   }) {
     const response = await fetch('https://api.resend.com/emails', {
       method: 'POST',
@@ -176,6 +188,7 @@ export class NotificationService {
         to: [params.to],
         subject: params.subject,
         text: params.text,
+        ...(params.html ? { html: params.html } : {}),
       }),
     });
 
@@ -515,6 +528,7 @@ export class NotificationService {
     }
 
     const recipients = this.normalizeUniqueEmails(command.recipientEmails);
+    const marketingMessage = await this.buildMarketingEmail(command);
     let dispatchedCount = 0;
 
     for (const recipient of recipients) {
@@ -522,8 +536,9 @@ export class NotificationService {
         apiKey,
         from,
         to: recipient,
-        subject: command.subject,
-        text: command.body,
+        subject: marketingMessage.subject,
+        text: marketingMessage.text,
+        html: marketingMessage.html,
       });
 
       if (!result.ok) {
@@ -548,6 +563,121 @@ export class NotificationService {
     };
   }
 
+  private async buildMarketingEmail(command: MarketingBulkEmailCommand): Promise<MarketingEmailMessage> {
+    const restaurant = await this.prisma.restaurant.findUnique({
+      where: { id: command.restaurantId },
+      select: {
+        id: true,
+        name: true,
+        branding: true,
+        contactInfo: true,
+        timezone: true,
+        locale: true,
+        currency: true,
+      },
+    });
+
+    const context = this.getRestaurantEmailContext(
+      restaurant || {
+        id: command.restaurantId,
+        name: 'Notre restaurant',
+        branding: null,
+        contactInfo: null,
+        timezone: 'Europe/Zurich',
+        locale: 'fr-CH',
+        currency: 'CHF',
+      },
+    );
+
+    const intro = 'Nous sommes heureux de partager cette communication avec vous.';
+    const bodyLines = command.body
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line, index, lines) => line.length > 0 || (index > 0 && lines[index - 1].length > 0));
+    const bodyHtml = bodyLines
+      .map((line) => (line.length > 0 ? `<p style="margin:0 0 18px;color:#374151;font-size:15px;line-height:1.85;">${this.escapeHtml(line)}</p>` : '<div style="height:10px;line-height:10px;font-size:0;">&nbsp;</div>'))
+      .join('');
+
+    const contactBits = [context.contactPhone, context.contactEmail, context.contactAddress].filter(Boolean);
+    const textLines = [
+      context.name,
+      '',
+      command.subject,
+      '',
+      command.body.trim(),
+      '',
+      ...(contactBits.length > 0 ? ['Contact :', contactBits.map((value) => String(value)).join(' · ')] : []),
+    ];
+
+    return {
+      subject: command.subject,
+      text: textLines.join('\n'),
+      html: `<!DOCTYPE html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>${this.escapeHtml(command.subject)}</title>
+  </head>
+  <body style="margin:0;padding:0;background:#f3f4f6;font-family:Arial,Helvetica,sans-serif;color:#111111;">
+    <div style="display:none;max-height:0;overflow:hidden;opacity:0;">${this.escapeHtml(command.subject)}</div>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f3f4f6;padding:28px 12px;">
+      <tr>
+        <td align="center">
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:680px;background:#ffffff;border-radius:22px;overflow:hidden;border:1px solid #e5e7eb;">
+            <tr>
+              <td style="background:#111111;height:8px;font-size:0;line-height:0;">&nbsp;</td>
+            </tr>
+            <tr>
+              <td style="padding:34px 36px 28px;text-align:center;border-bottom:1px solid #e5e7eb;">
+                ${
+                  context.logoUrl
+                    ? `<div style="margin:0 auto 18px;display:inline-block;background:#ffffff;border:1px solid #e5e7eb;border-radius:18px;padding:16px 22px;">
+                        <img src="${this.escapeHtml(context.logoUrl)}" alt="${this.escapeHtml(context.name)} logo" width="180" style="max-width:180px;max-height:88px;width:auto;height:auto;display:block;margin:0 auto;border:0;outline:none;text-decoration:none;-ms-interpolation-mode:bicubic;" />
+                      </div>`
+                    : ''
+                }
+                <div style="color:#111111;font-size:14px;font-weight:700;letter-spacing:0.16em;text-transform:uppercase;">${this.escapeHtml(context.name)}</div>
+                <h1 style="margin:18px 0 10px;font-size:34px;line-height:1.18;color:#111111;">${this.escapeHtml(command.subject)}</h1>
+                <p style="margin:0;color:#6b7280;font-size:15px;line-height:1.8;">${this.escapeHtml(intro)}</p>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:34px 36px 20px;">
+                <div style="padding:28px 28px 10px;background:#ffffff;border:1px solid #e5e7eb;border-radius:18px;box-shadow:0 8px 30px rgba(17,17,17,0.04);">
+                  ${bodyHtml || '<p style="margin:0;color:#374151;font-size:15px;line-height:1.85;">Merci pour votre attention.</p>'}
+                </div>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:0 36px 34px;">
+                <div style="padding:18px 20px;background:#f9fafb;border:1px solid #e5e7eb;border-radius:16px;">
+                  <div style="font-size:12px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:#6b7280;margin-bottom:8px;">À bientôt</div>
+                  <div style="font-size:15px;line-height:1.8;color:#374151;">Nous espérons avoir le plaisir de vous accueillir prochainement chez ${this.escapeHtml(context.name)}.</div>
+                </div>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:24px 36px;background:#111111;text-align:center;">
+                <div style="color:#ffffff;font-size:15px;font-weight:700;margin-bottom:6px;">${this.escapeHtml(context.name)}</div>
+                ${
+                  contactBits.length > 0
+                    ? `<div style="color:#d1d5db;font-size:13px;line-height:1.8;">${contactBits
+                        .map((value) => this.escapeHtml(String(value)))
+                        .join(' · ')}</div>`
+                    : '<div style="color:#d1d5db;font-size:13px;line-height:1.8;">Merci de votre fidélité.</div>'
+                }
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>`,
+    };
+  }
+
   private sanitizeRestaurantDisplayName(name: string): string {
     const trimmed = name.trim();
     if (!trimmed) return 'Our restaurant';
@@ -558,6 +688,74 @@ export class NotificationService {
       .replace(/\s+local\s*$/i, '');
 
     return sanitized.trim() || trimmed;
+  }
+
+  private extractLogoUrlCandidate(
+    value: unknown,
+    sourcePath: string,
+  ): { url: string; sourcePath: string } | null {
+    if (typeof value === 'string' && value.trim().length > 0) {
+      return {
+        url: value.trim(),
+        sourcePath,
+      };
+    }
+
+    if (Array.isArray(value)) {
+      for (let index = 0; index < value.length; index += 1) {
+        const nested = this.extractLogoUrlCandidate(value[index], `${sourcePath}[${index}]`);
+        if (nested) {
+          return nested;
+        }
+      }
+      return null;
+    }
+
+    if (!value || typeof value !== 'object') {
+      return null;
+    }
+
+    const record = value as Record<string, unknown>;
+    const nestedCandidates: Array<{ sourcePath: string; value: unknown }> = [
+      { sourcePath: `${sourcePath}.url`, value: record.url },
+      { sourcePath: `${sourcePath}.src`, value: record.src },
+      { sourcePath: `${sourcePath}.href`, value: record.href },
+      { sourcePath: `${sourcePath}.downloadUrl`, value: record.downloadUrl },
+      { sourcePath: `${sourcePath}.downloadURL`, value: record.downloadURL },
+      { sourcePath: `${sourcePath}.publicUrl`, value: record.publicUrl },
+      { sourcePath: `${sourcePath}.publicURL`, value: record.publicURL },
+      { sourcePath: `${sourcePath}.secureUrl`, value: record.secureUrl },
+      { sourcePath: `${sourcePath}.secureURL`, value: record.secureURL },
+      { sourcePath: `${sourcePath}.file`, value: record.file },
+      { sourcePath: `${sourcePath}.asset`, value: record.asset },
+      { sourcePath: `${sourcePath}.image`, value: record.image },
+    ];
+
+    for (const candidate of nestedCandidates) {
+      const nested = this.extractLogoUrlCandidate(candidate.value, candidate.sourcePath);
+      if (nested) {
+        return nested;
+      }
+    }
+
+    return null;
+  }
+
+  private resolveBrandingLogo(branding: Record<string, unknown>): { url: string | null; sourcePath: string | null } {
+    const candidates: Array<{ sourcePath: string; value: unknown }> = [
+      { sourcePath: 'branding.logoUrl', value: branding.logoUrl },
+      { sourcePath: 'branding.logo_url', value: branding.logo_url },
+      { sourcePath: 'branding.logo', value: branding.logo },
+    ];
+
+    for (const candidate of candidates) {
+      const match = this.extractLogoUrlCandidate(candidate.value, candidate.sourcePath);
+      if (match) {
+        return match;
+      }
+    }
+
+    return { url: null, sourcePath: null };
   }
 
   private getRestaurantEmailContext(restaurant: {
@@ -571,16 +769,7 @@ export class NotificationService {
   }): RestaurantEmailContext {
     const branding = (restaurant.branding as Record<string, unknown> | null) || {};
     const contactInfo = (restaurant.contactInfo as Record<string, unknown> | null) || {};
-
-    const logoCandidate = [branding.logoUrl, branding.logo_url, branding.logo].find(
-      (value) => typeof value === 'string' && value.trim().length > 0,
-    );
-    const primaryColorCandidate = [branding.primaryColor, branding.brandColor, branding.accentColor].find(
-      (value) => typeof value === 'string' && value.trim().length > 0,
-    );
-    const accentColorCandidate = [branding.accentColor, branding.primaryColor, branding.brandColor].find(
-      (value) => typeof value === 'string' && value.trim().length > 0,
-    );
+    const resolvedLogo = this.resolveBrandingLogo(branding);
     const addressCandidate = [
       contactInfo.address,
       [contactInfo.addressLine1, contactInfo.postalCode, contactInfo.city].filter((value) => typeof value === 'string' && value.trim()).join(' '),
@@ -590,11 +779,12 @@ export class NotificationService {
       id: restaurant.id,
       name: this.sanitizeRestaurantDisplayName(restaurant.name),
       timezone: restaurant.timezone || 'Europe/Zurich',
-      locale: restaurant.locale || 'en-CH',
+      locale: 'fr-CH',
       currency: restaurant.currency || 'CHF',
-      logoUrl: typeof logoCandidate === 'string' ? logoCandidate.trim() : null,
-      primaryColor: typeof primaryColorCandidate === 'string' ? primaryColorCandidate.trim() : '#b5122a',
-      accentColor: typeof accentColorCandidate === 'string' ? accentColorCandidate.trim() : '#1f2937',
+      logoUrl: resolvedLogo.url,
+      logoSourcePath: resolvedLogo.sourcePath,
+      primaryColor: '#111111',
+      accentColor: '#111111',
       contactPhone: typeof contactInfo.phone === 'string' ? contactInfo.phone.trim() : null,
       contactEmail: typeof contactInfo.email === 'string' ? contactInfo.email.trim() : null,
       contactAddress: typeof addressCandidate === 'string' ? addressCandidate.trim() : null,
@@ -610,12 +800,17 @@ export class NotificationService {
       .replace(/'/g, '&#39;');
   }
 
+  private extractFirstImageSrc(html: string): string | null {
+    const match = html.match(/<img[^>]+src="([^"]+)"/i);
+    return match?.[1] || null;
+  }
+
   private formatDateTime(value: string | Date | null | undefined, context: RestaurantEmailContext): string | null {
     if (!value) return null;
     const date = value instanceof Date ? value : new Date(value);
     if (Number.isNaN(date.getTime())) return null;
 
-    return new Intl.DateTimeFormat(context.locale || 'en-CH', {
+    return new Intl.DateTimeFormat(context.locale || 'fr-CH', {
       weekday: 'long',
       day: 'numeric',
       month: 'long',
@@ -629,7 +824,7 @@ export class NotificationService {
   private formatCurrency(value: unknown, context: RestaurantEmailContext): string | null {
     const amount = typeof value === 'number' ? value : Number(value);
     if (!Number.isFinite(amount)) return null;
-    return new Intl.NumberFormat(context.locale || 'en-CH', {
+    return new Intl.NumberFormat(context.locale || 'fr-CH', {
       style: 'currency',
       currency: context.currency || 'CHF',
     }).format(amount);
@@ -639,10 +834,10 @@ export class NotificationService {
     if (typeof value !== 'string') return null;
     const normalized = value.trim().toLowerCase();
     if (!normalized) return null;
-    if (normalized === 'delivery') return 'Delivery';
-    if (normalized === 'takeaway') return 'Pickup';
-    if (normalized === 'pickup') return 'Pickup';
-    if (normalized === 'dine_in') return 'Dine-in';
+    if (normalized === 'delivery') return 'Livraison';
+    if (normalized === 'takeaway') return 'À emporter';
+    if (normalized === 'pickup') return 'À emporter';
+    if (normalized === 'dine_in') return 'Sur place';
     return normalized.replace(/[_-]+/g, ' ').replace(/\b\w/g, (char) => char.toUpperCase());
   }
 
@@ -650,57 +845,57 @@ export class NotificationService {
     switch (status) {
       case 'new':
         return {
-          subjectLabel: 'Order received',
-          title: 'We have received your order',
-          intro: 'Thank you for your order. Our team has received it and will start preparing it shortly.',
-          badgeLabel: 'Received',
-          badgeBackground: '#fef3c7',
-          badgeColor: '#92400e',
+          subjectLabel: 'Commande reçue',
+          title: 'Nous avons bien reçu votre commande',
+          intro: 'Merci pour votre commande. Notre équipe l’a bien reçue et va la préparer dans les meilleurs délais.',
+          badgeLabel: 'Commande reçue',
+          badgeBackground: '#f3f4f6',
+          badgeColor: '#111111',
         };
       case 'accepted':
         return {
-          subjectLabel: 'Order in preparation',
-          title: 'Your order is being prepared',
-          intro: 'Good news — your order has been accepted and is now being prepared.',
-          badgeLabel: 'In preparation',
-          badgeBackground: '#dbeafe',
-          badgeColor: '#1d4ed8',
+          subjectLabel: 'Commande en préparation',
+          title: 'Votre commande est en préparation',
+          intro: 'Bonne nouvelle : votre commande a été acceptée et elle est actuellement en préparation.',
+          badgeLabel: 'En préparation',
+          badgeBackground: '#f3f4f6',
+          badgeColor: '#111111',
         };
       case 'ready':
         return {
-          subjectLabel: 'Order ready',
-          title: 'Your order is ready',
-          intro: 'Your order is now ready. If you selected pickup, you can come by at your convenience.',
-          badgeLabel: 'Ready',
-          badgeBackground: '#dcfce7',
-          badgeColor: '#166534',
+          subjectLabel: 'Commande prête',
+          title: 'Votre commande est prête',
+          intro: 'Votre commande est maintenant prête. Si vous avez choisi le retrait sur place, vous pouvez venir la récupérer.',
+          badgeLabel: 'Prête',
+          badgeBackground: '#f3f4f6',
+          badgeColor: '#111111',
         };
       case 'completed':
         return {
-          subjectLabel: 'Order completed',
-          title: 'Thank you for your order',
-          intro: 'Your order has been completed. We hope you enjoy it and look forward to serving you again.',
-          badgeLabel: 'Completed',
+          subjectLabel: 'Commande terminée',
+          title: 'Merci pour votre commande',
+          intro: 'Votre commande a bien été finalisée. Nous espérons qu’elle vous plaira et serons ravis de vous accueillir à nouveau.',
+          badgeLabel: 'Terminée',
           badgeBackground: '#f3f4f6',
-          badgeColor: '#374151',
+          badgeColor: '#111111',
         };
       case 'cancelled':
         return {
-          subjectLabel: 'Order update',
-          title: 'Update about your order',
-          intro: 'There has been an update to your order. Please contact the restaurant if you need any assistance.',
-          badgeLabel: 'Cancelled',
-          badgeBackground: '#fee2e2',
-          badgeColor: '#991b1b',
+          subjectLabel: 'Mise à jour de commande',
+          title: 'Mise à jour concernant votre commande',
+          intro: 'Votre commande a fait l’objet d’une mise à jour. N’hésitez pas à contacter le restaurant si vous avez besoin d’aide.',
+          badgeLabel: 'Annulée',
+          badgeBackground: '#f3f4f6',
+          badgeColor: '#111111',
         };
       default:
         return {
-          subjectLabel: 'Order update',
-          title: 'Update about your order',
-          intro: 'There is an update regarding your order.',
-          badgeLabel: 'Updated',
+          subjectLabel: 'Mise à jour de commande',
+          title: 'Mise à jour concernant votre commande',
+          intro: 'Une mise à jour a été apportée à votre commande.',
+          badgeLabel: 'Mise à jour',
           badgeBackground: '#f3f4f6',
-          badgeColor: '#374151',
+          badgeColor: '#111111',
         };
     }
   }
@@ -709,39 +904,39 @@ export class NotificationService {
     switch (status) {
       case 'pending':
         return {
-          subjectLabel: 'Reservation request received',
-          title: 'We have received your reservation request',
-          intro: 'Thank you for your reservation request. Our team will review availability and confirm it as soon as possible.',
-          badgeLabel: 'Pending confirmation',
-          badgeBackground: '#fef3c7',
-          badgeColor: '#92400e',
+          subjectLabel: 'Demande de réservation reçue',
+          title: 'Nous avons bien reçu votre demande de réservation',
+          intro: 'Merci pour votre demande de réservation. Notre équipe va vérifier les disponibilités et vous confirmera cela au plus vite.',
+          badgeLabel: 'En attente de confirmation',
+          badgeBackground: '#f3f4f6',
+          badgeColor: '#111111',
         };
       case 'confirmed':
         return {
-          subjectLabel: 'Reservation confirmed',
-          title: 'Your reservation is confirmed',
-          intro: 'Great news — your table has been confirmed. We look forward to welcoming you.',
-          badgeLabel: 'Confirmed',
-          badgeBackground: '#dcfce7',
-          badgeColor: '#166534',
+          subjectLabel: 'Réservation confirmée',
+          title: 'Votre réservation est confirmée',
+          intro: 'Excellente nouvelle : votre table est confirmée. Nous nous réjouissons de vous accueillir.',
+          badgeLabel: 'Confirmée',
+          badgeBackground: '#f3f4f6',
+          badgeColor: '#111111',
         };
       case 'cancelled':
         return {
-          subjectLabel: 'Reservation update',
-          title: 'Update about your reservation',
-          intro: 'There has been an update to your reservation. Please contact the restaurant if you would like to arrange another time.',
-          badgeLabel: 'Cancelled',
-          badgeBackground: '#fee2e2',
-          badgeColor: '#991b1b',
+          subjectLabel: 'Mise à jour de réservation',
+          title: 'Mise à jour concernant votre réservation',
+          intro: 'Votre réservation a fait l’objet d’une mise à jour. Contactez le restaurant si vous souhaitez convenir d’un autre moment.',
+          badgeLabel: 'Annulée',
+          badgeBackground: '#f3f4f6',
+          badgeColor: '#111111',
         };
       default:
         return {
-          subjectLabel: 'Reservation update',
-          title: 'Update about your reservation',
-          intro: 'There is an update regarding your reservation.',
-          badgeLabel: 'Updated',
+          subjectLabel: 'Mise à jour de réservation',
+          title: 'Mise à jour concernant votre réservation',
+          intro: 'Une mise à jour a été apportée à votre réservation.',
+          badgeLabel: 'Mise à jour',
           badgeBackground: '#f3f4f6',
-          badgeColor: '#374151',
+          badgeColor: '#111111',
         };
     }
   }
@@ -775,32 +970,32 @@ export class NotificationService {
     const contactBits = [params.context.contactPhone, params.context.contactEmail, params.context.contactAddress].filter(Boolean);
 
     return `<!DOCTYPE html>
-<html lang="en">
+<html lang="fr">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>${this.escapeHtml(params.title)}</title>
   </head>
-  <body style="margin:0;padding:0;background:#f5f1ec;font-family:Arial,Helvetica,sans-serif;color:#111827;">
+  <body style="margin:0;padding:0;background:#f3f4f6;font-family:Arial,Helvetica,sans-serif;color:#111111;">
     <div style="display:none;max-height:0;overflow:hidden;opacity:0;">${this.escapeHtml(params.preheader)}</div>
-    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f5f1ec;padding:28px 12px;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f3f4f6;padding:28px 12px;">
       <tr>
         <td align="center">
-          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:640px;background:#ffffff;border-radius:20px;overflow:hidden;border:1px solid #ece7e1;">
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:640px;background:#ffffff;border-radius:20px;overflow:hidden;border:1px solid #e5e7eb;">
             <tr>
               <td style="background:${this.escapeHtml(params.context.primaryColor)};height:6px;font-size:0;line-height:0;">&nbsp;</td>
             </tr>
             <tr>
-              <td style="background:#fbf8f4;padding:26px 32px 24px;text-align:center;border-bottom:1px solid #eee7df;">
+              <td style="background:#ffffff;padding:28px 32px 24px;text-align:center;border-bottom:1px solid #e5e7eb;">
                 ${
                   params.context.logoUrl
-                    ? `<div style="margin:0 auto 16px;display:inline-block;background:#ffffff;border:1px solid #ede7df;border-radius:16px;padding:14px 18px;">
-                        <img src="${this.escapeHtml(params.context.logoUrl)}" alt="${this.escapeHtml(params.context.name)} logo" style="max-width:180px;max-height:82px;width:auto;height:auto;display:block;margin:0 auto;" />
+                    ? `<div style="margin:0 auto 18px;display:inline-block;background:#ffffff;border:1px solid #e5e7eb;border-radius:16px;padding:16px 20px;">
+                        <img src="${this.escapeHtml(params.context.logoUrl)}" alt="${this.escapeHtml(params.context.name)} logo" width="180" style="max-width:180px;max-height:88px;width:auto;height:auto;display:block;margin:0 auto;border:0;outline:none;text-decoration:none;-ms-interpolation-mode:bicubic;" />
                       </div>`
                     : ''
                 }
-                <div style="color:#111827;font-size:30px;font-weight:700;line-height:1.2;">${this.escapeHtml(params.context.name)}</div>
-                <div style="margin-top:8px;color:#6b7280;font-size:13px;letter-spacing:0.08em;text-transform:uppercase;">Customer confirmation</div>
+                <div style="color:#111111;font-size:30px;font-weight:700;line-height:1.2;">${this.escapeHtml(params.context.name)}</div>
+                <div style="margin-top:8px;color:#6b7280;font-size:13px;letter-spacing:0.08em;text-transform:uppercase;">Confirmation client</div>
               </td>
             </tr>
             <tr>
@@ -808,9 +1003,9 @@ export class NotificationService {
                 <div style="display:inline-block;background:${this.escapeHtml(params.badgeBackground)};color:${this.escapeHtml(params.badgeColor)};padding:7px 12px;border-radius:999px;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.04em;">
                   ${this.escapeHtml(params.badgeLabel)}
                 </div>
-                <h1 style="margin:18px 0 12px;font-size:30px;line-height:1.2;color:#111827;">${this.escapeHtml(params.title)}</h1>
+                <h1 style="margin:18px 0 12px;font-size:30px;line-height:1.2;color:#111111;">${this.escapeHtml(params.title)}</h1>
                 <p style="margin:0 0 26px;color:#4b5563;font-size:15px;line-height:1.8;">${this.escapeHtml(params.intro)}</p>
-                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #ece7e1;border-radius:16px;padding:0 20px;background:#fffdfa;">
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #e5e7eb;border-radius:16px;padding:0 20px;background:#ffffff;">
                   <tr>
                     <td style="padding:10px 22px 6px;">
                       <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
@@ -821,7 +1016,7 @@ export class NotificationService {
                 </table>
                 ${
                   params.notes
-                    ? `<div style="margin-top:22px;padding:18px 20px;background:#faf7f2;border-radius:14px;border:1px solid #ece7e1;">
+                    ? `<div style="margin-top:22px;padding:18px 20px;background:#f9fafb;border-radius:14px;border:1px solid #e5e7eb;">
                         <div style="font-size:12px;font-weight:700;letter-spacing:0.04em;text-transform:uppercase;color:#6b7280;margin-bottom:8px;">Notes</div>
                         <div style="font-size:14px;line-height:1.7;color:#374151;">${this.escapeHtml(params.notes)}</div>
                       </div>`
@@ -835,11 +1030,11 @@ export class NotificationService {
               </td>
             </tr>
             <tr>
-              <td style="padding:22px 32px;background:#f8f3ed;border-top:1px solid #eee7df;text-align:center;">
-                <div style="color:${this.escapeHtml(params.context.accentColor)};font-size:14px;font-weight:700;margin-bottom:6px;">${this.escapeHtml(params.context.name)}</div>
+              <td style="padding:22px 32px;background:#111111;border-top:1px solid #111111;text-align:center;">
+                <div style="color:#ffffff;font-size:14px;font-weight:700;margin-bottom:6px;">${this.escapeHtml(params.context.name)}</div>
                 ${
                   contactBits.length > 0
-                    ? `<div style="color:#6b7280;font-size:13px;line-height:1.7;">${contactBits
+                    ? `<div style="color:#d1d5db;font-size:13px;line-height:1.7;">${contactBits
                         .map((value) => this.escapeHtml(String(value)))
                         .join(' · ')}</div>`
                     : ''
@@ -873,7 +1068,7 @@ export class NotificationService {
         ? order.customerName
         : typeof event.payload.customerName === 'string'
           ? event.payload.customerName
-          : 'there';
+          : 'cher client';
     const customerPhone =
       typeof payload.customerPhone === 'string'
         ? payload.customerPhone
@@ -885,14 +1080,14 @@ export class NotificationService {
       typeof payload.readyAt === 'string'
         ? this.formatDateTime(payload.readyAt, context)
         : typeof event.payload.prepMinutes === 'number'
-          ? `About ${event.payload.prepMinutes} minutes`
+          ? `Environ ${event.payload.prepMinutes} minutes`
           : null;
     const totalAmount = this.formatCurrency(payload.totalAmount ?? order?.totalAmount?.toString(), context);
     const items = Array.isArray(payload.items)
       ? payload.items
           .filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === 'object')
           .map((item) => {
-            const name = typeof item.name === 'string' ? item.name : 'Item';
+            const name = typeof item.name === 'string' ? item.name : 'Article';
             const quantity = Number(item.quantity || 1);
             return `${quantity} × ${name}`;
           })
@@ -900,36 +1095,36 @@ export class NotificationService {
     const statusContent = this.getOrderStatusContent(status);
 
     const detailRows = [
-      { label: 'Order reference', value: orderNumber },
-      ...(orderType ? [{ label: 'Order type', value: orderType }] : []),
+      { label: 'Référence de commande', value: orderNumber },
+      ...(orderType ? [{ label: 'Type de commande', value: orderType }] : []),
       ...(estimatedReadyAt
-        ? [{ label: status === 'accepted' ? 'Estimated ready time' : 'Timing', value: estimatedReadyAt }]
+        ? [{ label: status === 'accepted' ? 'Heure estimée' : 'Horaire', value: estimatedReadyAt }]
         : []),
-      ...(customerPhone ? [{ label: 'Phone', value: customerPhone }] : []),
+      ...(customerPhone ? [{ label: 'Téléphone', value: customerPhone }] : []),
       ...(totalAmount ? [{ label: 'Total', value: totalAmount }] : []),
-      ...(items.length > 0 ? [{ label: 'Order summary', value: items.join(', ') }] : []),
+      ...(items.length > 0 ? [{ label: 'Récapitulatif', value: items.join(', ') }] : []),
     ];
 
     const subject = `${statusContent.subjectLabel} - ${context.name}${orderNumber ? ` - ${orderNumber}` : ''}`;
     const textLines = [
-      `Hello ${customerName},`,
+      `Bonjour ${customerName},`,
       '',
       statusContent.intro,
       '',
-      `Restaurant: ${context.name}`,
-      `Order reference: ${orderNumber}`,
-      ...(orderType ? [`Order type: ${orderType}`] : []),
-      ...(estimatedReadyAt ? [`${status === 'accepted' ? 'Estimated ready time' : 'Timing'}: ${estimatedReadyAt}`] : []),
-      ...(customerPhone ? [`Phone: ${customerPhone}`] : []),
-      ...(totalAmount ? [`Total: ${totalAmount}`] : []),
-      ...(items.length > 0 ? ['Order summary:', ...items.map((item) => `- ${item}`)] : []),
+      `Restaurant : ${context.name}`,
+      `Référence de commande : ${orderNumber}`,
+      ...(orderType ? [`Type de commande : ${orderType}`] : []),
+      ...(estimatedReadyAt ? [`${status === 'accepted' ? 'Heure estimée' : 'Horaire'} : ${estimatedReadyAt}`] : []),
+      ...(customerPhone ? [`Téléphone : ${customerPhone}`] : []),
+      ...(totalAmount ? [`Total : ${totalAmount}`] : []),
+      ...(items.length > 0 ? ['Récapitulatif :', ...items.map((item) => `- ${item}`)] : []),
       '',
-      `Current status: ${statusContent.badgeLabel}`,
+      `Statut : ${statusContent.badgeLabel}`,
       '',
       ...(context.contactPhone || context.contactEmail
-        ? [`Questions? Contact us${context.contactPhone ? ` on ${context.contactPhone}` : ''}${context.contactEmail ? ` or at ${context.contactEmail}` : ''}.`]
+        ? [`Pour toute question, contactez-nous${context.contactPhone ? ` au ${context.contactPhone}` : ''}${context.contactEmail ? ` ou par e-mail à ${context.contactEmail}` : ''}.`]
         : []),
-      `Thank you,`,
+      `Merci,`,
       context.name,
     ];
 
@@ -938,18 +1133,22 @@ export class NotificationService {
       text: textLines.join('\n'),
       html: this.buildEmailShell({
         context,
-        preheader: `${statusContent.subjectLabel} for ${orderNumber}`,
+        preheader: `${statusContent.subjectLabel} - ${orderNumber}`,
         title: statusContent.title,
-        intro: `Hello ${customerName}, ${statusContent.intro.charAt(0).toLowerCase()}${statusContent.intro.slice(1)}`,
+        intro: `Bonjour ${customerName}, ${statusContent.intro.charAt(0).toLowerCase()}${statusContent.intro.slice(1)}`,
         badgeLabel: statusContent.badgeLabel,
         badgeBackground: statusContent.badgeBackground,
         badgeColor: statusContent.badgeColor,
         detailRows,
         closing:
           context.contactPhone || context.contactEmail
-            ? `If you have any questions, feel free to reach out${context.contactPhone ? ` on ${context.contactPhone}` : ''}${context.contactEmail ? ` or via ${context.contactEmail}` : ''}.`
-            : 'Thank you for choosing us.',
+            ? `Si vous avez la moindre question, n’hésitez pas à nous contacter${context.contactPhone ? ` au ${context.contactPhone}` : ''}${context.contactEmail ? ` ou via ${context.contactEmail}` : ''}.`
+            : 'Merci pour votre confiance.',
       }),
+      debug: {
+        logoUrl: context.logoUrl,
+        logoSourcePath: context.logoSourcePath,
+      },
     };
   }
 
@@ -974,7 +1173,7 @@ export class NotificationService {
         ? reservation.customerName
         : typeof event.payload.customerName === 'string'
           ? event.payload.customerName
-          : 'there';
+          : 'cher client';
     const guestCount =
       typeof reservation?.guestCount === 'number'
         ? reservation.guestCount
@@ -983,31 +1182,31 @@ export class NotificationService {
           : null;
     const notes = typeof reservation?.notes === 'string' ? reservation.notes : null;
     const statusContent = this.getReservationStatusContent(status);
-    const guestLabel = guestCount ? `${guestCount} guest${guestCount > 1 ? 's' : ''}` : null;
+    const guestLabel = guestCount ? `${guestCount} personne${guestCount > 1 ? 's' : ''}` : null;
 
     const detailRows = [
-      ...(reservationDate ? [{ label: 'Reservation time', value: reservationDate }] : []),
-      ...(guestLabel ? [{ label: 'Party size', value: guestLabel }] : []),
-      ...(customerName ? [{ label: 'Guest name', value: customerName }] : []),
-      { label: 'Status', value: statusContent.badgeLabel },
+      ...(reservationDate ? [{ label: 'Date et heure', value: reservationDate }] : []),
+      ...(guestLabel ? [{ label: 'Nombre de personnes', value: guestLabel }] : []),
+      ...(customerName ? [{ label: 'Nom du client', value: customerName }] : []),
+      { label: 'Statut', value: statusContent.badgeLabel },
     ];
 
     const subject = `${statusContent.subjectLabel} - ${context.name}`;
     const textLines = [
-      `Hello ${customerName},`,
+      `Bonjour ${customerName},`,
       '',
       statusContent.intro,
       '',
-      `Restaurant: ${context.name}`,
-      ...(reservationDate ? [`Reservation time: ${reservationDate}`] : []),
-      ...(guestLabel ? [`Party size: ${guestLabel}`] : []),
-      `Status: ${statusContent.badgeLabel}`,
-      ...(notes ? ['', 'Notes:', notes] : []),
+      `Restaurant : ${context.name}`,
+      ...(reservationDate ? [`Date et heure : ${reservationDate}`] : []),
+      ...(guestLabel ? [`Nombre de personnes : ${guestLabel}`] : []),
+      `Statut : ${statusContent.badgeLabel}`,
+      ...(notes ? ['', 'Notes :', notes] : []),
       '',
       ...(context.contactPhone || context.contactEmail
-        ? [`If you need anything, contact us${context.contactPhone ? ` on ${context.contactPhone}` : ''}${context.contactEmail ? ` or at ${context.contactEmail}` : ''}.`]
+        ? [`Si vous avez besoin de nous joindre, contactez-nous${context.contactPhone ? ` au ${context.contactPhone}` : ''}${context.contactEmail ? ` ou par e-mail à ${context.contactEmail}` : ''}.`]
         : []),
-      `Thank you,`,
+      `Merci,`,
       context.name,
     ];
 
@@ -1016,9 +1215,9 @@ export class NotificationService {
       text: textLines.join('\n'),
       html: this.buildEmailShell({
         context,
-        preheader: `${statusContent.subjectLabel} from ${context.name}`,
+        preheader: `${statusContent.subjectLabel} - ${context.name}`,
         title: statusContent.title,
-        intro: `Hello ${customerName}, ${statusContent.intro.charAt(0).toLowerCase()}${statusContent.intro.slice(1)}`,
+        intro: `Bonjour ${customerName}, ${statusContent.intro.charAt(0).toLowerCase()}${statusContent.intro.slice(1)}`,
         badgeLabel: statusContent.badgeLabel,
         badgeBackground: statusContent.badgeBackground,
         badgeColor: statusContent.badgeColor,
@@ -1026,9 +1225,13 @@ export class NotificationService {
         notes,
         closing:
           context.contactPhone || context.contactEmail
-            ? `If you need to make a change, please contact us${context.contactPhone ? ` on ${context.contactPhone}` : ''}${context.contactEmail ? ` or via ${context.contactEmail}` : ''}.`
-            : 'We look forward to welcoming you.',
+            ? `Si vous souhaitez modifier votre réservation, contactez-nous${context.contactPhone ? ` au ${context.contactPhone}` : ''}${context.contactEmail ? ` ou via ${context.contactEmail}` : ''}.`
+            : 'Au plaisir de vous accueillir.',
       }),
+      debug: {
+        logoUrl: context.logoUrl,
+        logoSourcePath: context.logoSourcePath,
+      },
     };
   }
 
@@ -1049,11 +1252,11 @@ export class NotificationService {
     const context = this.getRestaurantEmailContext(
       restaurant || {
         id: event.restaurantId,
-        name: 'Our restaurant',
+        name: 'Notre restaurant',
         branding: null,
         contactInfo: null,
         timezone: 'Europe/Zurich',
-        locale: 'en-CH',
+        locale: 'fr-CH',
         currency: 'CHF',
       },
     );
@@ -1094,6 +1297,35 @@ export class NotificationService {
     if (!smtpConfig) return;
 
     const message = await this.buildEventEmail(event);
+    const htmlContainsFrenchMarker = /bonjour|commande|réservation|confirmation client/i.test(message.html);
+    const htmlContainsLogoImg = /<img\s/i.test(message.html);
+    const htmlContainsBlackWhitePalette = message.html.includes('#111111') && message.html.includes('#f3f4f6');
+    const htmlLogoSrc = message.html ? this.extractFirstImageSrc(message.html) : null;
+
+    this.logger.log(
+      JSON.stringify({
+        event: 'transactional_email_rendered',
+        notificationType: event.type,
+        restaurantId: event.restaurantId,
+        recipient,
+        subject: message.subject,
+        hasHtml: Boolean(message.html),
+        mimeMode: message.html ? 'multipart_alternative' : 'text_only',
+        htmlContainsFrenchMarker,
+        htmlContainsLogoImg,
+        htmlContainsBlackWhitePalette,
+        resolvedLogoUrl: message.debug.logoUrl,
+        logoSourcePath: message.debug.logoSourcePath,
+        htmlLogoSrc,
+        logoDiagnostic:
+          message.debug.logoUrl && htmlContainsLogoImg
+            ? 'logo_img_rendered_in_html'
+            : message.debug.logoUrl
+              ? 'logo_url_present_but_img_missing'
+              : 'logo_data_missing_or_unusable',
+      }),
+    );
+
     const result = await this.sendViaSmtp({
       config: smtpConfig,
       to: recipient,
