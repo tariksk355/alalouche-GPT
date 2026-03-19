@@ -690,24 +690,72 @@ export class NotificationService {
     return sanitized.trim() || trimmed;
   }
 
+  private extractLogoUrlCandidate(
+    value: unknown,
+    sourcePath: string,
+  ): { url: string; sourcePath: string } | null {
+    if (typeof value === 'string' && value.trim().length > 0) {
+      return {
+        url: value.trim(),
+        sourcePath,
+      };
+    }
+
+    if (Array.isArray(value)) {
+      for (let index = 0; index < value.length; index += 1) {
+        const nested = this.extractLogoUrlCandidate(value[index], `${sourcePath}[${index}]`);
+        if (nested) {
+          return nested;
+        }
+      }
+      return null;
+    }
+
+    if (!value || typeof value !== 'object') {
+      return null;
+    }
+
+    const record = value as Record<string, unknown>;
+    const nestedCandidates: Array<{ sourcePath: string; value: unknown }> = [
+      { sourcePath: `${sourcePath}.url`, value: record.url },
+      { sourcePath: `${sourcePath}.src`, value: record.src },
+      { sourcePath: `${sourcePath}.href`, value: record.href },
+      { sourcePath: `${sourcePath}.downloadUrl`, value: record.downloadUrl },
+      { sourcePath: `${sourcePath}.downloadURL`, value: record.downloadURL },
+      { sourcePath: `${sourcePath}.publicUrl`, value: record.publicUrl },
+      { sourcePath: `${sourcePath}.publicURL`, value: record.publicURL },
+      { sourcePath: `${sourcePath}.secureUrl`, value: record.secureUrl },
+      { sourcePath: `${sourcePath}.secureURL`, value: record.secureURL },
+      { sourcePath: `${sourcePath}.file`, value: record.file },
+      { sourcePath: `${sourcePath}.asset`, value: record.asset },
+      { sourcePath: `${sourcePath}.image`, value: record.image },
+    ];
+
+    for (const candidate of nestedCandidates) {
+      const nested = this.extractLogoUrlCandidate(candidate.value, candidate.sourcePath);
+      if (nested) {
+        return nested;
+      }
+    }
+
+    return null;
+  }
+
   private resolveBrandingLogo(branding: Record<string, unknown>): { url: string | null; sourcePath: string | null } {
-    const nestedLogo = branding.logo && typeof branding.logo === 'object' ? (branding.logo as Record<string, unknown>) : null;
     const candidates: Array<{ sourcePath: string; value: unknown }> = [
       { sourcePath: 'branding.logoUrl', value: branding.logoUrl },
       { sourcePath: 'branding.logo_url', value: branding.logo_url },
       { sourcePath: 'branding.logo', value: branding.logo },
-      { sourcePath: 'branding.logo.url', value: nestedLogo?.url },
     ];
 
-    const match = candidates.find((candidate) => typeof candidate.value === 'string' && candidate.value.trim().length > 0);
-    if (!match) {
-      return { url: null, sourcePath: null };
+    for (const candidate of candidates) {
+      const match = this.extractLogoUrlCandidate(candidate.value, candidate.sourcePath);
+      if (match) {
+        return match;
+      }
     }
 
-    return {
-      url: String(match.value).trim(),
-      sourcePath: match.sourcePath,
-    };
+    return { url: null, sourcePath: null };
   }
 
   private getRestaurantEmailContext(restaurant: {
