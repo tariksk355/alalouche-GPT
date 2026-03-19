@@ -1,4 +1,4 @@
-import { API_BASE_URL } from './config';
+import { API_BASE_URL, API_BASE_URL_SOURCE, buildApiUrl } from './config';
 
 export class ApiError extends Error {
   constructor(message, code = 'REQUEST_FAILED', status = 0, details = null) {
@@ -23,13 +23,19 @@ export async function requestJson(path, options = {}) {
   };
 
   let response;
+  const requestUrl = buildApiUrl(path);
   try {
-    response = await fetch(`${API_BASE_URL}${path}`, {
+    response = await fetch(requestUrl, {
       ...options,
       headers,
     });
   } catch (error) {
-    throw new ApiError('Unable to reach the backend service.', 'NETWORK_ERROR', 0, error);
+    throw new ApiError(
+      `Unable to reach the backend service at ${requestUrl}. Check ${API_BASE_URL_SOURCE} (resolved to ${API_BASE_URL}).`,
+      'NETWORK_ERROR',
+      0,
+      error,
+    );
   }
 
   const data = await response.json().catch(() => null);

@@ -11,7 +11,7 @@ cp .env.example .env
 ```
 
 Required vars:
-- `VITE_API_BASE_URL` (NestJS backend URL, example `http://localhost:3000`)
+- `VITE_API_BASE_URL` (NestJS backend URL, example dev `http://localhost:3000`, example production `https://api.orders.example.com`)
 - `VITE_ADMIN_TOKEN` (legacy pairing compatibility only; backend bearer auth is preferred)
 - `VITE_DEBUG_PAIRING` (`true|false`, optional debug logs for this slice)
 
@@ -27,6 +27,24 @@ Frontend default URL: `http://localhost:5173`
 ## Backend requirement
 
 Run backend first and ensure it is reachable at `VITE_API_BASE_URL`.
+
+## API base URL behavior
+
+- The active Vite frontend, including `/DevicePair` and `/OrderReceiver` for Sunmi/browser use, reads a single env var: `VITE_API_BASE_URL`.
+- There is no separate runtime `API_BASE_URL` override for the built app; the backend origin is baked into the frontend bundle at build time.
+- Docker production builds must pass `VITE_API_BASE_URL` as a build arg, for example:
+
+```bash
+docker build --build-arg VITE_API_BASE_URL='https://api.orders.example.com' -t alalouche-frontend ./frontend
+```
+
+- The smoke script wrapper uses `FRONTEND_API_BASE_URL` only to populate that Docker build arg:
+
+```bash
+FRONTEND_API_BASE_URL='https://api.orders.example.com' ./scripts/smoke-test-docker-deploy.sh
+```
+
+- Optional debug aid: set `VITE_DEBUG_PAIRING=true` to log the resolved API base URL in the browser console.
 
 ## Manual flow test (migrated slice)
 

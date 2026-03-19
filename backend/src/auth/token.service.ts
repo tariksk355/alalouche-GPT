@@ -44,6 +44,15 @@ export class TokenService {
   }
 
   private get secret(): string {
-    return process.env.AUTH_TOKEN_SECRET || 'dev-auth-token-secret';
+    const configured = (process.env.AUTH_TOKEN_SECRET || '').trim();
+    if (configured) {
+      return configured;
+    }
+
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error('AUTH_TOKEN_SECRET must be configured in production.');
+    }
+
+    return 'dev-auth-token-secret';
   }
 }

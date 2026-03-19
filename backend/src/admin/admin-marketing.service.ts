@@ -24,7 +24,7 @@ export class AdminMarketingService {
         subscribedEmail: true,
         createdAt: true,
       },
-      take: 1000,
+      take: 5000,
     });
   }
 
@@ -38,18 +38,29 @@ export class AdminMarketingService {
   }
 
   async sendBulkEmail(restaurantId: string, dto: SendAdminMarketingEmailDto) {
-    const recipients = await this.prisma.customer.findMany({
+    const excludedCustomerIds = Array.from(new Set((dto.excludedCustomerIds || []).filter(Boolean)));
+    const subscribedTotal = await this.prisma.customer.count({
       where: {
         restaurantId,
         subscribedEmail: true,
       },
+    });
+
+    const recipients = await this.prisma.customer.findMany({
+      where: {
+        restaurantId,
+        subscribedEmail: true,
+        ...(excludedCustomerIds.length > 0 ? { id: { notIn: excludedCustomerIds } } : {}),
+      },
       select: {
+        id: true,
         email: true,
       },
       take: 5000,
     });
 
     const recipientEmails = recipients.map((row: (typeof recipients)[number]) => row.email).filter((email: string) => Boolean(email));
+    const effectiveExcludedCount = Math.max(subscribedTotal - recipients.length, 0);
     const result = await this.notificationService.sendMarketingBulkEmail({
       restaurantId,
       subject: dto.subject,
@@ -58,6 +69,8 @@ export class AdminMarketingService {
     });
 
     return {
+      subscribedTotal,
+      excludedCount: effectiveExcludedCount,
       recipientsMatched: recipients.length,
       recipientsDispatched: result.dispatchedCount,
       provider: result.provider,

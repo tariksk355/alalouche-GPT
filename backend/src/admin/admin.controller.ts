@@ -53,16 +53,15 @@ export class AdminController {
       return this.authService.verifyAccessToken(bearer, 'admin');
     }
 
-    const isProduction = process.env.NODE_ENV === 'production';
-    if (isProduction) {
+    if (!this.isLegacyHeaderAuthEnabled()) {
       throw new UnauthorizedException({
         error: 'ADMIN_AUTH_REQUIRED',
-        message: 'Admin bearer token is required.',
+        message: 'Admin bearer token is required. Legacy header-based admin auth is disabled.',
       });
     }
 
-    // Legacy compatibility path (non-production only): stub admin header token + explicit restaurant header.
-    const expected = process.env.ADMIN_TOKEN || 'dev-admin';
+    // Legacy compatibility path (development-only and explicitly enabled): stub admin header token + explicit restaurant header.
+    const expected = (process.env.ADMIN_TOKEN || 'dev-admin').trim();
     if (!adminToken || adminToken !== expected || !legacyRestaurantId) {
       throw new UnauthorizedException({
         error: 'ADMIN_AUTH_REQUIRED',
@@ -76,6 +75,11 @@ export class AdminController {
       restaurantId: legacyRestaurantId,
       username: 'legacy_admin',
     };
+  }
+
+  private isLegacyHeaderAuthEnabled(): boolean {
+    const nodeEnv = (process.env.NODE_ENV || '').trim().toLowerCase();
+    return nodeEnv !== 'production' && process.env.ALLOW_LEGACY_ADMIN_HEADERS === 'true';
   }
 
 
