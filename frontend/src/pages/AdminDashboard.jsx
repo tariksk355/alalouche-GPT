@@ -4,6 +4,7 @@ import { backendClient } from "@/api/backendClient";
 import { formatTime, formatDate, formatDateFull } from "@/components/formatDate";
 import AdminAnalytics from "@/components/admin/AdminAnalytics";
 import DeviceProvisioning from "@/components/admin/DeviceProvisioning";
+import { recordAdminLoginDiagnostic } from "@/lib/adminLoginDiagnostics";
 import { clearStoredAdminSession, getStoredAdminSession } from "@/lib/customerAuth";
 import { getAdminKpis, listAdminOrders, listAdminReservations, updateAdminOrderStatus, updateAdminReservationStatus } from "@/lib/api/adminOps";
 import { createAdminMenuItem, deleteAdminMenuItem, listAdminMenuCatalog, updateAdminMenuItem, uploadAdminMenuImage } from "@/lib/api/adminMenuCatalog";
@@ -47,6 +48,7 @@ function AdminEmptyState({ label }) {
 
 
 export default function AdminDashboard() {
+  recordAdminLoginDiagnostic("dashboard_rendered");
   const [admin, setAdmin] = useState(null);
   const [activeTab, setActiveTab] = useState(() => {
     try {
@@ -69,20 +71,32 @@ export default function AdminDashboard() {
 
   useEffect(() => {
     let cancelled = false;
+    recordAdminLoginDiagnostic("dashboard_bootstrap_started");
 
     async function bootstrapAdmin() {
       const stored = getStoredAdminSession();
+      recordAdminLoginDiagnostic("dashboard_session_loaded", {
+        hasToken: Boolean(stored?.token),
+        adminId: stored?.admin?.id || null,
+      });
       if (!stored?.token) {
         clearStoredAdminSession();
+        recordAdminLoginDiagnostic("dashboard_missing_token_redirect", {
+          to: createPageUrl("AdminLogin"),
+        });
         window.location.href = createPageUrl("AdminLogin");
         return;
       }
 
       try {
+        recordAdminLoginDiagnostic("dashboard_me_request_started");
         const resp = await backendClient.request('/admin/auth/me', {
           headers: {
             Authorization: `Bearer ${stored.token}`,
           },
+        });
+        recordAdminLoginDiagnostic("dashboard_me_request_succeeded", {
+          adminId: resp?.data?.admin?.id || stored?.admin?.id || null,
         });
 
         if (!cancelled) {
@@ -91,7 +105,11 @@ export default function AdminDashboard() {
             ...(resp.data?.admin || stored.admin || {}),
           });
         }
-      } catch {
+      } catch (error) {
+        recordAdminLoginDiagnostic("dashboard_me_request_failed", {
+          message: error?.message || "REQUEST_FAILED",
+          code: error?.code || null,
+        });
         clearStoredAdminSession();
         if (!cancelled) {
           window.location.href = createPageUrl("AdminLogin");
