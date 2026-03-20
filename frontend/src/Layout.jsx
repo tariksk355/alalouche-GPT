@@ -13,10 +13,10 @@ const DEFAULT_FOOTER_LOGO =
   'https://qtrypzzcjebvfcihiynt.supabase.co/storage/v1/object/public/base44-prod/public/699f6d055b5dc5582a3c406f/109735483_Footer-logo.png';
 
 const RESTAURANT_HOURS = [
-  'Lundi: fermé',
-  'Ma - Ven: 10h00 - 14h00 & 17h00 - 22h00',
-  'Samedi: 10h00 - 23h00 non stop',
-  'Dimanche: 12h00 - 21h00 non stop',
+  { day: 'Lundi:', hours: 'fermé' },
+  { day: 'Ma - Ven:', hours: '10h00 - 14h00 & 17h00 - 22h00' },
+  { day: 'Samedi:', hours: '10h00 - 23h00 non stop' },
+  { day: 'Dimanche:', hours: '12h00 - 21h00 non stop' },
 ];
 
 const RESTAURANT_CONTACT = {
@@ -113,13 +113,16 @@ export default function Layout({ children, currentPageName }) {
             <p className="font-script text-3xl leading-none text-gray-900 sm:text-[2.4rem]">Heures d’ouverture</p>
             <div className="mt-3 space-y-1 text-gray-600">
               {RESTAURANT_HOURS.map((line) => (
-                <p key={line}>{line}</p>
+                <p key={line.day}>
+                  <span className="font-semibold text-gray-800">{line.day}</span>{' '}
+                  <span>{line.hours}</span>
+                </p>
               ))}
             </div>
           </div>
           <div className="flex justify-center items-center">
             <Link to={createPageUrl('Home')}>
-              <img src={logoUrl} alt={brandName} className="h-20 sm:h-24" />
+              <img src={logoUrl} alt={brandName} className="h-24 lg:h-28" />
             </Link>
           </div>
           <div className="text-right">
@@ -144,7 +147,7 @@ export default function Layout({ children, currentPageName }) {
       <nav className="bg-white border-b border-gray-200 sticky top-0 z-50">
         <div className="max-w-6xl mx-auto px-4 flex items-center justify-between h-20 md:h-12">
           <Link to={createPageUrl('Home')} className="md:hidden">
-            <img src={logoUrl} alt={brandName} className="h-16" style={{ imageRendering: 'crisp-edges' }} />
+            <img src={logoUrl} alt={brandName} className="h-[4.5rem]" style={{ imageRendering: 'crisp-edges' }} />
           </Link>
 
           <div className="hidden md:flex items-center gap-8">
@@ -278,21 +281,23 @@ export default function Layout({ children, currentPageName }) {
 
       <footer className="bg-black text-white">
         <div className="max-w-6xl mx-auto px-6 py-10">
-          <div className="mx-auto flex max-w-md flex-col items-center text-center">
-            <img src={footerLogoUrl} alt={brandName} className="h-20 sm:h-24" style={{ imageRendering: 'crisp-edges' }} />
-            <h3 className="font-script mt-3 text-4xl leading-none text-white sm:text-5xl">{brandName}</h3>
-            <div className="mt-4 space-y-2 text-sm text-gray-300">
-              <div className="flex items-start justify-center gap-2 text-center leading-relaxed">
+          <div className="flex flex-col items-center text-center gap-8 md:flex-row md:items-start md:justify-between md:text-left">
+            <div className="flex flex-col items-center text-center md:items-start md:text-left">
+              <img src={footerLogoUrl} alt={brandName} className="h-20 sm:h-24" style={{ imageRendering: 'crisp-edges' }} />
+              <h3 className="font-script mt-3 text-4xl leading-none text-white sm:text-5xl">{brandName}</h3>
+            </div>
+            <div className="space-y-2 text-sm text-gray-300 md:max-w-sm md:pt-3">
+              <div className="flex items-start justify-center gap-2 text-center leading-relaxed md:justify-start md:text-left">
                 <MapPin className="mt-0.5 h-4 w-4 flex-shrink-0" />
                 <span>{`${footerContact.addressLine1} · ${footerContact.addressLine2}`}</span>
               </div>
-              <div className="flex items-center justify-center gap-2">
+              <div className="flex items-center justify-center gap-2 md:justify-start">
                 <Phone className="h-4 w-4 flex-shrink-0" />
                 <a href={`tel:${footerContact.phone.replace(/\s+/g, '')}`} className="hover:text-white transition-colors">
                   {footerContact.phone}
                 </a>
               </div>
-              <div className="flex items-center justify-center gap-2 break-all sm:break-normal">
+              <div className="flex items-center justify-center gap-2 break-all sm:break-normal md:justify-start">
                 <Mail className="h-4 w-4 flex-shrink-0" />
                 <a href={`mailto:${footerContact.email}`} className="hover:text-white transition-colors">
                   {footerContact.email}
