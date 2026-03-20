@@ -107,9 +107,9 @@ export default function Layout({ children, currentPageName }) {
         .font-script { font-family: 'Allura', 'Playfair Display', serif; }
       `}</style>
 
-      <div className="border-b border-gray-200 bg-white">
-        <div className="max-w-6xl mx-auto px-4 py-4 md:py-3 grid grid-cols-1 gap-6 text-sm md:grid-cols-3 md:items-start">
-          <div className="text-center md:text-left">
+      <div className="hidden md:block border-b border-gray-200 bg-white">
+        <div className="max-w-6xl mx-auto px-4 py-3 grid grid-cols-3 items-start text-sm">
+          <div>
             <p className="font-script text-3xl leading-none text-gray-900 sm:text-[2.4rem]">Heures d’ouverture</p>
             <div className="mt-3 space-y-1 text-gray-600">
               {RESTAURANT_HOURS.map((line) => (
@@ -117,19 +117,19 @@ export default function Layout({ children, currentPageName }) {
               ))}
             </div>
           </div>
-          <div className="flex justify-center items-center order-first md:order-none">
+          <div className="flex justify-center items-center">
             <Link to={createPageUrl('Home')}>
               <img src={logoUrl} alt={brandName} className="h-20 sm:h-24" />
             </Link>
           </div>
-          <div className="text-center md:text-right">
+          <div className="text-right">
             <p className="font-script text-3xl leading-none text-gray-900 sm:text-[2.4rem]">Contact</p>
             <div className="mt-3 space-y-1 text-gray-600">
               <a href={`tel:${headerContact.phone.replace(/\s+/g, '')}`} className="flex items-center justify-center gap-2 hover:underline md:justify-end" style={{ color: primaryColor }}>
                 <Phone className="h-4 w-4 flex-shrink-0" />
                 <span>{headerContact.phone}</span>
               </a>
-              <div className="flex items-start justify-center gap-2 md:justify-end" style={{ color: primaryColor }}>
+              <div className="flex items-start justify-end gap-2" style={{ color: primaryColor }}>
                 <MapPin className="mt-0.5 h-4 w-4 flex-shrink-0" />
                 <div>
                   <div>{headerContact.addressLine1}</div>
