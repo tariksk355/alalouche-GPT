@@ -22,6 +22,7 @@ const PRINT_STRATEGY_OVERRIDE_STORAGE_KEY = 'sunmi_print_strategy_override_v1';
 const ALERT_SETTINGS_STORAGE_KEY = 'sunmi_alert_settings_v1';
 const COMPLETED_ORDERS_CACHE_STORAGE_KEY = 'sunmi_completed_orders_cache_v1';
 const COMPLETED_SECTION_OPEN_STORAGE_KEY = 'sunmi_completed_section_open_v1';
+const PROCESSED_RESERVATIONS_SECTION_OPEN_STORAGE_KEY = 'sunmi_processed_reservations_section_open_v1';
 const PRINT_DISPATCH_DEDUP_MS = 15000;
 const ATTENTION_ALERT_DURATION_MS = 7000;
 
@@ -60,6 +61,7 @@ const state = {
   hasLoggedQueueStatusTextRemoval: false,
   completedOrdersById: {},
   completedSectionOpen: false,
+  processedReservationsSectionOpen: false,
   activeAttentionAlert: null,
   attentionAlertTimeoutId: null,
   reservationUiById: {},
@@ -144,6 +146,19 @@ function updateReservationLocally(reservationId, patch) {
       ...patch,
     };
   });
+}
+
+function findOrderForReprint(orderId) {
+  if (!orderId) return null;
+  const activeOrder = state.orders.find((item) => item.id === orderId);
+  if (activeOrder) return activeOrder;
+
+  const completedOrder = state.completedOrdersById?.[orderId];
+  if (completedOrder && typeof completedOrder === 'object') {
+    return completedOrder;
+  }
+
+  return null;
 }
 
 function normalizeAlertSettings(value) {
@@ -236,6 +251,28 @@ function persistCompletedSectionOpenState() {
     // ignore
   }
   console.debug(`[sunmi-receiver] completed_section_state_persisted open=${state.completedSectionOpen}`);
+}
+
+function loadProcessedReservationsSectionOpenState() {
+  try {
+    const raw = localStorage.getItem(PROCESSED_RESERVATIONS_SECTION_OPEN_STORAGE_KEY);
+    state.processedReservationsSectionOpen = raw === 'true';
+  } catch {
+    state.processedReservationsSectionOpen = false;
+  }
+  console.debug(`[sunmi-receiver] processed_reservations_section_state_restored open=${state.processedReservationsSectionOpen}`);
+}
+
+function persistProcessedReservationsSectionOpenState() {
+  try {
+    localStorage.setItem(
+      PROCESSED_RESERVATIONS_SECTION_OPEN_STORAGE_KEY,
+      state.processedReservationsSectionOpen ? 'true' : 'false',
+    );
+  } catch {
+    // ignore
+  }
+  console.debug(`[sunmi-receiver] processed_reservations_section_state_persisted open=${state.processedReservationsSectionOpen}`);
 }
 
 function clearAttentionAlert() {
@@ -1211,14 +1248,15 @@ function render() {
     </div>
     ${upcomingReservationsHtml}
 
-    <div class="card reservation-section-card">
-      <div class="reservation-section-header">
-        <div class="reservation-section-title">Traitées</div>
-        <span class="status-pill">${processedReservations.length}</span>
-      </div>
-      <p class="subtle">Réservations déjà confirmées ou annulées.</p>
+    <div class="card completed-orders-details reservation-section-card">
+      <button class="completed-orders-summary" data-action="toggle-processed-reservations-section" aria-expanded="${state.processedReservationsSectionOpen ? 'true' : 'false'}">
+        <span>Traitées (${processedReservations.length})</span>
+        <span>${state.processedReservationsSectionOpen ? '▾' : '▸'}</span>
+      </button>
+      ${state.processedReservationsSectionOpen
+    ? `<div><div class="subtle">Réservations déjà confirmées ou annulées.</div>${processedReservationsHtml}</div>`
+    : ''}
     </div>
-    ${processedReservationsHtml}
 
     ${state.error ? `<div class="card"><p class="error">${state.error}</p></div>` : ''}
     ${attentionOverlay}
@@ -1634,6 +1672,16 @@ app.addEventListener('click', async (event) => {
     return;
   }
 
+  const processedReservationsToggle = target.closest('[data-action="toggle-processed-reservations-section"]');
+  if (processedReservationsToggle instanceof HTMLElement) {
+    const nextOpen = !state.processedReservationsSectionOpen;
+    console.debug(`[sunmi-receiver] processed_reservations_section_toggle_clicked nextOpen=${nextOpen}`);
+    state.processedReservationsSectionOpen = nextOpen;
+    persistProcessedReservationsSectionOpenState();
+    render();
+    return;
+  }
+
   if (target.id === 'pairing-submit-btn') {
     await startPairingSubmit();
     return;
@@ -1786,7 +1834,7 @@ app.addEventListener('click', async (event) => {
 
   if (target.dataset.action === 'reprint-order' && target.dataset.id) {
     console.debug(`[sunmi-receiver] reprint_button_clicked orderId=${target.dataset.id}`);
-    const orderForReprint = state.orders.find((item) => item.id === target.dataset.id);
+    const orderForReprint = findOrderForReprint(target.dataset.id);
     if (!orderForReprint) {
       state.printerMessage = 'Commande introuvable pour la réimpression.';
       render();
@@ -1892,6 +1940,7 @@ async function boot() {
   loadAlertSettings();
   loadCompletedOrdersCache();
   loadCompletedSectionOpenState();
+  loadProcessedReservationsSectionOpenState();
   hydratePrintJobTrackingFromStorage();
   render();
 
