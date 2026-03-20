@@ -122,7 +122,7 @@ export default function Layout({ children, currentPageName }) {
           </div>
           <div className="flex justify-center items-center">
             <Link to={createPageUrl('Home')}>
-              <img src={logoUrl} alt={brandName} className="h-28 lg:h-32" />
+              <img src={logoUrl} alt={brandName} className="h-32 lg:h-36" />
             </Link>
           </div>
           <div className="text-right">
@@ -147,7 +147,7 @@ export default function Layout({ children, currentPageName }) {
       <nav className="bg-white border-b border-gray-200 sticky top-0 z-50">
         <div className="max-w-6xl mx-auto px-4 flex items-center justify-between h-20 md:h-12">
           <Link to={createPageUrl('Home')} className="md:hidden">
-            <img src={logoUrl} alt={brandName} className="h-[4.5rem]" style={{ imageRendering: 'crisp-edges' }} />
+            <img src={logoUrl} alt={brandName} className="h-20" style={{ imageRendering: 'crisp-edges' }} />
           </Link>
 
           <div className="hidden md:flex items-center gap-8">
@@ -283,7 +283,7 @@ export default function Layout({ children, currentPageName }) {
         <div className="max-w-6xl mx-auto px-6 py-10">
           <div className="flex flex-col items-center text-center gap-8 md:flex-row md:items-start md:justify-between md:text-left">
             <div className="flex flex-col items-center text-center md:items-start md:text-left">
-              <img src={footerLogoUrl} alt={brandName} className="h-20 sm:h-24 md:h-28 lg:h-32" style={{ imageRendering: 'crisp-edges' }} />
+              <img src={footerLogoUrl} alt={brandName} className="h-24 sm:h-28 md:h-32 lg:h-36" style={{ imageRendering: 'crisp-edges' }} />
               <h3 className="font-script mt-3 text-4xl leading-none text-white sm:text-5xl md:hidden">{brandName}</h3>
             </div>
             <div className="space-y-3 text-sm text-gray-300 md:max-w-sm md:pt-2">
