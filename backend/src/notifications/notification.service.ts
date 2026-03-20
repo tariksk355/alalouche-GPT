@@ -690,6 +690,18 @@ export class NotificationService {
     return sanitized.trim() || trimmed;
   }
 
+  private getEmailBrandLogo(): { url: string | null; sourcePath: string | null } {
+    const logoUrl = process.env.EMAIL_BRAND_LOGO_URL?.trim();
+    if (!logoUrl) {
+      return { url: null, sourcePath: null };
+    }
+
+    return {
+      url: logoUrl,
+      sourcePath: 'process.env.EMAIL_BRAND_LOGO_URL',
+    };
+  }
+
   private extractLogoUrlCandidate(
     value: unknown,
     sourcePath: string,
@@ -767,9 +779,8 @@ export class NotificationService {
     branding: unknown;
     contactInfo: unknown;
   }): RestaurantEmailContext {
-    const branding = (restaurant.branding as Record<string, unknown> | null) || {};
     const contactInfo = (restaurant.contactInfo as Record<string, unknown> | null) || {};
-    const resolvedLogo = this.resolveBrandingLogo(branding);
+    const emailBrandLogo = this.getEmailBrandLogo();
     const addressCandidate = [
       contactInfo.address,
       [contactInfo.addressLine1, contactInfo.postalCode, contactInfo.city].filter((value) => typeof value === 'string' && value.trim()).join(' '),
@@ -781,8 +792,8 @@ export class NotificationService {
       timezone: restaurant.timezone || 'Europe/Zurich',
       locale: 'fr-CH',
       currency: restaurant.currency || 'CHF',
-      logoUrl: resolvedLogo.url,
-      logoSourcePath: resolvedLogo.sourcePath,
+      logoUrl: emailBrandLogo.url,
+      logoSourcePath: emailBrandLogo.sourcePath,
       primaryColor: '#111111',
       accentColor: '#111111',
       contactPhone: typeof contactInfo.phone === 'string' ? contactInfo.phone.trim() : null,
