@@ -14,6 +14,7 @@ import {
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
+import { memoryStorage } from 'multer';
 import { AccessTokenPayload } from '../auth/token.service';
 import { ok } from '../common/api-response';
 import { AuthService } from '../auth/auth.service';
@@ -34,6 +35,13 @@ import { AdminMarketingService } from './admin-marketing.service';
 import { SendAdminMarketingEmailDto } from './dto/send-admin-marketing-email.dto';
 import { AdminMediaStorageService } from './admin-media-storage.service';
 import { UploadedMenuImageFile } from './menu-image-upload.types';
+
+const ADMIN_IMAGE_UPLOAD_OPTIONS = {
+  storage: memoryStorage(),
+  limits: {
+    fileSize: parseInt(process.env.S3_UPLOAD_MAX_BYTES || '', 10) || 5 * 1024 * 1024,
+  },
+};
 
 @Controller('admin')
 export class AdminController {
@@ -179,13 +187,7 @@ export class AdminController {
   }
 
   @Post('settings/branding/logo/upload')
-  @UseInterceptors(
-    FileInterceptor('file', {
-      limits: {
-        fileSize: parseInt(process.env.S3_UPLOAD_MAX_BYTES || '', 10) || 5 * 1024 * 1024,
-      },
-    }),
-  )
+  @UseInterceptors(FileInterceptor('file', ADMIN_IMAGE_UPLOAD_OPTIONS))
   async uploadBrandingLogo(
     @UploadedFile() file: UploadedMenuImageFile,
     @Headers('authorization') authorization?: string,
@@ -346,13 +348,7 @@ export class AdminController {
   }
 
   @Post('menu-catalog/images/upload')
-  @UseInterceptors(
-    FileInterceptor('file', {
-      limits: {
-        fileSize: parseInt(process.env.S3_UPLOAD_MAX_BYTES || '', 10) || 5 * 1024 * 1024,
-      },
-    }),
-  )
+  @UseInterceptors(FileInterceptor('file', ADMIN_IMAGE_UPLOAD_OPTIONS))
   async uploadMenuImage(
     @UploadedFile() file: UploadedMenuImageFile,
     @Headers('authorization') authorization?: string,

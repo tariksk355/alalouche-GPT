@@ -124,6 +124,13 @@ export class AdminMediaStorageService {
       throw new BadRequestException({ error: 'IMAGE_FILE_REQUIRED', message: 'No image file provided.' });
     }
 
+    if (!file.buffer || file.buffer.length === 0) {
+      throw new ServiceUnavailableException({
+        error: 'IMAGE_BUFFER_UNAVAILABLE',
+        message: 'Uploaded image content is unavailable on the server. Verify multipart memory storage configuration.',
+      });
+    }
+
     if (!this.isSupportedImage(file)) {
       throw new BadRequestException({
         error: 'IMAGE_TYPE_NOT_SUPPORTED',
