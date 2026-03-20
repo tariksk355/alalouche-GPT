@@ -1611,12 +1611,20 @@ function render() {
               <span>${t('settings_volume', { value: Math.round(state.alertSettings.volume * 100) })}</span>
               <input id="alert-volume-input" type="range" min="0" max="100" step="5" data-action="set-alert-volume" value="${Math.round(state.alertSettings.volume * 100)}" />
             </label>
-            <label class="alert-language-row" for="alert-language-select">
+            <div class="alert-language-row">
               <span>${t('settings_language')}</span>
-              <select id="alert-language-select" class="alert-language-select" data-action="set-alert-language">
-                ${SUPPORTED_RECEIVER_LANGUAGES.map((languageCode) => `<option value="${languageCode}" ${state.alertSettings.language === languageCode ? 'selected' : ''}>${t(`language_${languageCode}`)}</option>`).join('')}
-              </select>
-            </label>
+              <div class="chip-row alert-language-chip-row" role="group" aria-label="${t('settings_language')}">
+                ${SUPPORTED_RECEIVER_LANGUAGES.map((languageCode) => `
+                  <button
+                    class="prep-chip alert-language-chip ${state.alertSettings.language === languageCode ? 'active' : ''}"
+                    type="button"
+                    data-action="set-alert-language"
+                    data-language="${languageCode}"
+                    aria-pressed="${state.alertSettings.language === languageCode ? 'true' : 'false'}"
+                  >${t(`language_${languageCode}`)}</button>
+                `).join('')}
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -2098,18 +2106,6 @@ app.addEventListener('input', (event) => {
   }
 });
 
-app.addEventListener('change', (event) => {
-  const target = event.target;
-  if (!(target instanceof HTMLSelectElement)) return;
-
-  if (target.dataset.action === 'set-alert-language') {
-    state.alertSettings.language = normalizeReceiverLanguage(target.value);
-    persistAlertSettings();
-    debugLog('alert_settings_updated', state.alertSettings);
-    render();
-  }
-});
-
 app.addEventListener('click', async (event) => {
   const target = event.target;
   if (!(target instanceof HTMLElement)) return;
@@ -2220,6 +2216,14 @@ app.addEventListener('click', async (event) => {
   if (target.dataset.action === 'close-settings-panel') {
     state.isSettingsPanelOpen = false;
     debugLog('receiver_settings_closed');
+    render();
+    return;
+  }
+
+  if (target.dataset.action === 'set-alert-language' && target.dataset.language) {
+    state.alertSettings.language = normalizeReceiverLanguage(target.dataset.language);
+    persistAlertSettings();
+    debugLog('alert_settings_updated', state.alertSettings);
     render();
     return;
   }

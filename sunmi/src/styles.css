@@ -250,13 +250,17 @@ button:disabled { opacity: 0.6; }
   flex: 1;
 }
 
-.alert-language-select {
-  min-width: 140px;
-  padding: 8px 10px;
-  border-radius: 10px;
-  border: 1px solid #475569;
-  background: #0f172a;
-  color: #e5e7eb;
+.alert-language-row {
+  align-items: flex-start;
+  flex-direction: column;
+}
+
+.alert-language-chip-row {
+  margin-top: 6px;
+}
+
+.alert-language-chip {
+  min-width: 92px;
 }
 
 
