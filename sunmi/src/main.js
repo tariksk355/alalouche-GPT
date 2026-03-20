@@ -23,6 +23,8 @@ const ALERT_SETTINGS_STORAGE_KEY = 'sunmi_alert_settings_v1';
 const COMPLETED_ORDERS_CACHE_STORAGE_KEY = 'sunmi_completed_orders_cache_v1';
 const COMPLETED_SECTION_OPEN_STORAGE_KEY = 'sunmi_completed_section_open_v1';
 const PROCESSED_RESERVATIONS_SECTION_OPEN_STORAGE_KEY = 'sunmi_processed_reservations_section_open_v1';
+const DISMISSED_COMPLETED_ORDERS_STORAGE_KEY = 'sunmi_dismissed_completed_orders_v1';
+const DISMISSED_PROCESSED_RESERVATIONS_STORAGE_KEY = 'sunmi_dismissed_processed_reservations_v1';
 const PRINT_DISPATCH_DEDUP_MS = 15000;
 const ATTENTION_ALERT_DURATION_MS = 7000;
 
@@ -62,10 +64,13 @@ const state = {
   completedOrdersById: {},
   completedSectionOpen: false,
   processedReservationsSectionOpen: false,
+  dismissedCompletedOrderIds: {},
+  dismissedProcessedReservationIds: {},
   activeAttentionAlert: null,
   attentionAlertTimeoutId: null,
   reservationUiById: {},
   reservationFeedbackTimeoutsById: {},
+  completedOrderUiById: {},
   printDebug: {
     at: null,
     mode: 'idle',
@@ -85,6 +90,7 @@ function getReservationUiState(reservationId) {
   return {
     pendingAction: candidate?.pendingAction || null,
     confirmCancel: candidate?.confirmCancel === true,
+    confirmDelete: candidate?.confirmDelete === true,
     successMessage: candidate?.successMessage || '',
   };
 }
@@ -131,6 +137,7 @@ function cleanupReservationUiState(nextReservations = state.reservations) {
       if (current.confirmCancel || current.pendingAction) {
         setReservationUiState(reservation.id, {
           confirmCancel: false,
+          confirmDelete: false,
           pendingAction: null,
         });
       }
@@ -148,6 +155,22 @@ function updateReservationLocally(reservationId, patch) {
   });
 }
 
+function getCompletedOrderUiState(orderId) {
+  const candidate = orderId ? state.completedOrderUiById[orderId] : null;
+  return {
+    confirmDelete: candidate?.confirmDelete === true,
+  };
+}
+
+function setCompletedOrderUiState(orderId, patch) {
+  if (!orderId) return;
+  const current = getCompletedOrderUiState(orderId);
+  state.completedOrderUiById[orderId] = {
+    ...current,
+    ...patch,
+  };
+}
+
 function findOrderForReprint(orderId) {
   if (!orderId) return null;
   const activeOrder = state.orders.find((item) => item.id === orderId);
@@ -159,6 +182,69 @@ function findOrderForReprint(orderId) {
   }
 
   return null;
+}
+
+function loadDismissedCompletedOrderIds() {
+  try {
+    const raw = localStorage.getItem(DISMISSED_COMPLETED_ORDERS_STORAGE_KEY);
+    if (!raw) {
+      state.dismissedCompletedOrderIds = {};
+      return;
+    }
+    const parsed = JSON.parse(raw);
+    state.dismissedCompletedOrderIds = parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    state.dismissedCompletedOrderIds = {};
+  }
+}
+
+function persistDismissedCompletedOrderIds() {
+  try {
+    localStorage.setItem(DISMISSED_COMPLETED_ORDERS_STORAGE_KEY, JSON.stringify(state.dismissedCompletedOrderIds));
+  } catch {
+    // ignore
+  }
+}
+
+function dismissCompletedOrder(orderId) {
+  if (!orderId) return;
+  delete state.completedOrdersById[orderId];
+  state.dismissedCompletedOrderIds[orderId] = true;
+  delete state.completedOrderUiById[orderId];
+  persistCompletedOrdersCache();
+  persistDismissedCompletedOrderIds();
+}
+
+function loadDismissedProcessedReservationIds() {
+  try {
+    const raw = localStorage.getItem(DISMISSED_PROCESSED_RESERVATIONS_STORAGE_KEY);
+    if (!raw) {
+      state.dismissedProcessedReservationIds = {};
+      return;
+    }
+    const parsed = JSON.parse(raw);
+    state.dismissedProcessedReservationIds = parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    state.dismissedProcessedReservationIds = {};
+  }
+}
+
+function persistDismissedProcessedReservationIds() {
+  try {
+    localStorage.setItem(
+      DISMISSED_PROCESSED_RESERVATIONS_STORAGE_KEY,
+      JSON.stringify(state.dismissedProcessedReservationIds),
+    );
+  } catch {
+    // ignore
+  }
+}
+
+function dismissProcessedReservation(reservationId) {
+  if (!reservationId) return;
+  state.dismissedProcessedReservationIds[reservationId] = true;
+  setReservationUiState(reservationId, { confirmDelete: false });
+  persistDismissedProcessedReservationIds();
 }
 
 function normalizeAlertSettings(value) {
@@ -923,8 +1009,11 @@ async function handleReservationStatusAction(reservationId, status) {
   setReservationUiState(reservationId, {
     pendingAction: null,
     confirmCancel: false,
+    confirmDelete: false,
     successMessage: getReservationActionSuccessLabel(status),
   });
+  delete state.dismissedProcessedReservationIds[reservationId];
+  persistDismissedProcessedReservationIds();
   scheduleReservationSuccessClear(reservationId);
   cleanupReservationUiState();
   render();
@@ -1021,7 +1110,7 @@ function render() {
     const aTs = new Date(a?.updatedAt || a?.statusUpdatedAt || a?.createdAt || 0).getTime() || 0;
     const bTs = new Date(b?.updatedAt || b?.statusUpdatedAt || b?.createdAt || 0).getTime() || 0;
     return bTs - aTs;
-  });
+  }).filter((order) => !state.dismissedCompletedOrderIds?.[order?.id]);
 
   console.debug(`[sunmi-receiver] active_orders_count count=${activeOrders.length}`);
   console.debug(`[sunmi-receiver] completed_orders_from_backend count=${completedOrdersFromBackend.length}`);
@@ -1032,6 +1121,7 @@ function render() {
 
   const renderOrderCard = (order, options = {}) => {
     const isCompleted = Boolean(options.isCompleted);
+    const completedOrderUi = isCompleted ? getCompletedOrderUiState(order.id) : { confirmDelete: false };
     if (isCompleted) {
       console.debug(`[sunmi-receiver] completed_order_rendered orderId=${order?.id || ''}`);
     } else {
@@ -1065,8 +1155,20 @@ function render() {
       <div class="card" data-order-id="${order.id}">
         <div class="topbar">
           <strong>${order.orderNumber || order.id}</strong>
-          <span class="status-pill">${formatOrderStatus(order.status)}</span>
+          <div class="card-actions-right">
+            <span class="status-pill">${formatOrderStatus(order.status)}</span>
+            ${isCompleted ? `<button class="card-icon-btn" data-action="delete-completed-order-request" data-id="${order.id}" aria-label="Supprimer cette commande archivée">🗑️</button>` : ''}
+          </div>
         </div>
+        ${isCompleted && completedOrderUi.confirmDelete
+          ? `<div class="archive-delete-confirm">
+              <div class="reservation-feedback reservation-feedback-warning">Retirer cette commande de l’historique local ?</div>
+              <div class="btn-row">
+                <button class="btn-danger btn-inline" data-action="delete-completed-order-confirm" data-id="${order.id}">Supprimer</button>
+                <button class="btn-secondary-inline btn-inline" data-action="delete-completed-order-abort" data-id="${order.id}">Retour</button>
+              </div>
+            </div>`
+          : ''}
         <div class="print-state-row">${printUiState === 'NEEDS_ATTENTION' ? `<span class="print-status-pill print-status-pill-${printUiState.toLowerCase()}">${printMessage}</span>` : ''}${printUiState === 'NEEDS_ATTENTION' && printJob?.jobId && !printJob?.nonRetryable ? `<button class="btn-secondary-inline print-retry-btn" data-action="retry-print" data-job-id="${printJob.jobId}" data-id="${order.id}" ${state.printRetryInFlightByOrderId[order.id] ? 'disabled' : ''}>Réessayer</button>` : ''}<button class="btn-secondary-inline print-retry-btn" data-action="reprint-order" data-id="${order.id}" ${state.printDispatchInFlightByOrderId[order.id] ? 'disabled' : ''}>Reimprimer</button></div>
         ${printJob?.nonRetryable ? `<div class="subtle print-status-unavailable">Impression bloquée: ${escapeHtml(printJob.blockedReasonMessage || 'Action opérateur requise.')}</div>` : ''}
         ${printJob?.transientUnavailable ? '<div class="subtle print-status-unavailable">Statut impression temporairement indisponible.</div>' : ''}
@@ -1097,7 +1199,10 @@ function render() {
     : completedOrders.map((order) => renderOrderCard(order, { isCompleted: true })).join('');
   cleanupReservationUiState();
   const upcomingReservations = state.reservations.filter((reservation) => String(reservation?.status || '').toLowerCase() === 'pending');
-  const processedReservations = state.reservations.filter((reservation) => String(reservation?.status || '').toLowerCase() !== 'pending');
+  const processedReservations = state.reservations.filter((reservation) => (
+    String(reservation?.status || '').toLowerCase() !== 'pending'
+    && !state.dismissedProcessedReservationIds?.[reservation?.id]
+  ));
 
   const renderReservationCard = (reservation) => {
     const reservationUi = getReservationUiState(reservation.id);
@@ -1110,7 +1215,18 @@ function render() {
         : '';
 
     const actionAreaHtml = String(reservation.status || '').toLowerCase() !== 'pending'
-      ? '<div class="subtle reservation-processed-note">Réservation déjà traitée.</div>'
+      ? `
+        <div class="subtle reservation-processed-note">Réservation déjà traitée.</div>
+        ${reservationUi.confirmDelete
+          ? `<div class="archive-delete-confirm">
+              <div class="reservation-feedback reservation-feedback-warning">Retirer cette réservation de l’historique local ?</div>
+              <div class="btn-row">
+                <button class="btn-danger btn-inline" data-action="delete-processed-reservation-confirm" data-id="${reservation.id}">Supprimer</button>
+                <button class="btn-secondary-inline btn-inline" data-action="delete-processed-reservation-abort" data-id="${reservation.id}">Retour</button>
+              </div>
+            </div>`
+          : ''}
+      `
       : isConfirmingCancel
         ? `
           <div class="reservation-cancel-confirm">
@@ -1132,7 +1248,12 @@ function render() {
       <div class="card" data-reservation-id="${reservation.id}">
         <div class="topbar">
           <strong>${reservation.customerName || reservation.id}</strong>
-          <span class="status-pill">${formatReservationStatus(reservation.status)}</span>
+          <div class="card-actions-right">
+            <span class="status-pill">${formatReservationStatus(reservation.status)}</span>
+            ${String(reservation.status || '').toLowerCase() !== 'pending'
+              ? `<button class="card-icon-btn" data-action="delete-processed-reservation-request" data-id="${reservation.id}" aria-label="Supprimer cette réservation archivée">🗑️</button>`
+              : ''}
+          </div>
         </div>
         <div class="subtle">${reservation.guestCount || '-'} couverts • ${formatReservationDate(reservation.reservationDate)}</div>
         ${reservation.customerPhone ? `<div class="subtle">Téléphone: ${escapeHtml(reservation.customerPhone)}</div>` : ''}
@@ -1334,6 +1455,12 @@ async function refreshOperations() {
     const backendCompletedOrders = nextOrders.filter((order) => String(order?.status || '').toLowerCase() === 'completed');
     const activeOrderIds = new Set(nextOrders.map((order) => order?.id).filter(Boolean));
     for (const activeOrderId of activeOrderIds) {
+      if (state.dismissedCompletedOrderIds[activeOrderId]) {
+        delete state.dismissedCompletedOrderIds[activeOrderId];
+      }
+      if (state.completedOrderUiById[activeOrderId]) {
+        delete state.completedOrderUiById[activeOrderId];
+      }
       if (state.completedOrdersById[activeOrderId]) {
         delete state.completedOrdersById[activeOrderId];
       }
@@ -1351,6 +1478,13 @@ async function refreshOperations() {
     detectAndTriggerNewEventAlerts(nextOrders, nextReservations);
     state.orders = nextOrders;
     state.reservations = nextReservations;
+    nextReservations.forEach((reservation) => {
+      if (String(reservation?.status || '').toLowerCase() === 'pending' && state.dismissedProcessedReservationIds[reservation.id]) {
+        delete state.dismissedProcessedReservationIds[reservation.id];
+      }
+    });
+    persistDismissedCompletedOrderIds();
+    persistDismissedProcessedReservationIds();
     cleanupReservationUiState(nextReservations);
     const nextPrep = {};
     for (const order of state.orders) {
@@ -1831,6 +1965,26 @@ app.addEventListener('click', async (event) => {
     return;
   }
 
+  if (target.dataset.action === 'delete-completed-order-request' && target.dataset.id) {
+    setCompletedOrderUiState(target.dataset.id, { confirmDelete: true });
+    state.error = '';
+    render();
+    return;
+  }
+
+  if (target.dataset.action === 'delete-completed-order-abort' && target.dataset.id) {
+    setCompletedOrderUiState(target.dataset.id, { confirmDelete: false });
+    render();
+    return;
+  }
+
+  if (target.dataset.action === 'delete-completed-order-confirm' && target.dataset.id) {
+    dismissCompletedOrder(target.dataset.id);
+    state.printerMessage = '';
+    render();
+    return;
+  }
+
 
   if (target.dataset.action === 'reprint-order' && target.dataset.id) {
     console.debug(`[sunmi-receiver] reprint_button_clicked orderId=${target.dataset.id}`);
@@ -1857,6 +2011,27 @@ app.addEventListener('click', async (event) => {
 
   if (reservationAction === 'reservation_cancel_abort' && reservationId) {
     setReservationUiState(reservationId, { confirmCancel: false });
+    state.error = '';
+    render();
+    return;
+  }
+
+  if (reservationAction === 'delete-processed-reservation-request' && reservationId) {
+    setReservationUiState(reservationId, { confirmDelete: true, successMessage: '' });
+    state.error = '';
+    render();
+    return;
+  }
+
+  if (reservationAction === 'delete-processed-reservation-abort' && reservationId) {
+    setReservationUiState(reservationId, { confirmDelete: false });
+    state.error = '';
+    render();
+    return;
+  }
+
+  if (reservationAction === 'delete-processed-reservation-confirm' && reservationId) {
+    dismissProcessedReservation(reservationId);
     state.error = '';
     render();
     return;
@@ -1941,6 +2116,8 @@ async function boot() {
   loadCompletedOrdersCache();
   loadCompletedSectionOpenState();
   loadProcessedReservationsSectionOpenState();
+  loadDismissedCompletedOrderIds();
+  loadDismissedProcessedReservationIds();
   hydratePrintJobTrackingFromStorage();
   render();
 
