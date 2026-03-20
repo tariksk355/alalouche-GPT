@@ -1,6 +1,6 @@
 import { POLL_INTERVAL_MS } from './config.js';
 import { debugLog } from './debug.js';
-import { formatOrderStatus, toPrintJob } from './boundaries/orderFormatter.js';
+import { toPrintJob } from './boundaries/orderFormatter.js';
 import { createPrinterAdapter } from './boundaries/printerAdapter.js';
 import { normalizeOrderForDisplay } from './boundaries/printJobContract.js';
 import {
@@ -84,6 +84,302 @@ const state = {
     receiptPreview: '',
   },
 };
+
+const SUPPORTED_RECEIVER_LANGUAGES = ['en', 'fr', 'de'];
+
+const RECEIVER_I18N = {
+  en: {
+    app_title: 'Sunmi Receiver',
+    device_not_paired: 'Device not paired',
+    pairing_enter_code: 'Enter the pairing code provided by the administrator.',
+    pairing_submit: 'Pair device',
+    pairing_submitting: 'Sending...',
+    reset_local_token: 'Reset local token',
+    booting: 'Initializing...',
+    pairing_waiting: 'Pairing request is waiting for admin confirmation...',
+    request_label: 'Request',
+    cancel: 'Cancel',
+    verifying_device: 'Verifying device...',
+    server_error_title: 'Server error',
+    server_error_fallback: 'Check network connectivity and backend availability.',
+    retry: 'Retry',
+    section_orders_active: 'Active orders',
+    section_orders_active_subtitle: 'Operational order handling',
+    section_completed: 'Completed',
+    section_completed_subtitle: 'History of completed orders with fast reprint.',
+    no_active_orders: 'No active orders.',
+    no_completed_orders: 'No completed orders.',
+    action_accept_print: 'Accept & print',
+    action_ready: 'Ready',
+    action_done: 'Done',
+    action_reprint: 'Reprint',
+    action_retry_print: 'Retry',
+    prep_time: 'Prep time',
+    reservation_status_pending: 'Pending',
+    reservation_status_confirmed: 'Confirmed',
+    reservation_status_cancelled: 'Cancelled',
+    order_status_new: 'New',
+    order_status_accepted: 'Accepted',
+    order_status_ready: 'Ready',
+    order_status_completed: 'Completed',
+    order_status_cancelled: 'Cancelled',
+    reservation_confirm_success: 'Reservation confirmed.',
+    reservation_cancel_success: 'Reservation cancelled.',
+    reservation_confirm_loading: 'Confirming...',
+    reservation_cancel_loading: 'Cancelling...',
+    reservation_cancel_confirm: 'Confirm cancellation?',
+    action_confirm_cancel: 'Confirm cancellation',
+    action_back: 'Back',
+    action_confirm: 'Confirm',
+    action_confirming: 'Confirming...',
+    reservations_title: 'Reservations',
+    reservations_subtitle: 'Quickly confirm pending reservations, with a light confirmation before cancellation.',
+    reservations_upcoming: 'Upcoming',
+    reservations_upcoming_subtitle: 'Reservations waiting for action.',
+    reservations_processed: 'Processed',
+    reservations_processed_subtitle: 'Reservations already confirmed or cancelled.',
+    no_pending_reservations: 'No pending reservations.',
+    no_processed_reservations: 'No processed reservations.',
+    reservation_processed_note: 'Reservation already processed.',
+    label_phone: 'Phone',
+    label_email: 'Email',
+    label_note: 'Note',
+    label_guests: '{count} guests',
+    settings_title: 'Settings',
+    settings_subtitle: 'Control visual, sound, and language preferences.',
+    settings_close: 'Close settings',
+    settings_sound: 'Global sound',
+    settings_orders: 'Orders',
+    settings_reservations: 'Reservations',
+    settings_volume: 'Volume: {value}%',
+    settings_language: 'Language',
+    language_en: 'English',
+    language_fr: 'Français',
+    language_de: 'Deutsch',
+    connected_label: 'Connected',
+    device_fallback: 'Device',
+    unpair_device: 'Unpair this device',
+    attention_new_order: 'New order',
+    attention_new_reservation: 'New reservation',
+    attention_new_request: 'New request',
+    close: 'Close',
+    print_in_progress: 'Printing...',
+    printed: 'Printed',
+    print_failed_retry: 'Print failed. Retry.',
+    print_blocked: 'Printing blocked',
+    print_status_unavailable: 'Print status temporarily unavailable.',
+    details_unavailable: 'Details unavailable',
+    archived_remove_order_confirm: 'Remove this order from local history?',
+    archived_remove_reservation_confirm: 'Remove this reservation from local history?',
+    action_delete: 'Delete',
+    settings_open: 'Open settings',
+    settings_dialog_aria: 'Receiver settings',
+    pairing_placeholder: 'Ex: AB12CD',
+    pairing_message_sent: 'Request sent. Waiting for confirmation...',
+    pairing_timeout: 'Timeout reached. Please regenerate a pairing code.',
+    archived_order_delete_aria: 'Delete this archived order',
+    archived_reservation_delete_aria: 'Delete this archived reservation',
+    print_blocked_operator_action: 'Operator action required.',
+  },
+  fr: {
+    app_title: 'Sunmi Receiver',
+    device_not_paired: 'Appareil non associé',
+    pairing_enter_code: "Entrez le code d'association fourni par l'administrateur.",
+    pairing_submit: "Associer l'appareil",
+    pairing_submitting: 'Envoi...',
+    reset_local_token: 'Réinitialiser le token local',
+    booting: 'Initialisation...',
+    pairing_waiting: "Association en attente de confirmation admin...",
+    request_label: 'Demande',
+    cancel: 'Annuler',
+    verifying_device: 'Vérification du périphérique...',
+    server_error_title: 'Erreur serveur',
+    server_error_fallback: 'Vérifiez la connectivité réseau et le backend.',
+    retry: 'Réessayer',
+    section_orders_active: 'Commandes en cours',
+    section_orders_active_subtitle: 'Gestion opérationnelle des commandes',
+    section_completed: 'Terminées',
+    section_completed_subtitle: 'Historique des commandes terminées avec réimpression rapide.',
+    no_active_orders: 'Aucune commande en cours.',
+    no_completed_orders: 'Aucune commande terminée.',
+    action_accept_print: 'Accepter & imprimer',
+    action_ready: 'Prêt',
+    action_done: 'Terminé',
+    action_reprint: 'Reimprimer',
+    action_retry_print: 'Réessayer',
+    prep_time: 'Temps prep',
+    reservation_status_pending: 'En attente',
+    reservation_status_confirmed: 'Confirmée',
+    reservation_status_cancelled: 'Annulée',
+    order_status_new: 'Nouveau',
+    order_status_accepted: 'Accepté',
+    order_status_ready: 'Prêt',
+    order_status_completed: 'Terminé',
+    order_status_cancelled: 'Annulé',
+    reservation_confirm_success: 'Réservation confirmée.',
+    reservation_cancel_success: 'Réservation annulée.',
+    reservation_confirm_loading: 'Confirmation en cours...',
+    reservation_cancel_loading: 'Annulation en cours...',
+    reservation_cancel_confirm: "Confirmer l'annulation ?",
+    action_confirm_cancel: 'Confirmer annulation',
+    action_back: 'Retour',
+    action_confirm: 'Confirmer',
+    action_confirming: 'Confirmation...',
+    reservations_title: 'Réservations',
+    reservations_subtitle: 'Confirmer rapidement les réservations en attente, avec confirmation légère avant annulation.',
+    reservations_upcoming: 'À venir',
+    reservations_upcoming_subtitle: "Réservations en attente d'action.",
+    reservations_processed: 'Traitées',
+    reservations_processed_subtitle: 'Réservations déjà confirmées ou annulées.',
+    no_pending_reservations: 'Aucune réservation en attente.',
+    no_processed_reservations: 'Aucune réservation traitée.',
+    reservation_processed_note: 'Réservation déjà traitée.',
+    label_phone: 'Téléphone',
+    label_email: 'Email',
+    label_note: 'Note',
+    label_guests: '{count} couverts',
+    settings_title: 'Paramètres',
+    settings_subtitle: 'Contrôlez les alertes visuelles, sonores et la langue.',
+    settings_close: 'Fermer les paramètres',
+    settings_sound: 'Son global',
+    settings_orders: 'Commandes',
+    settings_reservations: 'Réservations',
+    settings_volume: 'Volume: {value}%',
+    settings_language: 'Langue',
+    language_en: 'English',
+    language_fr: 'Français',
+    language_de: 'Deutsch',
+    connected_label: 'Connecté',
+    device_fallback: 'Périphérique',
+    unpair_device: 'Désassocier cet appareil',
+    attention_new_order: 'Nouvelle commande',
+    attention_new_reservation: 'Nouvelle réservation',
+    attention_new_request: 'Nouvelle demande',
+    close: 'Fermer',
+    print_in_progress: 'Impression en cours...',
+    printed: 'Imprimé',
+    print_failed_retry: 'Impression échouée. Réessayez.',
+    print_blocked: 'Impression bloquée',
+    print_status_unavailable: 'Statut impression temporairement indisponible.',
+    details_unavailable: 'Détails indisponibles',
+    archived_remove_order_confirm: "Retirer cette commande de l’historique local ?",
+    archived_remove_reservation_confirm: "Retirer cette réservation de l’historique local ?",
+    action_delete: 'Supprimer',
+    settings_open: 'Ouvrir les paramètres',
+    settings_dialog_aria: 'Paramètres du receiver',
+    pairing_placeholder: 'Ex: AB12CD',
+    pairing_message_sent: 'Demande envoyée. En attente de confirmation...',
+    pairing_timeout: "Délai dépassé. Veuillez régénérer un code d'association.",
+    archived_order_delete_aria: 'Supprimer cette commande archivée',
+    archived_reservation_delete_aria: 'Supprimer cette réservation archivée',
+    print_blocked_operator_action: 'Action opérateur requise.',
+  },
+  de: {
+    app_title: 'Sunmi Receiver',
+    device_not_paired: 'Gerät nicht gekoppelt',
+    pairing_enter_code: 'Geben Sie den vom Administrator bereitgestellten Kopplungscode ein.',
+    pairing_submit: 'Gerät koppeln',
+    pairing_submitting: 'Wird gesendet...',
+    reset_local_token: 'Lokales Token zurücksetzen',
+    booting: 'Initialisierung...',
+    pairing_waiting: 'Kopplungsanfrage wartet auf Admin-Bestätigung...',
+    request_label: 'Anfrage',
+    cancel: 'Abbrechen',
+    verifying_device: 'Gerät wird überprüft...',
+    server_error_title: 'Serverfehler',
+    server_error_fallback: 'Prüfen Sie Netzwerkverbindung und Backend.',
+    retry: 'Erneut versuchen',
+    section_orders_active: 'Aktive Bestellungen',
+    section_orders_active_subtitle: 'Operative Bestellverwaltung',
+    section_completed: 'Abgeschlossen',
+    section_completed_subtitle: 'Verlauf abgeschlossener Bestellungen mit schnellem Nachdruck.',
+    no_active_orders: 'Keine aktiven Bestellungen.',
+    no_completed_orders: 'Keine abgeschlossenen Bestellungen.',
+    action_accept_print: 'Annehmen & drucken',
+    action_ready: 'Bereit',
+    action_done: 'Erledigt',
+    action_reprint: 'Nachdrucken',
+    action_retry_print: 'Erneut versuchen',
+    prep_time: 'Vorbereitungszeit',
+    reservation_status_pending: 'Ausstehend',
+    reservation_status_confirmed: 'Bestätigt',
+    reservation_status_cancelled: 'Storniert',
+    order_status_new: 'Neu',
+    order_status_accepted: 'Angenommen',
+    order_status_ready: 'Bereit',
+    order_status_completed: 'Abgeschlossen',
+    order_status_cancelled: 'Storniert',
+    reservation_confirm_success: 'Reservierung bestätigt.',
+    reservation_cancel_success: 'Reservierung storniert.',
+    reservation_confirm_loading: 'Bestätigung läuft...',
+    reservation_cancel_loading: 'Stornierung läuft...',
+    reservation_cancel_confirm: 'Stornierung bestätigen?',
+    action_confirm_cancel: 'Stornierung bestätigen',
+    action_back: 'Zurück',
+    action_confirm: 'Bestätigen',
+    action_confirming: 'Bestätigung...',
+    reservations_title: 'Reservierungen',
+    reservations_subtitle: 'Ausstehende Reservierungen schnell bestätigen, mit leichter Sicherheitsabfrage vor der Stornierung.',
+    reservations_upcoming: 'Bevorstehend',
+    reservations_upcoming_subtitle: 'Reservierungen, die noch bearbeitet werden müssen.',
+    reservations_processed: 'Bearbeitet',
+    reservations_processed_subtitle: 'Bereits bestätigte oder stornierte Reservierungen.',
+    no_pending_reservations: 'Keine ausstehenden Reservierungen.',
+    no_processed_reservations: 'Keine bearbeiteten Reservierungen.',
+    reservation_processed_note: 'Reservierung bereits bearbeitet.',
+    label_phone: 'Telefon',
+    label_email: 'E-Mail',
+    label_note: 'Notiz',
+    label_guests: '{count} Gäste',
+    settings_title: 'Einstellungen',
+    settings_subtitle: 'Steuern Sie visuelle Hinweise, Ton und Sprache.',
+    settings_close: 'Einstellungen schließen',
+    settings_sound: 'Globaler Ton',
+    settings_orders: 'Bestellungen',
+    settings_reservations: 'Reservierungen',
+    settings_volume: 'Lautstärke: {value}%',
+    settings_language: 'Sprache',
+    language_en: 'English',
+    language_fr: 'Français',
+    language_de: 'Deutsch',
+    connected_label: 'Verbunden',
+    device_fallback: 'Gerät',
+    unpair_device: 'Dieses Gerät entkoppeln',
+    attention_new_order: 'Neue Bestellung',
+    attention_new_reservation: 'Neue Reservierung',
+    attention_new_request: 'Neue Anfrage',
+    close: 'Schließen',
+    print_in_progress: 'Druck läuft...',
+    printed: 'Gedruckt',
+    print_failed_retry: 'Druck fehlgeschlagen. Erneut versuchen.',
+    print_blocked: 'Druck blockiert',
+    print_status_unavailable: 'Druckstatus vorübergehend nicht verfügbar.',
+    details_unavailable: 'Details nicht verfügbar',
+    archived_remove_order_confirm: 'Diese Bestellung aus dem lokalen Verlauf entfernen?',
+    archived_remove_reservation_confirm: 'Diese Reservierung aus dem lokalen Verlauf entfernen?',
+    action_delete: 'Löschen',
+    settings_open: 'Einstellungen öffnen',
+    settings_dialog_aria: 'Receiver-Einstellungen',
+    pairing_placeholder: 'Z. B. AB12CD',
+    pairing_message_sent: 'Anfrage gesendet. Warten auf Bestätigung...',
+    pairing_timeout: 'Zeitüberschreitung. Bitte einen neuen Kopplungscode erzeugen.',
+    archived_order_delete_aria: 'Diese archivierte Bestellung löschen',
+    archived_reservation_delete_aria: 'Diese archivierte Reservierung löschen',
+    print_blocked_operator_action: 'Bedienereingriff erforderlich.',
+  },
+};
+
+function normalizeReceiverLanguage(value) {
+  const normalized = String(value || '').trim().toLowerCase();
+  return SUPPORTED_RECEIVER_LANGUAGES.includes(normalized) ? normalized : 'en';
+}
+
+function t(key, vars = {}) {
+  const language = normalizeReceiverLanguage(state.alertSettings.language);
+  const english = RECEIVER_I18N.en[key] || key;
+  const template = RECEIVER_I18N[language]?.[key] || english;
+  return template.replace(/\{(\w+)\}/g, (_, name) => String(vars[name] ?? `{${name}}`));
+}
 
 function getReservationUiState(reservationId) {
   const candidate = reservationId ? state.reservationUiById[reservationId] : null;
@@ -254,6 +550,7 @@ function normalizeAlertSettings(value) {
     orderEnabled: candidate.orderEnabled !== false,
     reservationEnabled: candidate.reservationEnabled !== false,
     volume: Math.min(1, Math.max(0, Number.isFinite(Number(candidate.volume)) ? Number(candidate.volume) : 0.2)),
+    language: normalizeReceiverLanguage(candidate.language),
   };
 }
 
@@ -632,9 +929,9 @@ function normalizePrintUiState(nativeState) {
 }
 
 function printStateMessage(uiState) {
-  if (uiState === 'PRINTING') return 'Impression en cours...';
-  if (uiState === 'PRINTED') return 'Imprimé';
-  if (uiState === 'NEEDS_ATTENTION') return 'Impression échouée. Réessayez.';
+  if (uiState === 'PRINTING') return t('print_in_progress');
+  if (uiState === 'PRINTED') return t('printed');
+  if (uiState === 'NEEDS_ATTENTION') return t('print_failed_retry');
   return '';
 }
 
@@ -957,12 +1254,9 @@ function formatZurichDateTime(iso) {
 }
 
 function formatReservationStatus(status) {
-  const labels = {
-    pending: 'En attente',
-    confirmed: 'Confirmée',
-    cancelled: 'Annulée',
-  };
-  return labels[status] || status;
+  const normalized = String(status || '').toLowerCase();
+  const key = `reservation_status_${normalized}`;
+  return t(key);
 }
 
 function formatReservationDate(iso) {
@@ -970,7 +1264,7 @@ function formatReservationDate(iso) {
 }
 
 function getReservationActionSuccessLabel(status) {
-  return status === 'confirmed' ? 'Réservation confirmée.' : 'Réservation annulée.';
+  return status === 'confirmed' ? t('reservation_confirm_success') : t('reservation_cancel_success');
 }
 
 async function handleReservationStatusAction(reservationId, status) {
@@ -1022,6 +1316,12 @@ async function handleReservationStatusAction(reservationId, status) {
 }
 
 
+function formatOrderStatus(status) {
+  const normalized = String(status || '').toLowerCase();
+  const key = `order_status_${normalized}`;
+  return t(key);
+}
+
 function formatOrderType(orderType) {
   return orderType === 'delivery' ? 'Livraison' : 'À emporter';
 }
@@ -1040,14 +1340,14 @@ function prepMinutesForOrder(order) {
 function renderPairingCard() {
   return `
     <div class="card">
-      <div class="title">Sunmi Receiver</div>
-      <p class="warning">Appareil non associé</p>
-      <p class="subtle">Entrez le code d'association fourni par l'administrateur.</p>
-      <input id="pairing-code-input" class="input" placeholder="Ex: AB12CD" value="${state.pairingCode}" />
+      <div class="title">${t('app_title')}</div>
+      <p class="warning">${t('device_not_paired')}</p>
+      <p class="subtle">${t('pairing_enter_code')}</p>
+      <input id="pairing-code-input" class="input" placeholder="${t('pairing_placeholder')}" value="${state.pairingCode}" />
       <button id="pairing-submit-btn" class="btn-primary" ${state.mode === 'pairing_submitting' ? 'disabled' : ''}>
-        ${state.mode === 'pairing_submitting' ? 'Envoi...' : "Associer l'appareil"}
+        ${state.mode === 'pairing_submitting' ? t('pairing_submitting') : t('pairing_submit')}
       </button>
-      <button id="reset-token-btn" class="btn-secondary">Réinitialiser le token local</button>
+      <button id="reset-token-btn" class="btn-secondary">${t('reset_local_token')}</button>
       ${state.pairingMessage ? `<p class="subtle">${state.pairingMessage}</p>` : ''}
       ${state.error ? `<p class="error">${state.error}</p>` : ''}
     </div>
@@ -1056,7 +1356,7 @@ function renderPairingCard() {
 
 function render() {
   if (state.mode === 'booting') {
-    app.innerHTML = '<div class="card"><div class="title">Sunmi Receiver</div><p>Initialisation...</p></div>';
+    app.innerHTML = `<div class="card"><div class="title">${t('app_title')}</div><p>${t('booting')}</p></div>`;
     return;
   }
 
@@ -1068,29 +1368,29 @@ function render() {
   if (state.mode === 'pairing_waiting') {
     app.innerHTML = `
       <div class="card">
-        <div class="title">Sunmi Receiver</div>
-        <p>Association en attente de confirmation admin...</p>
-        <p class="subtle">Request: ${state.pairingRequestId || '-'}</p>
+        <div class="title">${t('app_title')}</div>
+        <p>${t('pairing_waiting')}</p>
+        <p class="subtle">${t('request_label')}: ${state.pairingRequestId || '-'}</p>
         ${state.pairingMessage ? `<p class="subtle">${state.pairingMessage}</p>` : ''}
         ${state.error ? `<p class="error">${state.error}</p>` : ''}
-        <button id="pairing-cancel-btn" class="btn-secondary">Annuler</button>
+        <button id="pairing-cancel-btn" class="btn-secondary">${t('cancel')}</button>
       </div>
     `;
     return;
   }
 
   if (state.mode === 'verifying') {
-    app.innerHTML = '<div class="card"><div class="title">Sunmi Receiver</div><p>Vérification du périphérique...</p></div>';
+    app.innerHTML = `<div class="card"><div class="title">${t('app_title')}</div><p>${t('verifying_device')}</p></div>`;
     return;
   }
 
   if (state.mode === 'server_error') {
     app.innerHTML = `
       <div class="card">
-        <div class="title">Sunmi Receiver</div>
-        <p class="error">Erreur serveur</p>
-        <p class="subtle">${state.error || 'Vérifiez la connectivité réseau et le backend.'}</p>
-        <button id="retry-btn" class="btn-primary">Réessayer</button>
+        <div class="title">${t('app_title')}</div>
+        <p class="error">${t('server_error_title')}</p>
+        <p class="subtle">${state.error || t('server_error_fallback')}</p>
+        <button id="retry-btn" class="btn-primary">${t('retry')}</button>
       </div>
     `;
     return;
@@ -1145,7 +1445,7 @@ function render() {
         const marginStyle = idx === 0 ? '' : ' style="margin-top:6px;"';
         return `<div class="subtle"${marginStyle}>${escapeHtml(section.line)}</div>`;
       }).join('')
-      : '<div class="subtle" style="margin-top:8px;">Détails indisponibles</div>';
+      : `<div class="subtle" style="margin-top:8px;">${t('details_unavailable')}</div>`;
 
     const printJob = state.printJobsByOrderId[order.id];
     const printUiState = printJob?.uiState ? normalizePrintUiState(printJob.uiState) : null;
@@ -1157,33 +1457,33 @@ function render() {
           <strong>${order.orderNumber || order.id}</strong>
           <div class="card-actions-right">
             <span class="status-pill">${formatOrderStatus(order.status)}</span>
-            ${isCompleted ? `<button class="card-icon-btn" data-action="delete-completed-order-request" data-id="${order.id}" aria-label="Supprimer cette commande archivée">🗑️</button>` : ''}
+            ${isCompleted ? `<button class="card-icon-btn" data-action="delete-completed-order-request" data-id="${order.id}" aria-label="${t('archived_order_delete_aria')}">🗑️</button>` : ''}
           </div>
         </div>
         ${isCompleted && completedOrderUi.confirmDelete
           ? `<div class="archive-delete-confirm">
-              <div class="reservation-feedback reservation-feedback-warning">Retirer cette commande de l’historique local ?</div>
+              <div class="reservation-feedback reservation-feedback-warning">${t('archived_remove_order_confirm')}</div>
               <div class="btn-row">
-                <button class="btn-danger btn-inline" data-action="delete-completed-order-confirm" data-id="${order.id}">Supprimer</button>
-                <button class="btn-secondary-inline btn-inline" data-action="delete-completed-order-abort" data-id="${order.id}">Retour</button>
+                <button class="btn-danger btn-inline" data-action="delete-completed-order-confirm" data-id="${order.id}">${t('action_delete')}</button>
+                <button class="btn-secondary-inline btn-inline" data-action="delete-completed-order-abort" data-id="${order.id}">${t('action_back')}</button>
               </div>
             </div>`
           : ''}
-        <div class="print-state-row">${printUiState === 'NEEDS_ATTENTION' ? `<span class="print-status-pill print-status-pill-${printUiState.toLowerCase()}">${printMessage}</span>` : ''}${printUiState === 'NEEDS_ATTENTION' && printJob?.jobId && !printJob?.nonRetryable ? `<button class="btn-secondary-inline print-retry-btn" data-action="retry-print" data-job-id="${printJob.jobId}" data-id="${order.id}" ${state.printRetryInFlightByOrderId[order.id] ? 'disabled' : ''}>Réessayer</button>` : ''}<button class="btn-secondary-inline print-retry-btn" data-action="reprint-order" data-id="${order.id}" ${state.printDispatchInFlightByOrderId[order.id] ? 'disabled' : ''}>Reimprimer</button></div>
-        ${printJob?.nonRetryable ? `<div class="subtle print-status-unavailable">Impression bloquée: ${escapeHtml(printJob.blockedReasonMessage || 'Action opérateur requise.')}</div>` : ''}
-        ${printJob?.transientUnavailable ? '<div class="subtle print-status-unavailable">Statut impression temporairement indisponible.</div>' : ''}
+        <div class="print-state-row">${printUiState === 'NEEDS_ATTENTION' ? `<span class="print-status-pill print-status-pill-${printUiState.toLowerCase()}">${printMessage}</span>` : ''}${printUiState === 'NEEDS_ATTENTION' && printJob?.jobId && !printJob?.nonRetryable ? `<button class="btn-secondary-inline print-retry-btn" data-action="retry-print" data-job-id="${printJob.jobId}" data-id="${order.id}" ${state.printRetryInFlightByOrderId[order.id] ? 'disabled' : ''}>${t('action_retry_print')}</button>` : ''}<button class="btn-secondary-inline print-retry-btn" data-action="reprint-order" data-id="${order.id}" ${state.printDispatchInFlightByOrderId[order.id] ? 'disabled' : ''}>${t('action_reprint')}</button></div>
+        ${printJob?.nonRetryable ? `<div class="subtle print-status-unavailable">${t('print_blocked')}: ${escapeHtml(printJob.blockedReasonMessage || t('print_blocked_operator_action'))}</div>` : ''}
+        ${printJob?.transientUnavailable ? `<div class="subtle print-status-unavailable">${t('print_status_unavailable')}</div>` : ''}
         ${sectionRowsHtml}
         ${isCompleted ? '' : `
           <div class="prep-row">
-            <span class="subtle">Temps prep</span>
+            <span class="subtle">${t('prep_time')}</span>
             <div class="chip-row">
               ${[15, 30, 45, 60].map((minutes) => `<button class="prep-chip ${prepMinutesForOrder(order) === minutes ? 'active' : ''}" data-action="set-prep" data-id="${order.id}" data-minutes="${minutes}">${minutes} min</button>`).join('')}
             </div>
           </div>
           <div class="btn-row">
-            <button class="btn-accept" data-action="accepted" data-id="${order.id}">Accepter & imprimer</button>
-            <button class="btn-ready" data-action="ready" data-id="${order.id}">Prêt</button>
-            <button class="btn-done" data-action="completed" data-id="${order.id}">Terminé</button>
+            <button class="btn-accept" data-action="accepted" data-id="${order.id}">${t('action_accept_print')}</button>
+            <button class="btn-ready" data-action="ready" data-id="${order.id}">${t('action_ready')}</button>
+            <button class="btn-done" data-action="completed" data-id="${order.id}">${t('action_done')}</button>
           </div>
         `}
       </div>
@@ -1191,11 +1491,11 @@ function render() {
   };
 
   const activeOrdersHtml = activeOrders.length === 0
-    ? '<div class="card"><p class="subtle">Aucune commande en cours.</p></div>'
+    ? `<div class="card"><p class="subtle">${t('no_active_orders')}</p></div>`
     : activeOrders.map((order) => renderOrderCard(order, { isCompleted: false })).join('');
 
   const completedOrdersHtml = completedOrders.length === 0
-    ? '<div class="card"><p class="subtle">Aucune commande terminée.</p></div>'
+    ? `<div class="card"><p class="subtle">${t('no_completed_orders')}</p></div>`
     : completedOrders.map((order) => renderOrderCard(order, { isCompleted: true })).join('');
   cleanupReservationUiState();
   const upcomingReservations = state.reservations.filter((reservation) => String(reservation?.status || '').toLowerCase() === 'pending');
@@ -1209,20 +1509,20 @@ function render() {
     const isPendingAction = Boolean(reservationUi.pendingAction);
     const isConfirmingCancel = reservationUi.confirmCancel && !isPendingAction && String(reservation.status || '').toLowerCase() === 'pending';
     const actionFeedbackHtml = isPendingAction
-      ? `<div class="reservation-feedback reservation-feedback-loading">${reservationUi.pendingAction === 'confirmed' ? 'Confirmation en cours...' : 'Annulation en cours...'}</div>`
+      ? `<div class="reservation-feedback reservation-feedback-loading">${reservationUi.pendingAction === 'confirmed' ? t('reservation_confirm_loading') : t('reservation_cancel_loading')}</div>`
       : reservationUi.successMessage
         ? `<div class="reservation-feedback reservation-feedback-success">${escapeHtml(reservationUi.successMessage)}</div>`
         : '';
 
     const actionAreaHtml = String(reservation.status || '').toLowerCase() !== 'pending'
       ? `
-        <div class="subtle reservation-processed-note">Réservation déjà traitée.</div>
+        <div class="subtle reservation-processed-note">${t('reservation_processed_note')}</div>
         ${reservationUi.confirmDelete
           ? `<div class="archive-delete-confirm">
-              <div class="reservation-feedback reservation-feedback-warning">Retirer cette réservation de l’historique local ?</div>
+              <div class="reservation-feedback reservation-feedback-warning">${t('archived_remove_reservation_confirm')}</div>
               <div class="btn-row">
-                <button class="btn-danger btn-inline" data-action="delete-processed-reservation-confirm" data-id="${reservation.id}">Supprimer</button>
-                <button class="btn-secondary-inline btn-inline" data-action="delete-processed-reservation-abort" data-id="${reservation.id}">Retour</button>
+                <button class="btn-danger btn-inline" data-action="delete-processed-reservation-confirm" data-id="${reservation.id}">${t('action_delete')}</button>
+                <button class="btn-secondary-inline btn-inline" data-action="delete-processed-reservation-abort" data-id="${reservation.id}">${t('action_back')}</button>
               </div>
             </div>`
           : ''}
@@ -1230,17 +1530,17 @@ function render() {
       : isConfirmingCancel
         ? `
           <div class="reservation-cancel-confirm">
-            <div class="reservation-feedback reservation-feedback-warning">Confirmer l'annulation ?</div>
+            <div class="reservation-feedback reservation-feedback-warning">${t('reservation_cancel_confirm')}</div>
             <div class="btn-row">
-              <button class="btn-danger" data-action="reservation_cancel_confirm" data-id="${reservation.id}" ${isPendingAction ? 'disabled' : ''}>Confirmer annulation</button>
-              <button class="btn-secondary-inline" data-action="reservation_cancel_abort" data-id="${reservation.id}" ${isPendingAction ? 'disabled' : ''}>Retour</button>
+              <button class="btn-danger" data-action="reservation_cancel_confirm" data-id="${reservation.id}" ${isPendingAction ? 'disabled' : ''}>${t('action_confirm_cancel')}</button>
+              <button class="btn-secondary-inline" data-action="reservation_cancel_abort" data-id="${reservation.id}" ${isPendingAction ? 'disabled' : ''}>${t('action_back')}</button>
             </div>
           </div>
         `
         : `
           <div class="btn-row">
-            <button class="btn-accept" data-action="reservation_confirmed" data-id="${reservation.id}" ${isPendingAction ? 'disabled' : ''}>${reservationUi.pendingAction === 'confirmed' ? 'Confirmation...' : 'Confirmer'}</button>
-            <button class="btn-secondary-inline" data-action="reservation_cancel_request" data-id="${reservation.id}" ${isPendingAction ? 'disabled' : ''}>Annuler</button>
+            <button class="btn-accept" data-action="reservation_confirmed" data-id="${reservation.id}" ${isPendingAction ? 'disabled' : ''}>${reservationUi.pendingAction === 'confirmed' ? t('action_confirming') : t('action_confirm')}</button>
+            <button class="btn-secondary-inline" data-action="reservation_cancel_request" data-id="${reservation.id}" ${isPendingAction ? 'disabled' : ''}>${t('cancel')}</button>
           </div>
         `;
 
@@ -1251,14 +1551,14 @@ function render() {
           <div class="card-actions-right">
             <span class="status-pill">${formatReservationStatus(reservation.status)}</span>
             ${String(reservation.status || '').toLowerCase() !== 'pending'
-              ? `<button class="card-icon-btn" data-action="delete-processed-reservation-request" data-id="${reservation.id}" aria-label="Supprimer cette réservation archivée">🗑️</button>`
+              ? `<button class="card-icon-btn" data-action="delete-processed-reservation-request" data-id="${reservation.id}" aria-label="${t('archived_reservation_delete_aria')}">🗑️</button>`
               : ''}
           </div>
         </div>
-        <div class="subtle">${reservation.guestCount || '-'} couverts • ${formatReservationDate(reservation.reservationDate)}</div>
-        ${reservation.customerPhone ? `<div class="subtle">Téléphone: ${escapeHtml(reservation.customerPhone)}</div>` : ''}
-        ${reservation.customerEmail ? `<div class="subtle">Email: ${escapeHtml(reservation.customerEmail)}</div>` : ''}
-        ${reservation.notes ? `<div class="subtle">Note: ${escapeHtml(reservation.notes)}</div>` : ''}
+        <div class="subtle">${t('label_guests', { count: reservation.guestCount || '-' })} • ${formatReservationDate(reservation.reservationDate)}</div>
+        ${reservation.customerPhone ? `<div class="subtle">${t('label_phone')}: ${escapeHtml(reservation.customerPhone)}</div>` : ''}
+        ${reservation.customerEmail ? `<div class="subtle">${t('label_email')}: ${escapeHtml(reservation.customerEmail)}</div>` : ''}
+        ${reservation.notes ? `<div class="subtle">${t('label_note')}: ${escapeHtml(reservation.notes)}</div>` : ''}
         ${actionFeedbackHtml}
         ${actionAreaHtml}
       </div>
@@ -1266,11 +1566,11 @@ function render() {
   };
 
   const upcomingReservationsHtml = upcomingReservations.length === 0
-    ? '<div class="card"><p class="subtle">Aucune réservation en attente.</p></div>'
+    ? `<div class="card"><p class="subtle">${t('no_pending_reservations')}</p></div>`
     : upcomingReservations.map((reservation) => renderReservationCard(reservation)).join('');
 
   const processedReservationsHtml = processedReservations.length === 0
-    ? '<div class="card"><p class="subtle">Aucune réservation traitée.</p></div>'
+    ? `<div class="card"><p class="subtle">${t('no_processed_reservations')}</p></div>`
     : processedReservations.map((reservation) => renderReservationCard(reservation)).join('');
 
   const attentionOverlay = state.activeAttentionAlert
@@ -1279,7 +1579,7 @@ function render() {
         <div class="attention-overlay-card">
           <div class="attention-overlay-title">${escapeHtml(state.activeAttentionAlert.title)}</div>
           <div class="attention-overlay-subtitle">${escapeHtml(state.activeAttentionAlert.subtitle || '')}</div>
-          <button class="attention-overlay-dismiss" data-action="dismiss-attention-alert">Fermer</button>
+          <button class="attention-overlay-dismiss" data-action="dismiss-attention-alert">${t('close')}</button>
         </div>
       </div>
     `
@@ -1288,28 +1588,34 @@ function render() {
   const settingsPanelHtml = state.isSettingsPanelOpen
     ? `
       <div class="receiver-settings-overlay" data-action="close-settings-panel">
-        <div class="receiver-settings-panel" role="dialog" aria-modal="true" aria-label="Paramètres alertes">
+        <div class="receiver-settings-panel" role="dialog" aria-modal="true" aria-label="${t('settings_dialog_aria')}">
           <div class="receiver-settings-header">
-            <strong>Paramètres</strong>
-            <button class="receiver-settings-close" data-action="close-settings-panel" aria-label="Fermer les paramètres">✕</button>
+            <strong>${t('settings_title')}</strong>
+            <button class="receiver-settings-close" data-action="close-settings-panel" aria-label="${t('settings_close')}">✕</button>
           </div>
-          <p class="subtle">Contrôlez les alertes visuelles et sonores.</p>
+          <p class="subtle">${t('settings_subtitle')}</p>
           <div class="alert-settings-grid">
             <label class="alert-toggle-row" for="alert-sound-enabled">
-              <span>Son global</span>
+              <span>${t('settings_sound')}</span>
               <input id="alert-sound-enabled" type="checkbox" data-action="toggle-alert" data-alert-type="sound" ${state.alertSettings.soundEnabled ? 'checked' : ''} />
             </label>
             <label class="alert-toggle-row" for="alert-order-enabled">
-              <span>Commandes</span>
+              <span>${t('settings_orders')}</span>
               <input id="alert-order-enabled" type="checkbox" data-action="toggle-alert" data-alert-type="order" ${state.alertSettings.orderEnabled ? 'checked' : ''} />
             </label>
             <label class="alert-toggle-row" for="alert-reservation-enabled">
-              <span>Réservations</span>
+              <span>${t('settings_reservations')}</span>
               <input id="alert-reservation-enabled" type="checkbox" data-action="toggle-alert" data-alert-type="reservation" ${state.alertSettings.reservationEnabled ? 'checked' : ''} />
             </label>
             <label class="alert-volume-row" for="alert-volume-input">
-              <span>Volume: ${Math.round(state.alertSettings.volume * 100)}%</span>
+              <span>${t('settings_volume', { value: Math.round(state.alertSettings.volume * 100) })}</span>
               <input id="alert-volume-input" type="range" min="0" max="100" step="5" data-action="set-alert-volume" value="${Math.round(state.alertSettings.volume * 100)}" />
+            </label>
+            <label class="alert-language-row" for="alert-language-select">
+              <span>${t('settings_language')}</span>
+              <select id="alert-language-select" class="alert-language-select" data-action="set-alert-language">
+                ${SUPPORTED_RECEIVER_LANGUAGES.map((languageCode) => `<option value="${languageCode}" ${state.alertSettings.language === languageCode ? 'selected' : ''}>${t(`language_${languageCode}`)}</option>`).join('')}
+              </select>
             </label>
           </div>
         </div>
@@ -1332,50 +1638,50 @@ function render() {
   app.innerHTML = `
     <div class="card receiver-header-card">
       <div class="receiver-header-topline">
-        <div class="title">Sunmi Receiver</div>
-        <button class="receiver-settings-icon-btn" data-action="open-settings-panel" aria-label="Ouvrir les paramètres">⚙️</button>
+        <div class="title">${t('app_title')}</div>
+        <button class="receiver-settings-icon-btn" data-action="open-settings-panel" aria-label="${t('settings_open')}">⚙️</button>
       </div>
-      <p class="subtle">Connecté: ${state.deviceName || 'Périphérique'}</p>
-      <button id="unpair-btn" class="btn-secondary">Désassocier cet appareil</button>
+      <p class="subtle">${t('connected_label')}: ${state.deviceName || t('device_fallback')}</p>
+      <button id="unpair-btn" class="btn-secondary">${t('unpair_device')}</button>
     </div>
 
     <div class="card">
-      <div class="title">Commandes en cours</div>
-      <p class="subtle">Gestion opérationnelle des commandes</p>
+      <div class="title">${t('section_orders_active')}</div>
+      <p class="subtle">${t('section_orders_active_subtitle')}</p>
     </div>
     ${activeOrdersHtml}
 
     <div class="card completed-orders-details">
       <button class="completed-orders-summary" data-action="toggle-completed-section" aria-expanded="${state.completedSectionOpen ? 'true' : 'false'}">
-        <span>Terminées (${completedOrders.length})</span>
+        <span>${t('section_completed')} (${completedOrders.length})</span>
         <span>${state.completedSectionOpen ? '▾' : '▸'}</span>
       </button>
       ${state.completedSectionOpen
-    ? `<div><div class="subtle">Historique des commandes terminées avec réimpression rapide.</div>${completedOrdersHtml}</div>`
+    ? `<div><div class="subtle">${t('section_completed_subtitle')}</div>${completedOrdersHtml}</div>`
     : ''}
     </div>
 
     <div class="card">
-      <div class="title">Réservations</div>
-      <p class="subtle">Confirmer rapidement les réservations en attente, avec confirmation légère avant annulation.</p>
+      <div class="title">${t('reservations_title')}</div>
+      <p class="subtle">${t('reservations_subtitle')}</p>
     </div>
 
     <div class="card reservation-section-card">
       <div class="reservation-section-header">
-        <div class="reservation-section-title">À venir</div>
+        <div class="reservation-section-title">${t('reservations_upcoming')}</div>
         <span class="status-pill">${upcomingReservations.length}</span>
       </div>
-      <p class="subtle">Réservations en attente d'action.</p>
+      <p class="subtle">${t('reservations_upcoming_subtitle')}</p>
     </div>
     ${upcomingReservationsHtml}
 
     <div class="card completed-orders-details reservation-section-card">
       <button class="completed-orders-summary" data-action="toggle-processed-reservations-section" aria-expanded="${state.processedReservationsSectionOpen ? 'true' : 'false'}">
-        <span>Traitées (${processedReservations.length})</span>
+        <span>${t('reservations_processed')} (${processedReservations.length})</span>
         <span>${state.processedReservationsSectionOpen ? '▾' : '▸'}</span>
       </button>
       ${state.processedReservationsSectionOpen
-    ? `<div><div class="subtle">Réservations déjà confirmées ou annulées.</div>${processedReservationsHtml}</div>`
+    ? `<div><div class="subtle">${t('reservations_processed_subtitle')}</div>${processedReservationsHtml}</div>`
     : ''}
     </div>
 
@@ -1427,7 +1733,7 @@ async function validateDeviceOnceAndEnterReceiver() {
   }
 
   state.mode = 'server_error';
-  state.error = validation.error || 'Erreur serveur.';
+  state.error = validation.error || t('server_error_title');
   debugLog('device_validation_server_error', { message: state.error || 'unknown_error' });
   render();
   return false;
@@ -1520,7 +1826,7 @@ async function refreshOperations() {
     debugLog('operations_poll_auth_failed', { message: state.error || 'token_invalid' });
   } else {
     // Keep receiver UI stable; only report background polling error.
-    state.error = result.error || 'Erreur serveur.';
+    state.error = result.error || t('server_error_title');
     debugLog('operations_poll_server_error', { message: state.error || 'unknown_error' });
   }
 
@@ -1566,7 +1872,7 @@ async function startPairingSubmit() {
 
   state.pairingRequestId = res.pairingRequestId;
   state.mode = 'pairing_waiting';
-  state.pairingMessage = 'Demande envoyée. En attente de confirmation...';
+  state.pairingMessage = t('pairing_message_sent');
   debugLog('pairing_request_submitted', { pairingRequestId: res.pairingRequestId });
   render();
   startPairingPolling();
@@ -1616,7 +1922,7 @@ function startPairingPolling() {
     stopPairingPolling();
     if (state.mode === 'pairing_waiting') {
       state.mode = 'not_paired';
-      state.error = "Délai dépassé. Veuillez régénérer un code d'association.";
+      state.error = t('pairing_timeout');
       state.pairingMessage = '';
       render();
     }
@@ -1786,6 +2092,18 @@ app.addEventListener('input', (event) => {
   if (target.dataset.action === 'set-alert-volume') {
     const nextVolume = Math.min(1, Math.max(0, Number(target.value) / 100));
     state.alertSettings.volume = nextVolume;
+    persistAlertSettings();
+    debugLog('alert_settings_updated', state.alertSettings);
+    render();
+  }
+});
+
+app.addEventListener('change', (event) => {
+  const target = event.target;
+  if (!(target instanceof HTMLSelectElement)) return;
+
+  if (target.dataset.action === 'set-alert-language') {
+    state.alertSettings.language = normalizeReceiverLanguage(target.value);
     persistAlertSettings();
     debugLog('alert_settings_updated', state.alertSettings);
     render();
