@@ -164,6 +164,7 @@ model Reservation {
   restaurant      Restaurant        @relation(fields: [restaurantId], references: [id])
   customerName    String
   customerEmail   String?
+  customerPhone   String?
   guestCount      Int
   reservationDate DateTime
   status          ReservationStatus @default(pending)

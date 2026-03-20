@@ -1180,6 +1180,12 @@ export class NotificationService {
         : Number.isFinite(Number(event.payload.guestCount))
           ? Number(event.payload.guestCount)
           : null;
+    const customerPhone =
+      typeof reservation?.customerPhone === 'string'
+        ? reservation.customerPhone
+        : typeof event.payload.phone === 'string'
+          ? event.payload.phone
+          : null;
     const notes = typeof reservation?.notes === 'string' ? reservation.notes : null;
     const statusContent = this.getReservationStatusContent(status);
     const guestLabel = guestCount ? `${guestCount} personne${guestCount > 1 ? 's' : ''}` : null;
@@ -1188,6 +1194,7 @@ export class NotificationService {
       ...(reservationDate ? [{ label: 'Date et heure', value: reservationDate }] : []),
       ...(guestLabel ? [{ label: 'Nombre de personnes', value: guestLabel }] : []),
       ...(customerName ? [{ label: 'Nom du client', value: customerName }] : []),
+      ...(customerPhone ? [{ label: 'Téléphone', value: customerPhone }] : []),
       { label: 'Statut', value: statusContent.badgeLabel },
     ];
 
@@ -1200,6 +1207,7 @@ export class NotificationService {
       `Restaurant : ${context.name}`,
       ...(reservationDate ? [`Date et heure : ${reservationDate}`] : []),
       ...(guestLabel ? [`Nombre de personnes : ${guestLabel}`] : []),
+      ...(customerPhone ? [`Téléphone : ${customerPhone}`] : []),
       `Statut : ${statusContent.badgeLabel}`,
       ...(notes ? ['', 'Notes :', notes] : []),
       '',

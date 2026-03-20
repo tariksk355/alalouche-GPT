@@ -18,6 +18,7 @@ export class ReservationsService {
         restaurantId,
         customerName: dto.name,
         customerEmail: dto.email.toLowerCase(),
+        customerPhone: dto.phone.trim() || null,
         guestCount: dto.guests,
         reservationDate,
         notes: dto.notes || null,

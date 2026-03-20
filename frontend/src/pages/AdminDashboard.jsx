@@ -809,6 +809,7 @@ function AdminReservations() {
     ...reservation,
     name: reservation.customerName,
     email: reservation.customerEmail,
+    phone: reservation.customerPhone,
     guests: reservation.guestCount,
     date: formatDate(reservation.reservationDate),
     time: formatTime(reservation.reservationDate),
@@ -859,6 +860,7 @@ function AdminReservations() {
                   <div className="font-semibold text-lg text-gray-900">{r.name}</div>
                   <div className="text-gray-500 text-sm">{r.date} à {r.time} — {r.guests} personne{r.guests > 1 ? 's' : ''}</div>
                   <div className="text-gray-400 text-sm mt-1">{r.email || 'email non renseigné'}</div>
+                  <div className="text-gray-400 text-sm mt-1">{r.phone || 'téléphone non renseigné'}</div>
                   {r.created_date && <div className="text-gray-400 text-xs mt-1">Reçu le {formatDateFull(r.created_date)} à {formatTime(r.created_date)}</div>}
                   {r.notes && <div className="text-gray-500 text-sm mt-1 italic">"{r.notes}"</div>}
                 </div>

@@ -4,7 +4,7 @@ import { createPageUrl } from "@/utils";
 import { getCart, saveCart, clearCart } from "@/components/cartStore";
 import { Trash2 } from "lucide-react";
 import { createStorefrontOrder, getStoredCheckoutDefaults, getStorefrontCustomerPrefill, getStorefrontOrder, saveCheckoutDefaults } from "@/lib/api/storefrontOps";
-import { StorefrontEmptyState, StorefrontNotice } from "@/components/storefront/feedback";
+import { StorefrontNotice } from "@/components/storefront/feedback";
 
 const BASE_FORM = {
   customer_name: "",
