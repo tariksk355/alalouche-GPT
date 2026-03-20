@@ -16,9 +16,25 @@ button:disabled { opacity: 0.6; }
 .btn-done { background: #4b5563; }
 .status-pill { font-size: 12px; border: 1px solid #475569; border-radius: 999px; padding: 2px 8px; }
 .topbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+.card-actions-right { display: flex; align-items: center; gap: 8px; }
 .input { width: 100%; box-sizing: border-box; margin-top: 10px; border-radius: 10px; border: 1px solid #475569; background: #0b1220; color: #f8fafc; padding: 12px; font-size: 20px; letter-spacing: 1px; text-transform: uppercase; }
 
 .btn-secondary-inline { background: #334155; }
+.btn-inline { min-height: 0; margin-top: 0; padding: 8px 12px; font-size: 13px; }
+.card-icon-btn {
+  margin-top: 0;
+  min-height: 34px;
+  min-width: 34px;
+  padding: 4px;
+  border-radius: 999px;
+  background: #1f2937;
+  border: 1px solid #475569;
+  font-size: 15px;
+  line-height: 1;
+}
+.archive-delete-confirm {
+  margin-top: 8px;
+}
 
 .prep-row { margin-top: 10px; }
 .chip-row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
@@ -216,7 +232,8 @@ button:disabled { opacity: 0.6; }
 }
 
 .alert-toggle-row,
-.alert-volume-row {
+.alert-volume-row,
+.alert-language-row {
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -231,6 +248,19 @@ button:disabled { opacity: 0.6; }
 
 .alert-volume-row input[type="range"] {
   flex: 1;
+}
+
+.alert-language-row {
+  align-items: flex-start;
+  flex-direction: column;
+}
+
+.alert-language-chip-row {
+  margin-top: 6px;
+}
+
+.alert-language-chip {
+  min-width: 92px;
 }
 
 
@@ -259,4 +289,58 @@ button:disabled { opacity: 0.6; }
 .completed-orders-summary:focus-visible {
   outline: 2px solid #60a5fa;
   border-radius: 6px;
+}
+
+.reservation-section-card {
+  padding-bottom: 10px;
+}
+
+.reservation-section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+
+.reservation-section-title {
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.reservation-feedback {
+  margin-top: 10px;
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.reservation-feedback-loading {
+  background: rgba(37, 99, 235, 0.18);
+  border: 1px solid rgba(96, 165, 250, 0.5);
+  color: #bfdbfe;
+}
+
+.reservation-feedback-success {
+  background: rgba(5, 150, 105, 0.18);
+  border: 1px solid rgba(52, 211, 153, 0.45);
+  color: #a7f3d0;
+}
+
+.reservation-feedback-warning {
+  background: rgba(180, 83, 9, 0.16);
+  border: 1px solid rgba(251, 191, 36, 0.4);
+  color: #fde68a;
+}
+
+.reservation-cancel-confirm {
+  margin-top: 6px;
+}
+
+.reservation-processed-note {
+  margin-top: 10px;
+}
+
+.btn-danger {
+  background: #dc2626;
 }
