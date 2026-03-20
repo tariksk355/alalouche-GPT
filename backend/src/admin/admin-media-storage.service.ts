@@ -96,6 +96,8 @@ export class AdminMediaStorageService {
     });
     const candidate = typeof restaurant?.slug === 'string' && restaurant.slug.trim()
       ? restaurant.slug.trim()
+      : restaurantId === 'demo-restaurant'
+        ? 'alalouche'
       : restaurantId;
 
     return sanitizePathSegment(candidate);
@@ -141,6 +143,17 @@ export class AdminMediaStorageService {
 
   async deleteBrandingLogoIfManaged(restaurantId: string, imageUrl: string | null | undefined): Promise<void> {
     return this.deleteImageIfManaged(restaurantId, 'branding-logo', imageUrl);
+  }
+
+  async getMediaObject(key: string): Promise<{ body: Buffer; contentType: string | null; cacheControl: string | null }> {
+    if (!key.startsWith('restaurants/')) {
+      throw new BadRequestException({
+        error: 'MEDIA_KEY_NOT_ALLOWED',
+        message: 'Only managed restaurant media keys can be served publicly.',
+      });
+    }
+
+    return this.sendObjectRequest('GET', key);
   }
 
   private async uploadImage(
@@ -226,6 +239,11 @@ export class AdminMediaStorageService {
       return managedPrefixes.some((prefix) => key.startsWith(prefix)) ? key : null;
     }
 
+    const proxyKey = this.extractKeyFromMediaProxyUrl(imageUrl);
+    if (proxyKey) {
+      return managedPrefixes.some((prefix) => proxyKey.startsWith(prefix)) ? proxyKey : null;
+    }
+
     const bucket = process.env.S3_BUCKET;
     const endpointRaw = process.env.S3_ENDPOINT;
     if (!bucket || !endpointRaw) return null;
@@ -268,12 +286,26 @@ export class AdminMediaStorageService {
     return `https://${bucket}.s3.${region}.amazonaws.com`;
   }
 
+  private extractKeyFromMediaProxyUrl(imageUrl: string): string | null {
+    try {
+      const parsed = new URL(imageUrl);
+      if (!parsed.pathname.endsWith('/public/media')) {
+        return null;
+      }
+
+      const key = parsed.searchParams.get('key');
+      return typeof key === 'string' && key.trim() ? key.trim() : null;
+    } catch {
+      return null;
+    }
+  }
+
   private async sendObjectRequest(
-    method: 'PUT' | 'DELETE',
+    method: 'PUT' | 'GET' | 'DELETE',
     key: string,
     file?: UploadedAdminImageFile,
     options?: { objectAcl?: string | null; cacheControl?: string },
-  ): Promise<void> {
+  ): Promise<{ body: Buffer; contentType: string | null; cacheControl: string | null }> {
     const requiredVars = ['S3_BUCKET', 'S3_REGION', 'S3_ENDPOINT', 'S3_ACCESS_KEY_ID', 'S3_SECRET_ACCESS_KEY'];
     const missing = requiredVars.filter((name) => !process.env[name]);
     if (missing.length > 0) {
@@ -347,10 +379,21 @@ export class AdminMediaStorageService {
 
     if (!response.ok) {
       throw new InternalServerErrorException({
-        error: method === 'PUT' ? 'IMAGE_UPLOAD_FAILED' : 'IMAGE_DELETE_FAILED',
+        error: method === 'PUT' ? 'IMAGE_UPLOAD_FAILED' : method === 'GET' ? 'IMAGE_READ_FAILED' : 'IMAGE_DELETE_FAILED',
         message: `Object storage ${method} failed with status ${response.status}.`,
       });
     }
+
+    if (method === 'GET') {
+      const arrayBuffer = await response.arrayBuffer();
+      return {
+        body: Buffer.from(arrayBuffer),
+        contentType: response.headers.get('content-type'),
+        cacheControl: response.headers.get('cache-control'),
+      };
+    }
+
+    return { body: Buffer.alloc(0), contentType: null, cacheControl: null };
   }
 
   private buildPublicUrl(key: string): string {

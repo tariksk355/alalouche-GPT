@@ -1,13 +1,18 @@
-import { Controller, Get, UseGuards } from '@nestjs/common';
+import { Controller, Get, Query, Res, UseGuards } from '@nestjs/common';
+import { Response } from 'express';
 import { ok } from '../common/api-response';
 import { TenantContextGuard } from '../tenant/tenant-context.guard';
 import { TenantCtx } from '../tenant/tenant.decorator';
 import { TenantContext } from '../tenant/tenant.types';
 import { PublicConfigService } from './public-config.service';
+import { AdminMediaStorageService } from '../admin/admin-media-storage.service';
 
 @Controller('public')
 export class PublicConfigController {
-  constructor(private readonly publicConfigService: PublicConfigService) {}
+  constructor(
+    private readonly publicConfigService: PublicConfigService,
+    private readonly adminMediaStorageService: AdminMediaStorageService,
+  ) {}
 
   @Get('restaurant-config')
   @UseGuards(TenantContextGuard)
@@ -28,5 +33,16 @@ export class PublicConfigController {
   async getMenuCatalog(@TenantCtx() tenant: TenantContext) {
     const items = await this.publicConfigService.getMenuCatalog(tenant.restaurantId);
     return ok({ items, tenantSource: tenant.source });
+  }
+
+  @Get('media')
+  async getMedia(
+    @Query('key') key: string,
+    @Res() response: Response,
+  ) {
+    const media = await this.adminMediaStorageService.getMediaObject(key);
+    response.setHeader('Content-Type', media.contentType || 'application/octet-stream');
+    response.setHeader('Cache-Control', media.cacheControl || 'public, max-age=31536000, immutable');
+    response.send(media.body);
   }
 }

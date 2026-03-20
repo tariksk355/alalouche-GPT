@@ -9,12 +9,14 @@ import {
   Patch,
   Post,
   Query,
+  Req,
   UnauthorizedException,
   UploadedFile,
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
+import { Request } from 'express';
 import { AccessTokenPayload } from '../auth/token.service';
 import { ok } from '../common/api-response';
 import { AuthService } from '../auth/auth.service';
@@ -89,6 +91,22 @@ export class AdminController {
   private isLegacyHeaderAuthEnabled(): boolean {
     const nodeEnv = (process.env.NODE_ENV || '').trim().toLowerCase();
     return nodeEnv !== 'production' && process.env.ALLOW_LEGACY_ADMIN_HEADERS === 'true';
+  }
+
+  private buildPublicMediaUrl(request: Request, key: string): string {
+    const forwardedProto = request.header('x-forwarded-proto')?.split(',')[0]?.trim();
+    const forwardedHost = request.header('x-forwarded-host')?.split(',')[0]?.trim();
+    const protocol = forwardedProto || request.protocol || 'https';
+    const host = forwardedHost || request.get('host');
+    if (!host) {
+      throw new UnauthorizedException({
+        error: 'PUBLIC_HOST_REQUIRED',
+        message: 'Unable to resolve a public host for media delivery.',
+      });
+    }
+
+    const origin = `${protocol}://${host}`;
+    return `${origin}/public/media?key=${encodeURIComponent(key)}`;
   }
 
 
@@ -190,6 +208,7 @@ export class AdminController {
   @UseInterceptors(FileInterceptor('file', ADMIN_IMAGE_UPLOAD_OPTIONS))
   async uploadBrandingLogo(
     @UploadedFile() file: UploadedMenuImageFile,
+    @Req() request: Request,
     @Headers('authorization') authorization?: string,
     @Headers('x-admin-token') adminToken?: string,
     @Headers('x-restaurant-id') legacyRestaurantId?: string,
@@ -204,15 +223,16 @@ export class AdminController {
 
     const existing = await this.adminSettingsService.getBrandingSettings(auth.restaurantId);
     const image = await this.adminMediaStorageService.uploadBrandingLogo(auth.restaurantId, file);
-    const settings = await this.adminSettingsService.updateBrandingSettings(auth.restaurantId, { logoUrl: image.url });
+    const publicMediaUrl = this.buildPublicMediaUrl(request, image.key);
+    const settings = await this.adminSettingsService.updateBrandingSettings(auth.restaurantId, { logoUrl: publicMediaUrl });
 
-    if (existing.logoUrl && existing.logoUrl !== image.url) {
+    if (existing.logoUrl && existing.logoUrl !== publicMediaUrl) {
       await this.adminMediaStorageService.deleteBrandingLogoIfManaged(auth.restaurantId, existing.logoUrl).catch(() => {
         // Non-blocking cleanup: preserve the successful branding update if storage deletion fails.
       });
     }
 
-    return ok({ settings, upload: image });
+    return ok({ settings, upload: { ...image, url: publicMediaUrl } });
   }
 
   @Get('settings/printer')
@@ -351,6 +371,7 @@ export class AdminController {
   @UseInterceptors(FileInterceptor('file', ADMIN_IMAGE_UPLOAD_OPTIONS))
   async uploadMenuImage(
     @UploadedFile() file: UploadedMenuImageFile,
+    @Req() request: Request,
     @Headers('authorization') authorization?: string,
     @Headers('x-admin-token') adminToken?: string,
     @Headers('x-restaurant-id') legacyRestaurantId?: string,
@@ -364,7 +385,8 @@ export class AdminController {
     }
 
     const image = await this.adminMediaStorageService.uploadMenuImage(auth.restaurantId, file);
-    return ok({ imageUrl: image.url, key: image.key });
+    const publicMediaUrl = this.buildPublicMediaUrl(request, image.key);
+    return ok({ imageUrl: publicMediaUrl, key: image.key });
   }
 
   @Patch('menu-catalog/:id')
