@@ -45,3 +45,14 @@ export async function updateAdminBrandingSettings(payload) {
   });
   return data.data.settings;
 }
+
+export async function uploadAdminBrandingLogo(file) {
+  const formData = new FormData();
+  formData.append('file', file);
+  const data = await backendClient.request('/admin/settings/branding/logo/upload', {
+    method: 'POST',
+    headers: authHeaders(),
+    body: formData,
+  });
+  return data.data;
+}

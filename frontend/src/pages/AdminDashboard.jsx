@@ -7,7 +7,7 @@ import { clearStoredAdminSession, getStoredAdminSession } from "@/lib/customerAu
 import { getAdminKpis, listAdminOrders, listAdminReservations, updateAdminOrderStatus, updateAdminReservationStatus } from "@/lib/api/adminOps";
 import { createAdminMenuItem, deleteAdminMenuItem, listAdminMenuCatalog, updateAdminMenuItem, uploadAdminMenuImage } from "@/lib/api/adminMenuCatalog";
 import { createAdminCustomer, deleteAdminCustomer, listAdminCustomers, updateAdminCustomer } from "@/lib/api/adminCustomers";
-import { getAdminBrandingSettings, getAdminPrinterSettings, updateAdminBrandingSettings, updateAdminPrinterSettings } from "@/lib/api/adminSettings";
+import { getAdminBrandingSettings, getAdminPrinterSettings, updateAdminBrandingSettings, updateAdminPrinterSettings, uploadAdminBrandingLogo } from "@/lib/api/adminSettings";
 import { getAdminMarketingRecipientCount, listAdminMarketingRecipients, sendAdminMarketingBulkEmail } from "@/lib/api/adminMarketing";
 import { useTenant } from "@/lib/TenantContext";
 import html2canvas from "html2canvas";
@@ -18,13 +18,12 @@ const ADMIN_DEFAULT_LOGO_URL =
 
 const NAV_ITEMS = [
   { id: "orders", label: "Commandes", icon: "🛒" },
-  { id: "devices", label: "Appareils", icon: "📟" },
   { id: "menu", label: "Menu", icon: "🍽️" },
   { id: "reservations", label: "Réservations", icon: "📅" },
   { id: "customers", label: "Clients", icon: "👥" },
   { id: "marketing", label: "Marketing", icon: "📢" },
   { id: "analytics", label: "Analytiques", icon: "📊" },
-  { id: "settings", label: "Paramètres", icon: "⚙️" },
+  { id: "settings", label: "Réglages", icon: "⚙️" },
 ];
 
 function AdminNotice({ type = "success", children }) {
@@ -50,6 +49,7 @@ export default function AdminDashboard() {
   const [activeTab, setActiveTab] = useState(() => {
     try {
       const persisted = window.localStorage.getItem(ADMIN_ACTIVE_TAB_STORAGE_KEY);
+      if (persisted === "devices") return "settings";
       if (persisted && NAV_ITEMS.some((item) => item.id === persisted)) return persisted;
     } catch {
       // ignore storage errors
@@ -129,7 +129,6 @@ export default function AdminDashboard() {
 
         <main className="flex-1 p-4 lg:p-6 overflow-auto">
           {activeTab === "orders" && <AdminOrders />}
-          {activeTab === "devices" && <AdminDevices />}
           {activeTab === "menu" && <AdminMenu />}
           {activeTab === "reservations" && <AdminReservations />}
           {activeTab === "customers" && <AdminCustomers />}
@@ -138,16 +137,6 @@ export default function AdminDashboard() {
           {activeTab === "settings" && <AdminSettings />}
         </main>
       </div>
-    </div>
-  );
-}
-
-function AdminDevices() {
-  return (
-    <div className="max-w-3xl space-y-4">
-      <AdminNotice type="info">Générez un code d'association puis confirmez la demande pour rattacher un terminal Sunmi à ce restaurant.</AdminNotice>
-      <AdminMenuQrCard />
-      <DeviceProvisioning />
     </div>
   );
 }
@@ -1205,6 +1194,7 @@ function AdminSettings() {
   const [brandingError, setBrandingError] = useState("");
   const [printerLoading, setPrinterLoading] = useState(false);
   const [brandingLoading, setBrandingLoading] = useState(false);
+  const [brandingUploadFeedback, setBrandingUploadFeedback] = useState({ type: "", message: "" });
 
   useEffect(() => {
     loadSettings();
@@ -1221,7 +1211,7 @@ function AdminSettings() {
       setPrinterSettings(printerData);
       setBrandingSettings(brandingData);
     } catch (e) {
-      const message = e.message || "Impossible de charger les paramètres.";
+      const message = e.message || "Impossible de charger les réglages.";
       setPrinterError(message);
       setBrandingError(message);
       setPrinterSettings({ auto_print: true, paper_width: "58mm", copies: 1, default_prep_time: 30, require_prep_time: true });
@@ -1235,10 +1225,10 @@ function AdminSettings() {
     try {
       const updated = await updateAdminPrinterSettings(printerSettings);
       setPrinterSettings(updated);
-      setPrinterSuccess("Paramètres imprimante sauvegardés !");
+      setPrinterSuccess("Réglages imprimante sauvegardés !");
       setTimeout(() => setPrinterSuccess(""), 3000);
     } catch (e) {
-      setPrinterError(e.message || "Impossible de sauvegarder les paramètres imprimante.");
+      setPrinterError(e.message || "Impossible de sauvegarder les réglages imprimante.");
     } finally {
       setPrinterLoading(false);
     }
@@ -1259,23 +1249,68 @@ function AdminSettings() {
     }
   };
 
+  const handleBrandingLogoUpload = async (event) => {
+    const selectedFile = event.target.files?.[0];
+    if (!selectedFile) return;
+
+    setBrandingLoading(true);
+    setBrandingError("");
+    setBrandingUploadFeedback({ type: "info", message: `Upload de ${selectedFile.name} en cours...` });
+
+    try {
+      const uploaded = await uploadAdminBrandingLogo(selectedFile);
+      setBrandingSettings(uploaded.settings);
+      setBrandingSuccess("Logo restaurant uploadé et sauvegardé avec succès !");
+      setBrandingUploadFeedback({ type: "success", message: `Logo uploadé : ${selectedFile.name}` });
+      setTimeout(() => setBrandingSuccess(""), 3000);
+    } catch (e) {
+      const message = e.message || "Impossible d'uploader le logo du restaurant.";
+      setBrandingError(message);
+      setBrandingUploadFeedback({ type: "error", message });
+    } finally {
+      setBrandingLoading(false);
+      event.target.value = "";
+    }
+  };
+
   if (!printerSettings || !brandingSettings) return <AdminLoadingState />;
 
   return (
     <div className="max-w-3xl space-y-6">
       <div className="bg-white rounded-xl border border-gray-200 p-6 space-y-6 shadow-sm">
+        <div>
+          <h3 className="font-semibold text-lg text-gray-900">Appareils</h3>
+          <p className="text-sm text-gray-500 mt-1">Générez un code d'association puis confirmez la demande pour rattacher un terminal Sunmi à ce restaurant.</p>
+        </div>
+        <AdminMenuQrCard />
         <DeviceProvisioning />
       </div>
 
       <div className="bg-white rounded-xl border border-gray-200 p-6 space-y-4 shadow-sm">
         <div>
-          <h3 className="font-semibold text-lg text-gray-900">Identité visuelle</h3>
+          <h3 className="font-semibold text-lg text-gray-900">Branding</h3>
           <p className="text-sm text-gray-500 mt-1">Le logo enregistré ici est stocké dans la configuration branding du restaurant et sera réutilisé par les e-mails et les autres surfaces dépendantes du branding.</p>
         </div>
         {brandingSuccess && <AdminNotice>{brandingSuccess}</AdminNotice>}
         {brandingError && <AdminNotice type="error">{brandingError}</AdminNotice>}
         <div>
-          <label className="block text-sm text-gray-500 mb-2">URL du logo</label>
+          <label className="block text-sm text-gray-500 mb-2">Logo local</label>
+          <input
+            type="file"
+            accept="image/png,image/jpeg,image/webp,image/gif"
+            onChange={handleBrandingLogoUpload}
+            disabled={brandingLoading}
+            className="w-full bg-gray-50 border border-gray-200 text-gray-900 px-3 py-2 rounded-lg focus:outline-none focus:border-gray-400 file:mr-3 file:rounded file:border-0 file:bg-gray-200 file:px-2 file:py-1 file:text-gray-700"
+          />
+          <p className="text-xs text-gray-500 mt-2">PNG, JPG, WEBP ou GIF. Le fichier est stocké via le même pipeline S3 que les images des produits.</p>
+          {brandingUploadFeedback.message && (
+            <p className={`mt-2 text-sm ${brandingUploadFeedback.type === "error" ? "text-red-600" : brandingUploadFeedback.type === "success" ? "text-green-600" : "text-gray-500"}`}>
+              {brandingUploadFeedback.message}
+            </p>
+          )}
+        </div>
+        <div>
+          <label className="block text-sm text-gray-500 mb-2">URL du logo (optionnel)</label>
           <input
             type="url"
             value={brandingSettings.logoUrl || ""}
@@ -1283,8 +1318,17 @@ function AdminSettings() {
             className="w-full bg-gray-50 border border-gray-200 text-gray-900 px-4 py-2 rounded-lg focus:outline-none focus:border-gray-400"
             placeholder="https://.../logo.png"
           />
-          <p className="text-xs text-gray-500 mt-2">Laissez vide pour supprimer le logo stocké et conserver les fallbacks gracieux existants.</p>
+          <p className="text-xs text-gray-500 mt-2">Vous pouvez encore renseigner manuellement une URL si nécessaire. Laissez vide pour supprimer le logo stocké et conserver les fallbacks gracieux existants.</p>
         </div>
+        {brandingSettings.logoUrl && (
+          <div className="p-3 border border-gray-200 rounded-lg bg-gray-50 flex items-center gap-4">
+            <img src={brandingSettings.logoUrl} alt="Logo du restaurant" className="w-20 h-20 object-contain rounded bg-white border border-gray-200 p-2" />
+            <div className="text-sm text-gray-500 min-w-0">
+              <p className="font-medium text-gray-700">Logo actuel</p>
+              <p className="break-all">{brandingSettings.logoUrl}</p>
+            </div>
+          </div>
+        )}
         <button
           onClick={handleSaveBranding}
           disabled={brandingLoading}
@@ -1306,28 +1350,6 @@ function AdminSettings() {
                 className={`w-12 h-6 rounded-full transition-colors ${printerSettings.auto_print ? "bg-[#b5122a]" : "bg-gray-300"} relative`}>
                 <span className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-transform ${printerSettings.auto_print ? "translate-x-7" : "translate-x-1"}`} />
               </button>
-            </div>
-            <div>
-              <label className="block text-sm text-gray-500 mb-2">Largeur du papier</label>
-              <div className="flex gap-3">
-                {["58mm", "80mm"].map(w => (
-                  <button key={w} onClick={() => setPrinterSettings(s => ({ ...s, paper_width: w }))}
-                    className={`px-4 py-2 rounded-lg border transition-colors ${printerSettings.paper_width === w ? "border-[#b5122a] text-[#b5122a] bg-red-50" : "border-gray-200 text-gray-500 hover:border-gray-400"}`}>
-                    {w}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <div>
-              <label className="block text-sm text-gray-500 mb-2">Nombre de copies</label>
-              <div className="flex gap-3">
-                {[1, 2, 3].map(n => (
-                  <button key={n} onClick={() => setPrinterSettings(s => ({ ...s, copies: n }))}
-                    className={`w-10 h-10 rounded-lg border transition-colors ${printerSettings.copies === n ? "border-[#b5122a] text-[#b5122a] bg-red-50" : "border-gray-200 text-gray-500 hover:border-gray-400"}`}>
-                    {n}
-                  </button>
-                ))}
-              </div>
             </div>
           </div>
         </div>
@@ -1356,7 +1378,7 @@ function AdminSettings() {
         </div>
         <button onClick={handleSavePrinter} disabled={printerLoading}
           className="w-full py-3 bg-[#b5122a] text-white font-semibold rounded-lg hover:bg-[#8f0e21] disabled:opacity-60 transition-colors">
-          {printerLoading ? "Sauvegarde..." : "Sauvegarder les paramètres imprimante"}
+          {printerLoading ? "Sauvegarde..." : "Sauvegarder les réglages imprimante"}
         </button>
       </div>
     </div>

@@ -3,6 +3,10 @@ import { createHash, createHmac, randomUUID } from 'node:crypto';
 import { extname } from 'node:path';
 import { UploadedMenuImageFile } from './menu-image-upload.types';
 
+type AdminImageScope = 'menu' | 'branding-logo';
+
+type UploadedAdminImageFile = UploadedMenuImageFile;
+
 const ALLOWED_MIME_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif']);
 const DEFAULT_MAX_UPLOAD_BYTES = 5 * 1024 * 1024;
 
@@ -19,7 +23,7 @@ function sanitizePathSegment(value: string): string {
   return value.replace(/[^a-zA-Z0-9_-]/g, '_');
 }
 
-function extensionFromFile(file: UploadedMenuImageFile): string {
+function extensionFromFile(file: UploadedAdminImageFile): string {
   const fromOriginal = extname(file.originalname || '').toLowerCase().replace(/[^a-z0-9.]/g, '');
   if (fromOriginal) {
     return fromOriginal;
@@ -52,20 +56,70 @@ function toAmzDate(now: Date): { amzDate: string; dateStamp: string } {
 }
 
 @Injectable()
-export class AdminMenuImageStorageService {
-  private getManagedPrefix(restaurantId: string): string {
-    return `restaurants/${sanitizePathSegment(restaurantId)}/menu/`;
+export class AdminMediaStorageService {
+  private getManagedPrefix(restaurantId: string, scope: AdminImageScope): string {
+    const safeRestaurantId = sanitizePathSegment(restaurantId);
+    if (scope === 'branding-logo') {
+      return `restaurants/${safeRestaurantId}/branding/logo/`;
+    }
+    return `restaurants/${safeRestaurantId}/menu/`;
   }
 
   getMaxUploadBytes(): number {
     return parsePositiveInt(process.env.S3_UPLOAD_MAX_BYTES, DEFAULT_MAX_UPLOAD_BYTES);
   }
 
-  isSupportedImage(file: UploadedMenuImageFile): boolean {
+  isSupportedImage(file: UploadedAdminImageFile): boolean {
     return ALLOWED_MIME_TYPES.has(file.mimetype);
   }
 
-  async uploadMenuImage(restaurantId: string, file: UploadedMenuImageFile): Promise<{ key: string; url: string }> {
+  async uploadMenuImage(restaurantId: string, file: UploadedAdminImageFile): Promise<{ key: string; url: string }> {
+    return this.uploadImage(restaurantId, 'menu', file);
+  }
+
+  async uploadBrandingLogo(restaurantId: string, file: UploadedAdminImageFile): Promise<{ key: string; url: string }> {
+    return this.uploadImage(restaurantId, 'branding-logo', file);
+  }
+
+  async deleteMenuImageIfManaged(restaurantId: string, imageUrl: string | null | undefined): Promise<void> {
+    return this.deleteImageIfManaged(restaurantId, 'menu', imageUrl);
+  }
+
+  async deleteBrandingLogoIfManaged(restaurantId: string, imageUrl: string | null | undefined): Promise<void> {
+    return this.deleteImageIfManaged(restaurantId, 'branding-logo', imageUrl);
+  }
+
+  private async uploadImage(
+    restaurantId: string,
+    scope: AdminImageScope,
+    file: UploadedAdminImageFile,
+  ): Promise<{ key: string; url: string }> {
+    this.assertUploadableImage(file);
+
+    const objectAcl = process.env.S3_OBJECT_ACL || 'public-read';
+    const cacheControl = process.env.S3_CACHE_CONTROL || 'public, max-age=31536000, immutable';
+    const key = `${this.getManagedPrefix(restaurantId, scope)}${Date.now()}-${randomUUID()}${extensionFromFile(file)}`;
+
+    await this.sendObjectRequest('PUT', key, file, {
+      objectAcl,
+      cacheControl,
+    });
+
+    return { key, url: this.buildPublicUrl(key) };
+  }
+
+  private async deleteImageIfManaged(
+    restaurantId: string,
+    scope: AdminImageScope,
+    imageUrl: string | null | undefined,
+  ): Promise<void> {
+    const key = this.extractManagedKeyFromUrl(restaurantId, scope, imageUrl);
+    if (!key) return;
+
+    await this.sendObjectRequest('DELETE', key);
+  }
+
+  private assertUploadableImage(file: UploadedAdminImageFile | null | undefined): asserts file is UploadedAdminImageFile {
     if (!file) {
       throw new BadRequestException({ error: 'IMAGE_FILE_REQUIRED', message: 'No image file provided.' });
     }
@@ -93,31 +147,16 @@ export class AdminMenuImageStorageService {
         message: `Object storage is not configured (${missing.join(', ')}).`,
       });
     }
-
-    const objectAcl = process.env.S3_OBJECT_ACL || 'public-read';
-    const cacheControl = process.env.S3_CACHE_CONTROL || 'public, max-age=31536000, immutable';
-
-    const key = `${this.getManagedPrefix(restaurantId)}${Date.now()}-${randomUUID()}${extensionFromFile(file)}`;
-
-    await this.sendObjectRequest('PUT', key, file, {
-      objectAcl,
-      cacheControl,
-    });
-
-    return { key, url: this.buildPublicUrl(key) };
   }
 
-  async deleteMenuImageIfManaged(restaurantId: string, imageUrl: string | null | undefined): Promise<void> {
-    const key = this.extractManagedKeyFromUrl(restaurantId, imageUrl);
-    if (!key) return;
-
-    await this.sendObjectRequest('DELETE', key);
-  }
-
-  private extractManagedKeyFromUrl(restaurantId: string, imageUrl: string | null | undefined): string | null {
+  private extractManagedKeyFromUrl(
+    restaurantId: string,
+    scope: AdminImageScope,
+    imageUrl: string | null | undefined,
+  ): string | null {
     if (!imageUrl) return null;
 
-    const managedPrefix = this.getManagedPrefix(restaurantId);
+    const managedPrefix = this.getManagedPrefix(restaurantId, scope);
     const configuredBaseUrl = process.env.S3_PUBLIC_BASE_URL?.replace(/\/$/, '');
 
     if (configuredBaseUrl && imageUrl.startsWith(`${configuredBaseUrl}/`)) {
@@ -150,7 +189,7 @@ export class AdminMenuImageStorageService {
   private async sendObjectRequest(
     method: 'PUT' | 'DELETE',
     key: string,
-    file?: UploadedMenuImageFile,
+    file?: UploadedAdminImageFile,
     options?: { objectAcl?: string; cacheControl?: string },
   ): Promise<void> {
     const requiredVars = ['S3_BUCKET', 'S3_REGION', 'S3_ENDPOINT', 'S3_ACCESS_KEY_ID', 'S3_SECRET_ACCESS_KEY'];

@@ -32,7 +32,7 @@ import { UpdateAdminPrinterSettingsDto } from './dto/update-admin-printer-settin
 import { UpdateAdminBrandingSettingsDto } from './dto/update-admin-branding-settings.dto';
 import { AdminMarketingService } from './admin-marketing.service';
 import { SendAdminMarketingEmailDto } from './dto/send-admin-marketing-email.dto';
-import { AdminMenuImageStorageService } from './admin-menu-image-storage.service';
+import { AdminMediaStorageService } from './admin-media-storage.service';
 import { UploadedMenuImageFile } from './menu-image-upload.types';
 
 @Controller('admin')
@@ -45,7 +45,7 @@ export class AdminController {
     private readonly adminAnalyticsService: AdminAnalyticsService,
     private readonly adminSettingsService: AdminSettingsService,
     private readonly adminMarketingService: AdminMarketingService,
-    private readonly adminMenuImageStorageService: AdminMenuImageStorageService,
+    private readonly adminMediaStorageService: AdminMediaStorageService,
   ) {}
 
   private requireAdmin(authorization?: string, adminToken?: string, legacyRestaurantId?: string): AccessTokenPayload {
@@ -176,6 +176,41 @@ export class AdminController {
     const auth = this.requireAdmin(authorization, adminToken, legacyRestaurantId);
     const settings = await this.adminSettingsService.updateBrandingSettings(auth.restaurantId, dto);
     return ok({ settings });
+  }
+
+  @Post('settings/branding/logo/upload')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      limits: {
+        fileSize: parseInt(process.env.S3_UPLOAD_MAX_BYTES || '', 10) || 5 * 1024 * 1024,
+      },
+    }),
+  )
+  async uploadBrandingLogo(
+    @UploadedFile() file: UploadedMenuImageFile,
+    @Headers('authorization') authorization?: string,
+    @Headers('x-admin-token') adminToken?: string,
+    @Headers('x-restaurant-id') legacyRestaurantId?: string,
+  ) {
+    const auth = this.requireAdmin(authorization, adminToken, legacyRestaurantId);
+    if (!file) {
+      throw new BadRequestException({
+        error: 'IMAGE_FILE_REQUIRED',
+        message: 'No image file provided.',
+      });
+    }
+
+    const existing = await this.adminSettingsService.getBrandingSettings(auth.restaurantId);
+    const image = await this.adminMediaStorageService.uploadBrandingLogo(auth.restaurantId, file);
+    const settings = await this.adminSettingsService.updateBrandingSettings(auth.restaurantId, { logoUrl: image.url });
+
+    if (existing.logoUrl && existing.logoUrl !== image.url) {
+      await this.adminMediaStorageService.deleteBrandingLogoIfManaged(auth.restaurantId, existing.logoUrl).catch(() => {
+        // Non-blocking cleanup: preserve the successful branding update if storage deletion fails.
+      });
+    }
+
+    return ok({ settings, upload: image });
   }
 
   @Get('settings/printer')
@@ -332,7 +367,7 @@ export class AdminController {
       });
     }
 
-    const image = await this.adminMenuImageStorageService.uploadMenuImage(auth.restaurantId, file);
+    const image = await this.adminMediaStorageService.uploadMenuImage(auth.restaurantId, file);
     return ok({ imageUrl: image.url, key: image.key });
   }
 
@@ -355,7 +390,7 @@ export class AdminController {
       && existing.imageUrl !== item.imageUrl;
 
     if (imageReplaced) {
-      await this.adminMenuImageStorageService.deleteMenuImageIfManaged(auth.restaurantId, existing.imageUrl).catch(() => {
+      await this.adminMediaStorageService.deleteMenuImageIfManaged(auth.restaurantId, existing.imageUrl).catch(() => {
         // Non-blocking cleanup: preserve successful menu update if storage deletion fails.
       });
     }
