@@ -12,6 +12,12 @@ const DEFAULT_HEADER_LOGO =
 const DEFAULT_FOOTER_LOGO =
   'https://qtrypzzcjebvfcihiynt.supabase.co/storage/v1/object/public/base44-prod/public/699f6d055b5dc5582a3c406f/109735483_Footer-logo.png';
 
+const sanitizeBrandName = (value) => {
+  const normalized = value?.trim();
+  if (!normalized) return 'Restaurant';
+  return normalized.replace(/\s*(?:\(|-|–)?\s*local\)?\s*$/i, '').trim() || normalized;
+};
+
 export default function Layout({ children, currentPageName }) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const { user, logout } = useAuth();
@@ -21,7 +27,7 @@ export default function Layout({ children, currentPageName }) {
   const [itemCount, setItemCount] = useState(cartCount(getCart()));
 
   const primaryColor = tenant?.branding?.primaryColor || '#b5122a';
-  const brandName = tenant?.name || 'Restaurant';
+  const brandName = sanitizeBrandName(tenant?.name);
   const logoUrl = tenant?.branding?.logoUrl || DEFAULT_HEADER_LOGO;
   const footerLogoUrl = tenant?.branding?.footerLogoUrl || logoUrl || DEFAULT_FOOTER_LOGO;
   const contact = tenant?.contactInfo || {};
@@ -253,7 +259,7 @@ export default function Layout({ children, currentPageName }) {
       <footer className="bg-black text-white">
         <div className="max-w-6xl mx-auto px-8 py-10 flex flex-col md:flex-row items-center md:items-center justify-between gap-8">
           <div className="flex-shrink-0">
-            <img src={footerLogoUrl} alt={brandName} className="h-72" style={{ imageRendering: 'crisp-edges' }} />
+            <img src={footerLogoUrl} alt={brandName} className="h-20 sm:h-24" style={{ imageRendering: 'crisp-edges' }} />
           </div>
           <div className="text-right text-sm">
             <h3 className="font-serif italic text-2xl mb-2 text-white">{brandName}</h3>
@@ -279,7 +285,7 @@ export default function Layout({ children, currentPageName }) {
         <div className="border-t border-gray-800 px-4 py-4 text-center text-gray-600 text-xs">
           © {new Date().getFullYear()} {brandName}.{' '}
           <button onClick={() => setShowPrivacy(true)} className="text-gray-400 hover:text-white transition-colors underline">
-            Politique de confidentialité
+            Politique de Confidentialité
           </button>{' '}
           | Web by{' '}
           <a href="https://kodlantis.com" target="_blank" rel="noopener noreferrer" className="text-gray-400 hover:text-white transition-colors">

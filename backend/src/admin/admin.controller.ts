@@ -94,6 +94,19 @@ export class AdminController {
   }
 
   private buildPublicMediaUrl(request: Request, key: string): string {
+    const configuredOrigin = [
+      process.env.MEDIA_PUBLIC_BASE_URL,
+      process.env.PUBLIC_BASE_URL,
+      process.env.APP_BASE_URL,
+    ]
+      .map((value) => value?.trim())
+      .find(Boolean)
+      ?.replace(/\/$/, '');
+
+    if (configuredOrigin) {
+      return `${configuredOrigin}/public/media?key=${encodeURIComponent(key)}`;
+    }
+
     const forwardedProto = request.header('x-forwarded-proto')?.split(',')[0]?.trim();
     const forwardedHost = request.header('x-forwarded-host')?.split(',')[0]?.trim();
     const protocol = forwardedProto || request.protocol || 'https';
