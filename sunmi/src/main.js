@@ -62,6 +62,8 @@ const state = {
   completedSectionOpen: false,
   activeAttentionAlert: null,
   attentionAlertTimeoutId: null,
+  reservationUiById: {},
+  reservationFeedbackTimeoutsById: {},
   printDebug: {
     at: null,
     mode: 'idle',
@@ -75,6 +77,74 @@ const state = {
     receiptPreview: '',
   },
 };
+
+function getReservationUiState(reservationId) {
+  const candidate = reservationId ? state.reservationUiById[reservationId] : null;
+  return {
+    pendingAction: candidate?.pendingAction || null,
+    confirmCancel: candidate?.confirmCancel === true,
+    successMessage: candidate?.successMessage || '',
+  };
+}
+
+function setReservationUiState(reservationId, patch) {
+  if (!reservationId) return;
+  const current = getReservationUiState(reservationId);
+  state.reservationUiById[reservationId] = {
+    ...current,
+    ...patch,
+  };
+}
+
+function clearReservationFeedbackTimeout(reservationId) {
+  const timeoutId = state.reservationFeedbackTimeoutsById[reservationId];
+  if (!timeoutId) return;
+  clearTimeout(timeoutId);
+  delete state.reservationFeedbackTimeoutsById[reservationId];
+}
+
+function scheduleReservationSuccessClear(reservationId) {
+  clearReservationFeedbackTimeout(reservationId);
+  state.reservationFeedbackTimeoutsById[reservationId] = setTimeout(() => {
+    const current = getReservationUiState(reservationId);
+    if (!current.successMessage) return;
+    setReservationUiState(reservationId, { successMessage: '' });
+    render();
+  }, 2500);
+}
+
+function cleanupReservationUiState(nextReservations = state.reservations) {
+  const activeIds = new Set((Array.isArray(nextReservations) ? nextReservations : []).map((reservation) => reservation?.id).filter(Boolean));
+
+  Object.keys(state.reservationUiById).forEach((reservationId) => {
+    if (activeIds.has(reservationId)) return;
+    delete state.reservationUiById[reservationId];
+    clearReservationFeedbackTimeout(reservationId);
+  });
+
+  (Array.isArray(nextReservations) ? nextReservations : []).forEach((reservation) => {
+    if (!reservation?.id) return;
+    if (String(reservation.status || '').toLowerCase() !== 'pending') {
+      const current = getReservationUiState(reservation.id);
+      if (current.confirmCancel || current.pendingAction) {
+        setReservationUiState(reservation.id, {
+          confirmCancel: false,
+          pendingAction: null,
+        });
+      }
+    }
+  });
+}
+
+function updateReservationLocally(reservationId, patch) {
+  state.reservations = state.reservations.map((reservation) => {
+    if (reservation?.id !== reservationId) return reservation;
+    return {
+      ...reservation,
+      ...patch,
+    };
+  });
+}
 
 function normalizeAlertSettings(value) {
   const candidate = value && typeof value === 'object' ? value : {};
@@ -776,6 +846,55 @@ function formatReservationDate(iso) {
   return formatZurichDateTime(iso);
 }
 
+function getReservationActionSuccessLabel(status) {
+  return status === 'confirmed' ? 'Réservation confirmée.' : 'Réservation annulée.';
+}
+
+async function handleReservationStatusAction(reservationId, status) {
+  if (!reservationId || !['confirmed', 'cancelled'].includes(status)) return;
+
+  const currentUi = getReservationUiState(reservationId);
+  if (currentUi.pendingAction) return;
+
+  setReservationUiState(reservationId, {
+    pendingAction: status,
+    confirmCancel: false,
+    successMessage: '',
+  });
+  state.error = '';
+  render();
+
+  const res = await changeReservationStatus(reservationId, status);
+
+  if (!res.ok) {
+    setReservationUiState(reservationId, { pendingAction: null });
+    state.error = res.message;
+    if (res.code === 'DEVICE_AUTH_REQUIRED') {
+      state.mode = 'not_paired';
+      stopReceiverPolling();
+    }
+    render();
+    return;
+  }
+
+  const updatedAtIso = new Date().toISOString();
+  updateReservationLocally(reservationId, {
+    status,
+    statusUpdatedAt: updatedAtIso,
+    updatedAt: updatedAtIso,
+  });
+  setReservationUiState(reservationId, {
+    pendingAction: null,
+    confirmCancel: false,
+    successMessage: getReservationActionSuccessLabel(status),
+  });
+  scheduleReservationSuccessClear(reservationId);
+  cleanupReservationUiState();
+  render();
+
+  await refreshOperations();
+}
+
 
 function formatOrderType(orderType) {
   return orderType === 'delivery' ? 'Livraison' : 'À emporter';
@@ -939,9 +1058,40 @@ function render() {
   const completedOrdersHtml = completedOrders.length === 0
     ? '<div class="card"><p class="subtle">Aucune commande terminée.</p></div>'
     : completedOrders.map((order) => renderOrderCard(order, { isCompleted: true })).join('');
-  const reservationsHtml = state.reservations.length === 0
-    ? '<div class="card"><p class="subtle">Aucune réservation en cours.</p></div>'
-    : state.reservations.map((reservation) => `
+  cleanupReservationUiState();
+  const upcomingReservations = state.reservations.filter((reservation) => String(reservation?.status || '').toLowerCase() === 'pending');
+  const processedReservations = state.reservations.filter((reservation) => String(reservation?.status || '').toLowerCase() !== 'pending');
+
+  const renderReservationCard = (reservation) => {
+    const reservationUi = getReservationUiState(reservation.id);
+    const isPendingAction = Boolean(reservationUi.pendingAction);
+    const isConfirmingCancel = reservationUi.confirmCancel && !isPendingAction && String(reservation.status || '').toLowerCase() === 'pending';
+    const actionFeedbackHtml = isPendingAction
+      ? `<div class="reservation-feedback reservation-feedback-loading">${reservationUi.pendingAction === 'confirmed' ? 'Confirmation en cours...' : 'Annulation en cours...'}</div>`
+      : reservationUi.successMessage
+        ? `<div class="reservation-feedback reservation-feedback-success">${escapeHtml(reservationUi.successMessage)}</div>`
+        : '';
+
+    const actionAreaHtml = String(reservation.status || '').toLowerCase() !== 'pending'
+      ? '<div class="subtle reservation-processed-note">Réservation déjà traitée.</div>'
+      : isConfirmingCancel
+        ? `
+          <div class="reservation-cancel-confirm">
+            <div class="reservation-feedback reservation-feedback-warning">Confirmer l'annulation ?</div>
+            <div class="btn-row">
+              <button class="btn-danger" data-action="reservation_cancel_confirm" data-id="${reservation.id}" ${isPendingAction ? 'disabled' : ''}>Confirmer annulation</button>
+              <button class="btn-secondary-inline" data-action="reservation_cancel_abort" data-id="${reservation.id}" ${isPendingAction ? 'disabled' : ''}>Retour</button>
+            </div>
+          </div>
+        `
+        : `
+          <div class="btn-row">
+            <button class="btn-accept" data-action="reservation_confirmed" data-id="${reservation.id}" ${isPendingAction ? 'disabled' : ''}>${reservationUi.pendingAction === 'confirmed' ? 'Confirmation...' : 'Confirmer'}</button>
+            <button class="btn-secondary-inline" data-action="reservation_cancel_request" data-id="${reservation.id}" ${isPendingAction ? 'disabled' : ''}>Annuler</button>
+          </div>
+        `;
+
+    return `
       <div class="card" data-reservation-id="${reservation.id}">
         <div class="topbar">
           <strong>${reservation.customerName || reservation.id}</strong>
@@ -950,13 +1100,20 @@ function render() {
         <div class="subtle">${reservation.guestCount || '-'} couverts • ${formatReservationDate(reservation.reservationDate)}</div>
         ${reservation.customerPhone ? `<div class="subtle">Téléphone: ${escapeHtml(reservation.customerPhone)}</div>` : ''}
         ${reservation.customerEmail ? `<div class="subtle">Email: ${escapeHtml(reservation.customerEmail)}</div>` : ''}
-        ${reservation.notes ? `<div class="subtle">Note: ${reservation.notes}</div>` : ''}
-        <div class="btn-row">
-          <button class="btn-accept" data-action="reservation_confirmed" data-id="${reservation.id}">Confirmer</button>
-          <button class="btn-secondary-inline" data-action="reservation_cancelled" data-id="${reservation.id}">Annuler</button>
-        </div>
+        ${reservation.notes ? `<div class="subtle">Note: ${escapeHtml(reservation.notes)}</div>` : ''}
+        ${actionFeedbackHtml}
+        ${actionAreaHtml}
       </div>
-    `).join('');
+    `;
+  };
+
+  const upcomingReservationsHtml = upcomingReservations.length === 0
+    ? '<div class="card"><p class="subtle">Aucune réservation en attente.</p></div>'
+    : upcomingReservations.map((reservation) => renderReservationCard(reservation)).join('');
+
+  const processedReservationsHtml = processedReservations.length === 0
+    ? '<div class="card"><p class="subtle">Aucune réservation traitée.</p></div>'
+    : processedReservations.map((reservation) => renderReservationCard(reservation)).join('');
 
   const attentionOverlay = state.activeAttentionAlert
     ? `
@@ -1042,9 +1199,26 @@ function render() {
 
     <div class="card">
       <div class="title">Réservations</div>
-      <p class="subtle">Confirmer ou annuler les réservations</p>
+      <p class="subtle">Confirmer rapidement les réservations en attente, avec confirmation légère avant annulation.</p>
     </div>
-    ${reservationsHtml}
+
+    <div class="card reservation-section-card">
+      <div class="reservation-section-header">
+        <div class="reservation-section-title">À venir</div>
+        <span class="status-pill">${upcomingReservations.length}</span>
+      </div>
+      <p class="subtle">Réservations en attente d'action.</p>
+    </div>
+    ${upcomingReservationsHtml}
+
+    <div class="card reservation-section-card">
+      <div class="reservation-section-header">
+        <div class="reservation-section-title">Traitées</div>
+        <span class="status-pill">${processedReservations.length}</span>
+      </div>
+      <p class="subtle">Réservations déjà confirmées ou annulées.</p>
+    </div>
+    ${processedReservationsHtml}
 
     ${state.error ? `<div class="card"><p class="error">${state.error}</p></div>` : ''}
     ${attentionOverlay}
@@ -1139,6 +1313,7 @@ async function refreshOperations() {
     detectAndTriggerNewEventAlerts(nextOrders, nextReservations);
     state.orders = nextOrders;
     state.reservations = nextReservations;
+    cleanupReservationUiState(nextReservations);
     const nextPrep = {};
     for (const order of state.orders) {
       const existing = state.prepMinutesByOrderId[order.id];
@@ -1625,20 +1800,23 @@ app.addEventListener('click', async (event) => {
 
   const reservationAction = target.dataset.action;
   const reservationId = target.dataset.id;
-  if (reservationAction === 'reservation_confirmed' || reservationAction === 'reservation_cancelled') {
-    const status = reservationAction === 'reservation_confirmed' ? 'confirmed' : 'cancelled';
-    const res = await changeReservationStatus(reservationId, status);
-    if (!res.ok) {
-      state.error = res.message;
-      if (res.code === 'DEVICE_AUTH_REQUIRED') {
-        state.mode = 'not_paired';
-        stopReceiverPolling();
-      }
-      render();
-      return;
-    }
+  if (reservationAction === 'reservation_cancel_request' && reservationId) {
+    setReservationUiState(reservationId, { confirmCancel: true, successMessage: '' });
+    state.error = '';
+    render();
+    return;
+  }
 
-    await refreshOperations();
+  if (reservationAction === 'reservation_cancel_abort' && reservationId) {
+    setReservationUiState(reservationId, { confirmCancel: false });
+    state.error = '';
+    render();
+    return;
+  }
+
+  if ((reservationAction === 'reservation_confirmed' || reservationAction === 'reservation_cancel_confirm') && reservationId) {
+    const status = reservationAction === 'reservation_confirmed' ? 'confirmed' : 'cancelled';
+    await handleReservationStatusAction(reservationId, status);
     return;
   }
 
