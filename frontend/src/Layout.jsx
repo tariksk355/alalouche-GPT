@@ -122,7 +122,7 @@ export default function Layout({ children, currentPageName }) {
           </div>
           <div className="flex justify-center items-center">
             <Link to={createPageUrl('Home')}>
-              <img src={logoUrl} alt={brandName} className="h-24 lg:h-28" />
+              <img src={logoUrl} alt={brandName} className="h-28 lg:h-32" />
             </Link>
           </div>
           <div className="text-right">
@@ -283,10 +283,11 @@ export default function Layout({ children, currentPageName }) {
         <div className="max-w-6xl mx-auto px-6 py-10">
           <div className="flex flex-col items-center text-center gap-8 md:flex-row md:items-start md:justify-between md:text-left">
             <div className="flex flex-col items-center text-center md:items-start md:text-left">
-              <img src={footerLogoUrl} alt={brandName} className="h-20 sm:h-24" style={{ imageRendering: 'crisp-edges' }} />
-              <h3 className="font-script mt-3 text-4xl leading-none text-white sm:text-5xl">{brandName}</h3>
+              <img src={footerLogoUrl} alt={brandName} className="h-20 sm:h-24 md:h-28 lg:h-32" style={{ imageRendering: 'crisp-edges' }} />
+              <h3 className="font-script mt-3 text-4xl leading-none text-white sm:text-5xl md:hidden">{brandName}</h3>
             </div>
-            <div className="space-y-2 text-sm text-gray-300 md:max-w-sm md:pt-3">
+            <div className="space-y-3 text-sm text-gray-300 md:max-w-sm md:pt-2">
+              <h3 className="font-script hidden text-5xl leading-none text-white md:block">{brandName}</h3>
               <div className="flex items-start justify-center gap-2 text-center leading-relaxed md:justify-start md:text-left">
                 <MapPin className="mt-0.5 h-4 w-4 flex-shrink-0" />
                 <span>{`${footerContact.addressLine1} · ${footerContact.addressLine2}`}</span>
@@ -306,13 +307,13 @@ export default function Layout({ children, currentPageName }) {
             </div>
           </div>
         </div>
-        <div className="border-t border-gray-800 px-4 py-4 text-center text-gray-600 text-xs">
+        <div className="border-t border-gray-800 px-4 py-4 text-center text-sm text-gray-400 md:text-[15px]">
           © {new Date().getFullYear()} {brandName}.{' '}
-          <button onClick={() => setShowPrivacy(true)} className="text-gray-400 hover:text-white transition-colors underline">
+          <button onClick={() => setShowPrivacy(true)} className="text-gray-200 hover:text-white transition-colors underline">
             Politique de Confidentialité
           </button>{' '}
           | Web by{' '}
-          <a href="https://kodlantis.com" target="_blank" rel="noopener noreferrer" className="text-gray-400 hover:text-white transition-colors">
+          <a href="https://kodlantis.com" target="_blank" rel="noopener noreferrer" className="text-gray-200 hover:text-white transition-colors">
             Kodlantis
           </a>
         </div>
