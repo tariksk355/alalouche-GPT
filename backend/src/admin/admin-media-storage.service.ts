@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, InternalServerErrorException, ServiceU
 import { createHash, createHmac, randomUUID } from 'node:crypto';
 import { extname } from 'node:path';
 import { UploadedMenuImageFile } from './menu-image-upload.types';
+import { PrismaService } from '../prisma/prisma.service';
 
 type AdminImageScope = 'menu' | 'branding-logo';
 
@@ -63,10 +64,16 @@ function toAmzDate(now: Date): { amzDate: string; dateStamp: string } {
 
 @Injectable()
 export class AdminMediaStorageService {
+  constructor(private readonly prisma: PrismaService) {}
+
   private getEndpointUrl(): URL {
     const endpointRaw = process.env.S3_ENDPOINT!;
     const endpoint = endpointRaw.startsWith('http') ? endpointRaw : `https://${endpointRaw}`;
     return new URL(endpoint);
+  }
+
+  private isAwsS3Endpoint(endpointUrl: URL): boolean {
+    return endpointUrl.hostname === 's3.amazonaws.com' || endpointUrl.hostname.endsWith('.amazonaws.com');
   }
 
   private resolveObjectAcl(endpointUrl: URL): string | null {
@@ -75,20 +82,41 @@ export class AdminMediaStorageService {
       return configuredAcl;
     }
 
-    const isAwsS3Endpoint = endpointUrl.hostname === 's3.amazonaws.com' || endpointUrl.hostname.endsWith('.amazonaws.com');
-    if (isAwsS3Endpoint) {
+    if (this.isAwsS3Endpoint(endpointUrl)) {
       return null;
     }
 
     return 'public-read';
   }
 
-  private getManagedPrefix(restaurantId: string, scope: AdminImageScope): string {
-    const safeRestaurantId = sanitizePathSegment(restaurantId);
+  private async getStorageNamespace(restaurantId: string): Promise<string> {
+    const restaurant = await this.prisma.restaurant.findUnique({
+      where: { id: restaurantId },
+      select: { slug: true },
+    });
+    const candidate = typeof restaurant?.slug === 'string' && restaurant.slug.trim()
+      ? restaurant.slug.trim()
+      : restaurantId;
+
+    return sanitizePathSegment(candidate);
+  }
+
+  private buildManagedPrefix(storageNamespace: string, scope: AdminImageScope): string {
     if (scope === 'branding-logo') {
-      return `restaurants/${safeRestaurantId}/branding/logo/`;
+      return `restaurants/${storageNamespace}/branding/logo/`;
     }
-    return `restaurants/${safeRestaurantId}/menu/`;
+    return `restaurants/${storageNamespace}/menu/`;
+  }
+
+  private async getManagedPrefixes(restaurantId: string, scope: AdminImageScope): Promise<string[]> {
+    const storageNamespace = await this.getStorageNamespace(restaurantId);
+    const safeRestaurantId = sanitizePathSegment(restaurantId);
+    const prefixes = [
+      this.buildManagedPrefix(storageNamespace, scope),
+      this.buildManagedPrefix(safeRestaurantId, scope),
+    ];
+
+    return [...new Set(prefixes)];
   }
 
   getMaxUploadBytes(): number {
@@ -124,7 +152,8 @@ export class AdminMediaStorageService {
 
     const objectAcl = this.resolveObjectAcl(this.getEndpointUrl());
     const cacheControl = process.env.S3_CACHE_CONTROL || 'public, max-age=31536000, immutable';
-    const key = `${this.getManagedPrefix(restaurantId, scope)}${Date.now()}-${randomUUID()}${extensionFromFile(file)}`;
+    const [managedPrefix] = await this.getManagedPrefixes(restaurantId, scope);
+    const key = `${managedPrefix}${Date.now()}-${randomUUID()}${extensionFromFile(file)}`;
 
     await this.sendObjectRequest('PUT', key, file, {
       objectAcl,
@@ -139,7 +168,7 @@ export class AdminMediaStorageService {
     scope: AdminImageScope,
     imageUrl: string | null | undefined,
   ): Promise<void> {
-    const key = this.extractManagedKeyFromUrl(restaurantId, scope, imageUrl);
+    const key = await this.extractManagedKeyFromUrl(restaurantId, scope, imageUrl);
     if (!key) return;
 
     await this.sendObjectRequest('DELETE', key);
@@ -182,19 +211,19 @@ export class AdminMediaStorageService {
     }
   }
 
-  private extractManagedKeyFromUrl(
+  private async extractManagedKeyFromUrl(
     restaurantId: string,
     scope: AdminImageScope,
     imageUrl: string | null | undefined,
-  ): string | null {
+  ): Promise<string | null> {
     if (!imageUrl) return null;
 
-    const managedPrefix = this.getManagedPrefix(restaurantId, scope);
+    const managedPrefixes = await this.getManagedPrefixes(restaurantId, scope);
     const configuredBaseUrl = process.env.S3_PUBLIC_BASE_URL?.replace(/\/$/, '');
 
     if (configuredBaseUrl && imageUrl.startsWith(`${configuredBaseUrl}/`)) {
       const key = imageUrl.slice(configuredBaseUrl.length + 1);
-      return key.startsWith(managedPrefix) ? key : null;
+      return managedPrefixes.some((prefix) => key.startsWith(prefix)) ? key : null;
     }
 
     const bucket = process.env.S3_BUCKET;
@@ -207,16 +236,36 @@ export class AdminMediaStorageService {
     const virtualHostPrefix = `${endpointUrl.protocol}//${bucket}.${endpointUrl.host}/`;
     if (imageUrl.startsWith(virtualHostPrefix)) {
       const key = imageUrl.slice(virtualHostPrefix.length);
-      return key.startsWith(managedPrefix) ? key : null;
+      return managedPrefixes.some((prefix) => key.startsWith(prefix)) ? key : null;
     }
 
     const pathStylePrefix = `${endpointUrl.protocol}//${endpointUrl.host}/${bucket}/`;
     if (imageUrl.startsWith(pathStylePrefix)) {
       const key = imageUrl.slice(pathStylePrefix.length);
-      return key.startsWith(managedPrefix) ? key : null;
+      return managedPrefixes.some((prefix) => key.startsWith(prefix)) ? key : null;
+    }
+
+    const awsPublicPrefix = this.getAwsPublicBaseUrl(bucket);
+    if (awsPublicPrefix && imageUrl.startsWith(`${awsPublicPrefix}/`)) {
+      const key = imageUrl.slice(awsPublicPrefix.length + 1);
+      return managedPrefixes.some((prefix) => key.startsWith(prefix)) ? key : null;
     }
 
     return null;
+  }
+
+  private getAwsPublicBaseUrl(bucket: string): string | null {
+    const endpointUrl = this.getEndpointUrl();
+    if (!this.isAwsS3Endpoint(endpointUrl)) {
+      return null;
+    }
+
+    const region = normalizeOptionalEnv(process.env.S3_REGION) || 'us-east-1';
+    if (region === 'us-east-1') {
+      return `https://${bucket}.s3.amazonaws.com`;
+    }
+
+    return `https://${bucket}.s3.${region}.amazonaws.com`;
   }
 
   private async sendObjectRequest(
@@ -311,6 +360,11 @@ export class AdminMediaStorageService {
     const configuredBaseUrl = process.env.S3_PUBLIC_BASE_URL?.replace(/\/$/, '');
     if (configuredBaseUrl) {
       return `${configuredBaseUrl}/${key}`;
+    }
+
+    const awsPublicBaseUrl = this.getAwsPublicBaseUrl(bucket);
+    if (awsPublicBaseUrl) {
+      return `${awsPublicBaseUrl}/${key}`;
     }
 
     return `${endpointUrl.protocol}//${bucket}.${endpointUrl.host}/${key}`;
