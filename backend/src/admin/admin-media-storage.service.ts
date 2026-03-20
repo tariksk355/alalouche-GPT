@@ -19,6 +19,12 @@ function parsePositiveInt(value: string | undefined, fallback: number): number {
   return Math.floor(parsed);
 }
 
+function normalizeOptionalEnv(value: string | undefined): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  return trimmed || null;
+}
+
 function sanitizePathSegment(value: string): string {
   return value.replace(/[^a-zA-Z0-9_-]/g, '_');
 }
@@ -57,6 +63,26 @@ function toAmzDate(now: Date): { amzDate: string; dateStamp: string } {
 
 @Injectable()
 export class AdminMediaStorageService {
+  private getEndpointUrl(): URL {
+    const endpointRaw = process.env.S3_ENDPOINT!;
+    const endpoint = endpointRaw.startsWith('http') ? endpointRaw : `https://${endpointRaw}`;
+    return new URL(endpoint);
+  }
+
+  private resolveObjectAcl(endpointUrl: URL): string | null {
+    const configuredAcl = normalizeOptionalEnv(process.env.S3_OBJECT_ACL);
+    if (configuredAcl) {
+      return configuredAcl;
+    }
+
+    const isAwsS3Endpoint = endpointUrl.hostname === 's3.amazonaws.com' || endpointUrl.hostname.endsWith('.amazonaws.com');
+    if (isAwsS3Endpoint) {
+      return null;
+    }
+
+    return 'public-read';
+  }
+
   private getManagedPrefix(restaurantId: string, scope: AdminImageScope): string {
     const safeRestaurantId = sanitizePathSegment(restaurantId);
     if (scope === 'branding-logo') {
@@ -96,7 +122,7 @@ export class AdminMediaStorageService {
   ): Promise<{ key: string; url: string }> {
     this.assertUploadableImage(file);
 
-    const objectAcl = process.env.S3_OBJECT_ACL || 'public-read';
+    const objectAcl = this.resolveObjectAcl(this.getEndpointUrl());
     const cacheControl = process.env.S3_CACHE_CONTROL || 'public, max-age=31536000, immutable';
     const key = `${this.getManagedPrefix(restaurantId, scope)}${Date.now()}-${randomUUID()}${extensionFromFile(file)}`;
 
@@ -197,7 +223,7 @@ export class AdminMediaStorageService {
     method: 'PUT' | 'DELETE',
     key: string,
     file?: UploadedAdminImageFile,
-    options?: { objectAcl?: string; cacheControl?: string },
+    options?: { objectAcl?: string | null; cacheControl?: string },
   ): Promise<void> {
     const requiredVars = ['S3_BUCKET', 'S3_REGION', 'S3_ENDPOINT', 'S3_ACCESS_KEY_ID', 'S3_SECRET_ACCESS_KEY'];
     const missing = requiredVars.filter((name) => !process.env[name]);
@@ -214,12 +240,12 @@ export class AdminMediaStorageService {
     const accessKeyId = process.env.S3_ACCESS_KEY_ID!;
     const secretAccessKey = process.env.S3_SECRET_ACCESS_KEY!;
     const sessionToken = process.env.S3_SESSION_TOKEN;
-    const objectAcl = process.env.S3_OBJECT_ACL || 'public-read';
     const cacheControl = process.env.S3_CACHE_CONTROL || 'public, max-age=31536000, immutable';
 
-    const endpoint = endpointRaw.startsWith('http') ? endpointRaw : `https://${endpointRaw}`;
-    const endpointUrl = new URL(endpoint);
+    const endpointUrl = this.getEndpointUrl();
     const forcePathStyle = process.env.S3_FORCE_PATH_STYLE === 'true';
+    const objectAcl = this.resolveObjectAcl(endpointUrl);
+    const resolvedObjectAcl = options?.objectAcl ?? objectAcl ?? undefined;
 
     const host = forcePathStyle ? endpointUrl.host : `${bucket}.${endpointUrl.host}`;
     const path = forcePathStyle ? `/${bucket}/${key}` : `/${key}`;
@@ -233,13 +259,13 @@ export class AdminMediaStorageService {
       `host:${host}`,
       `x-amz-content-sha256:${payloadHash}`,
       `x-amz-date:${amzDate}`,
-      ...(method === 'PUT' ? [`x-amz-acl:${options?.objectAcl || objectAcl}`] : []),
+      ...(method === 'PUT' && resolvedObjectAcl ? [`x-amz-acl:${resolvedObjectAcl}`] : []),
       ...(sessionToken ? [`x-amz-security-token:${sessionToken}`] : []),
     ].join('\n');
 
     const signedHeaders = [
       'host',
-      ...(method === 'PUT' ? ['x-amz-acl'] : []),
+      ...(method === 'PUT' && resolvedObjectAcl ? ['x-amz-acl'] : []),
       'x-amz-content-sha256',
       'x-amz-date',
       ...(sessionToken ? ['x-amz-security-token'] : []),
@@ -261,7 +287,7 @@ export class AdminMediaStorageService {
       headers: {
         ...(method === 'PUT' && file ? { 'content-type': file.mimetype } : {}),
         ...(method === 'PUT' ? { 'cache-control': options?.cacheControl || cacheControl } : {}),
-        ...(method === 'PUT' ? { 'x-amz-acl': options?.objectAcl || objectAcl } : {}),
+        ...(method === 'PUT' && resolvedObjectAcl ? { 'x-amz-acl': resolvedObjectAcl } : {}),
         'x-amz-content-sha256': payloadHash,
         'x-amz-date': amzDate,
         ...(sessionToken ? { 'x-amz-security-token': sessionToken } : {}),
@@ -280,9 +306,7 @@ export class AdminMediaStorageService {
 
   private buildPublicUrl(key: string): string {
     const bucket = process.env.S3_BUCKET!;
-    const endpointRaw = process.env.S3_ENDPOINT!;
-    const endpoint = endpointRaw.startsWith('http') ? endpointRaw : `https://${endpointRaw}`;
-    const endpointUrl = new URL(endpoint);
+    const endpointUrl = this.getEndpointUrl();
 
     const configuredBaseUrl = process.env.S3_PUBLIC_BASE_URL?.replace(/\/$/, '');
     if (configuredBaseUrl) {
