@@ -5,7 +5,7 @@ import { useAuth } from '@/lib/AuthContext';
 import { useTenant } from '@/lib/TenantContext';
 import PrivacyPolicyModal from '@/components/PrivacyPolicyModal';
 import { getCart, cartCount } from '@/components/cartStore';
-import { ShoppingCart } from 'lucide-react';
+import { Mail, MapPin, Phone, ShoppingCart } from 'lucide-react';
 
 const DEFAULT_HEADER_LOGO =
   'https://qtrypzzcjebvfcihiynt.supabase.co/storage/v1/object/public/base44-prod/public/user_6988e8d4fc295c9d940c5901/05562fbc0_Alalouche-logo.png';
@@ -85,9 +85,10 @@ export default function Layout({ children, currentPageName }) {
   return (
     <div className="min-h-screen flex flex-col">
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,600;1,400;1,600&family=Inter:wght@300;400;500;600&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Allura&family=Playfair+Display:ital,wght@0,400;0,600;1,400;1,600&family=Inter:wght@300;400;500;600&display=swap');
         body { font-family: 'Inter', sans-serif; }
         .font-serif { font-family: 'Playfair Display', serif; }
+        .font-script { font-family: 'Allura', 'Playfair Display', serif; }
       `}</style>
 
       <div className="hidden md:block border-b border-gray-200 bg-white">
@@ -257,29 +258,34 @@ export default function Layout({ children, currentPageName }) {
       )}
 
       <footer className="bg-black text-white">
-        <div className="max-w-6xl mx-auto px-8 py-10 flex flex-col md:flex-row items-center md:items-center justify-between gap-8">
-          <div className="flex-shrink-0">
+        <div className="max-w-6xl mx-auto px-6 py-10">
+          <div className="mx-auto flex max-w-md flex-col items-center text-center">
             <img src={footerLogoUrl} alt={brandName} className="h-20 sm:h-24" style={{ imageRendering: 'crisp-edges' }} />
-          </div>
-          <div className="text-right text-sm">
-            <h3 className="font-serif italic text-2xl mb-2 text-white">{brandName}</h3>
-            {fullAddress && <div className="text-gray-300 mb-1"><span>📍</span> {fullAddress}</div>}
-            {contact.phone && (
-              <div className="text-gray-300 mb-1">
-                <span>📞</span>{' '}
-                <a href={`tel:${contact.phone.replace(/\s+/g, '')}`} className="hover:text-white transition-colors">
-                  {contact.phone}
-                </a>
-              </div>
-            )}
-            {contact.email && (
-              <div className="text-gray-300">
-                <span>✉</span>{' '}
-                <a href={`mailto:${contact.email}`} className="hover:text-white transition-colors">
-                  {contact.email}
-                </a>
-              </div>
-            )}
+            <h3 className="font-script mt-3 text-4xl leading-none text-white sm:text-5xl">{brandName}</h3>
+            <div className="mt-4 space-y-2 text-sm text-gray-300">
+              {fullAddress && (
+                <div className="flex items-start justify-center gap-2 text-center leading-relaxed">
+                  <MapPin className="mt-0.5 h-4 w-4 flex-shrink-0" />
+                  <span>{fullAddress}</span>
+                </div>
+              )}
+              {contact.phone && (
+                <div className="flex items-center justify-center gap-2">
+                  <Phone className="h-4 w-4 flex-shrink-0" />
+                  <a href={`tel:${contact.phone.replace(/\s+/g, '')}`} className="hover:text-white transition-colors">
+                    {contact.phone}
+                  </a>
+                </div>
+              )}
+              {contact.email && (
+                <div className="flex items-center justify-center gap-2 break-all sm:break-normal">
+                  <Mail className="h-4 w-4 flex-shrink-0" />
+                  <a href={`mailto:${contact.email}`} className="hover:text-white transition-colors">
+                    {contact.email}
+                  </a>
+                </div>
+              )}
+            </div>
           </div>
         </div>
         <div className="border-t border-gray-800 px-4 py-4 text-center text-gray-600 text-xs">
