@@ -12,6 +12,20 @@ const DEFAULT_HEADER_LOGO =
 const DEFAULT_FOOTER_LOGO =
   'https://qtrypzzcjebvfcihiynt.supabase.co/storage/v1/object/public/base44-prod/public/699f6d055b5dc5582a3c406f/109735483_Footer-logo.png';
 
+const RESTAURANT_HOURS = [
+  'Lundi: fermé',
+  'Ma - Ven: 10h00 - 14h00 & 17h00 - 22h00',
+  'Samedi: 10h00 - 23h00 non stop',
+  'Dimanche: 12h00 - 21h00 non stop',
+];
+
+const RESTAURANT_CONTACT = {
+  phone: '026 303 45 61',
+  addressLine1: 'Rte de Chantemerle 58',
+  addressLine2: '1763 Granges-Paccot',
+  email: 'info@alalouche.ch',
+};
+
 const sanitizeBrandName = (value) => {
   const normalized = value?.trim();
   if (!normalized) return 'Restaurant';
@@ -27,13 +41,15 @@ export default function Layout({ children, currentPageName }) {
   const [itemCount, setItemCount] = useState(cartCount(getCart()));
 
   const primaryColor = tenant?.branding?.primaryColor || '#b5122a';
-  const brandName = sanitizeBrandName(tenant?.name);
+  const brandName = sanitizeBrandName(tenant?.name || 'À la Louche');
   const logoUrl = tenant?.branding?.logoUrl || DEFAULT_HEADER_LOGO;
   const footerLogoUrl = tenant?.branding?.footerLogoUrl || logoUrl || DEFAULT_FOOTER_LOGO;
-  const contact = tenant?.contactInfo || {};
-  const fullAddress = [contact.addressLine1, contact.postalCode && contact.city ? `${contact.postalCode} ${contact.city}` : contact.city]
-    .filter(Boolean)
-    .join(' · ');
+  const headerContact = {
+    phone: RESTAURANT_CONTACT.phone,
+    addressLine1: RESTAURANT_CONTACT.addressLine1,
+    addressLine2: RESTAURANT_CONTACT.addressLine2,
+  };
+  const footerContact = RESTAURANT_CONTACT;
 
   useEffect(() => {
     // TODO(migration): wire analytics events to backend analytics endpoint.
@@ -91,33 +107,36 @@ export default function Layout({ children, currentPageName }) {
         .font-script { font-family: 'Allura', 'Playfair Display', serif; }
       `}</style>
 
-      <div className="hidden md:block border-b border-gray-200 bg-white">
-        <div className="max-w-6xl mx-auto px-4 py-3 grid grid-cols-3 items-start text-sm">
-          <div>
-            <p className="font-semibold text-gray-800 mb-1">Heures d'ouverture</p>
-            <p className="text-gray-600"><span className="font-semibold">Lundi:</span> fermé</p>
-            <p className="text-gray-600"><span className="font-semibold">Ma - Ven:</span> 10h00 - 14h00 &amp; 17h00 - 22h00</p>
-            <p className="text-gray-600"><span className="font-semibold">Samedi:</span> 10h00 - 23h00 non stop</p>
-            <p className="text-gray-600"><span className="font-semibold">Dimanche:</span> 12h00 - 21h00 non stop</p>
+      <div className="border-b border-gray-200 bg-white">
+        <div className="max-w-6xl mx-auto px-4 py-4 md:py-3 grid grid-cols-1 gap-6 text-sm md:grid-cols-3 md:items-start">
+          <div className="text-center md:text-left">
+            <p className="font-script text-3xl leading-none text-gray-900 sm:text-[2.4rem]">Heures d’ouverture</p>
+            <div className="mt-3 space-y-1 text-gray-600">
+              {RESTAURANT_HOURS.map((line) => (
+                <p key={line}>{line}</p>
+              ))}
+            </div>
           </div>
-          <div className="flex justify-center items-center">
+          <div className="flex justify-center items-center order-first md:order-none">
             <Link to={createPageUrl('Home')}>
-              <img src={logoUrl} alt={brandName} className="h-24" />
+              <img src={logoUrl} alt={brandName} className="h-20 sm:h-24" />
             </Link>
           </div>
-          <div className="text-right">
-            <p className="font-semibold text-gray-800 mb-1">Contact</p>
-            {contact.phone && (
-              <a href={`tel:${contact.phone.replace(/\s+/g, '')}`} className="flex items-center justify-end gap-1 hover:underline mb-1" style={{ color: primaryColor }}>
-                <span>📞</span> {contact.phone}
+          <div className="text-center md:text-right">
+            <p className="font-script text-3xl leading-none text-gray-900 sm:text-[2.4rem]">Contact</p>
+            <div className="mt-3 space-y-1 text-gray-600">
+              <a href={`tel:${headerContact.phone.replace(/\s+/g, '')}`} className="flex items-center justify-center gap-2 hover:underline md:justify-end" style={{ color: primaryColor }}>
+                <Phone className="h-4 w-4 flex-shrink-0" />
+                <span>{headerContact.phone}</span>
               </a>
-            )}
-            {fullAddress && (
-              <p style={{ color: primaryColor }}>
-                <span>📍</span> {contact.addressLine1}
-                {contact.city && <><br /><span className="ml-4">{contact.postalCode ? `${contact.postalCode} ` : ''}{contact.city}</span></>}
-              </p>
-            )}
+              <div className="flex items-start justify-center gap-2 md:justify-end" style={{ color: primaryColor }}>
+                <MapPin className="mt-0.5 h-4 w-4 flex-shrink-0" />
+                <div>
+                  <div>{headerContact.addressLine1}</div>
+                  <div>{headerContact.addressLine2}</div>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -263,28 +282,22 @@ export default function Layout({ children, currentPageName }) {
             <img src={footerLogoUrl} alt={brandName} className="h-20 sm:h-24" style={{ imageRendering: 'crisp-edges' }} />
             <h3 className="font-script mt-3 text-4xl leading-none text-white sm:text-5xl">{brandName}</h3>
             <div className="mt-4 space-y-2 text-sm text-gray-300">
-              {fullAddress && (
-                <div className="flex items-start justify-center gap-2 text-center leading-relaxed">
-                  <MapPin className="mt-0.5 h-4 w-4 flex-shrink-0" />
-                  <span>{fullAddress}</span>
-                </div>
-              )}
-              {contact.phone && (
-                <div className="flex items-center justify-center gap-2">
-                  <Phone className="h-4 w-4 flex-shrink-0" />
-                  <a href={`tel:${contact.phone.replace(/\s+/g, '')}`} className="hover:text-white transition-colors">
-                    {contact.phone}
-                  </a>
-                </div>
-              )}
-              {contact.email && (
-                <div className="flex items-center justify-center gap-2 break-all sm:break-normal">
-                  <Mail className="h-4 w-4 flex-shrink-0" />
-                  <a href={`mailto:${contact.email}`} className="hover:text-white transition-colors">
-                    {contact.email}
-                  </a>
-                </div>
-              )}
+              <div className="flex items-start justify-center gap-2 text-center leading-relaxed">
+                <MapPin className="mt-0.5 h-4 w-4 flex-shrink-0" />
+                <span>{`${footerContact.addressLine1} · ${footerContact.addressLine2}`}</span>
+              </div>
+              <div className="flex items-center justify-center gap-2">
+                <Phone className="h-4 w-4 flex-shrink-0" />
+                <a href={`tel:${footerContact.phone.replace(/\s+/g, '')}`} className="hover:text-white transition-colors">
+                  {footerContact.phone}
+                </a>
+              </div>
+              <div className="flex items-center justify-center gap-2 break-all sm:break-normal">
+                <Mail className="h-4 w-4 flex-shrink-0" />
+                <a href={`mailto:${footerContact.email}`} className="hover:text-white transition-colors">
+                  {footerContact.email}
+                </a>
+              </div>
             </div>
           </div>
         </div>
