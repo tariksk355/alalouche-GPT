@@ -45,6 +45,7 @@
   --receiver-danger: #dc2626;
   --receiver-overlay-button-bg: rgba(15, 23, 42, 0.55);
   --receiver-overlay-button-border: rgba(255, 255, 255, 0.4);
+  --receiver-overlay-button-text: #ffffff;
 }
 
 body[data-receiver-theme="light"] {
@@ -94,6 +95,7 @@ body[data-receiver-theme="light"] {
   --receiver-danger: #dc2626;
   --receiver-overlay-button-bg: rgba(255, 255, 255, 0.9);
   --receiver-overlay-button-border: rgba(15, 23, 42, 0.18);
+  --receiver-overlay-button-text: #0f172a;
 }
 
 body { margin: 0; font-family: Arial, sans-serif; background: var(--receiver-bg); color: var(--receiver-text); transition: background 160ms ease, color 160ms ease; }
@@ -263,6 +265,7 @@ button:disabled { opacity: 0.6; }
   margin-top: 16px;
   background: var(--receiver-overlay-button-bg);
   border: 1px solid var(--receiver-overlay-button-border);
+  color: var(--receiver-overlay-button-text);
   padding: 10px 14px;
 }
 

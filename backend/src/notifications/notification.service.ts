@@ -1086,6 +1086,14 @@ export class NotificationService {
         : typeof event.payload.customerPhone === 'string'
           ? event.payload.customerPhone
           : null;
+    const prepMinutes =
+      typeof payload.prepMinutes === 'number'
+        ? payload.prepMinutes
+        : typeof order?.prepMinutes === 'number'
+          ? order.prepMinutes
+          : typeof event.payload.prepMinutes === 'number'
+            ? event.payload.prepMinutes
+            : null;
     const orderType = this.formatOrderType(payload.orderType);
     const estimatedReadyAt =
       typeof payload.readyAt === 'string'
@@ -1104,12 +1112,18 @@ export class NotificationService {
           })
       : [];
     const statusContent = this.getOrderStatusContent(status);
+    const prepTimeLabel = Number.isFinite(Number(prepMinutes)) ? `${Number(prepMinutes)} minutes` : null;
+    const intro =
+      status === 'accepted' && prepTimeLabel
+        ? `${statusContent.intro} Temps de préparation estimé : ${prepTimeLabel}.`
+        : statusContent.intro;
 
     const detailRows = [
       { label: 'Référence de commande', value: orderNumber },
       ...(orderType ? [{ label: 'Type de commande', value: orderType }] : []),
+      ...(status === 'accepted' && prepTimeLabel ? [{ label: 'Temps estimé', value: prepTimeLabel }] : []),
       ...(estimatedReadyAt
-        ? [{ label: status === 'accepted' ? 'Heure estimée' : 'Horaire', value: estimatedReadyAt }]
+        ? [{ label: status === 'accepted' ? 'Prêt vers' : 'Horaire', value: estimatedReadyAt }]
         : []),
       ...(customerPhone ? [{ label: 'Téléphone', value: customerPhone }] : []),
       ...(totalAmount ? [{ label: 'Total', value: totalAmount }] : []),
@@ -1120,12 +1134,13 @@ export class NotificationService {
     const textLines = [
       `Bonjour ${customerName},`,
       '',
-      statusContent.intro,
+      intro,
       '',
       `Restaurant : ${context.name}`,
       `Référence de commande : ${orderNumber}`,
       ...(orderType ? [`Type de commande : ${orderType}`] : []),
-      ...(estimatedReadyAt ? [`${status === 'accepted' ? 'Heure estimée' : 'Horaire'} : ${estimatedReadyAt}`] : []),
+      ...(status === 'accepted' && prepTimeLabel ? [`Temps de préparation estimé : ${prepTimeLabel}`] : []),
+      ...(estimatedReadyAt ? [`${status === 'accepted' ? 'Prêt vers' : 'Horaire'} : ${estimatedReadyAt}`] : []),
       ...(customerPhone ? [`Téléphone : ${customerPhone}`] : []),
       ...(totalAmount ? [`Total : ${totalAmount}`] : []),
       ...(items.length > 0 ? ['Récapitulatif :', ...items.map((item) => `- ${item}`)] : []),
@@ -1146,7 +1161,7 @@ export class NotificationService {
         context,
         preheader: `${statusContent.subjectLabel} - ${orderNumber}`,
         title: statusContent.title,
-        intro: `Bonjour ${customerName}, ${statusContent.intro.charAt(0).toLowerCase()}${statusContent.intro.slice(1)}`,
+        intro: `Bonjour ${customerName}, ${intro.charAt(0).toLowerCase()}${intro.slice(1)}`,
         badgeLabel: statusContent.badgeLabel,
         badgeBackground: statusContent.badgeBackground,
         badgeColor: statusContent.badgeColor,
@@ -1300,6 +1315,16 @@ export class NotificationService {
     if (provider === 'unsupported') {
       this.logger.error(
         `Unsupported TRANSACTIONAL_EMAIL_PROVIDER value: ${process.env.TRANSACTIONAL_EMAIL_PROVIDER || 'undefined'}. Use TRANSACTIONAL_EMAIL_PROVIDER=smtp.`,
+      );
+      return;
+    }
+
+    if (
+      event.type === 'order.status_changed' &&
+      String(event.payload.status || '').trim().toLowerCase() === 'completed'
+    ) {
+      this.logger.log(
+        `Skipping completed-order customer email. type=${event.type} restaurantId=${event.restaurantId}`,
       );
       return;
     }
