@@ -91,7 +91,7 @@ export default function AdminDashboard() {
       {/* Sidebar */}
       <aside className={`fixed lg:static inset-y-0 left-0 z-30 w-64 bg-white border-r border-gray-200 flex flex-col transition-transform duration-300 ${sidebarOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"}`}>
         <div className="p-6 border-b border-gray-200">
-          <img src={ADMIN_DEFAULT_LOGO_URL} alt="" className="w-24 mb-3" />
+          <img src={ADMIN_DEFAULT_LOGO_URL} alt="" className="w-28 mb-3" />
           <p className="text-gray-900 font-semibold">Administration</p>
           <p className="text-gray-500 text-sm">{admin.name || admin.username}</p>
         </div>
