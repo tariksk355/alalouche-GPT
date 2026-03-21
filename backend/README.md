@@ -212,7 +212,7 @@ INITIAL_ADMIN_USERNAME=owner INITIAL_ADMIN_PASSWORD=choose-a-strong-password-her
 Seed creates:
 - one primary restaurant (`DEFAULT_RESTAURANT_ID` when explicitly set for local/dev fallback, otherwise `alalouche`)
 - an extra demo tenant only outside production by default (`SEED_INCLUDE_DEMO_TENANT=true` can force it)
-- optional sample orders when `SEED_SAMPLE_ORDERS=true`
+- optional sample orders when `SEED_SAMPLE_ORDERS=true` (non-production only)
 
 ### 7) Start backend
 
