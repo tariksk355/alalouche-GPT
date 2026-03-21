@@ -18,9 +18,11 @@
 /**
  * @typedef {Object} PrintJobTotals
  * @property {number=} subtotal
+ * @property {number=} discount
  * @property {number=} tax
  * @property {number=} total
  * @property {string=} currency
+ * @property {string=} promotionCode
  */
 
 /**
@@ -68,6 +70,10 @@ function formatOrderDateTimeForZurich(rawIso) {
     hour12: false,
   });
   return formatter.format(parsed).replace(',', '');
+}
+
+function formatCurrencyAmount(amount, currency = 'CHF') {
+  return `${Number(amount).toFixed(2)} ${currency}`;
 }
 
 export function normalizeOrderForDisplay(order) {
@@ -135,9 +141,30 @@ export function normalizeOrderForDisplay(order) {
       ? Number(order.customerOrderCount) + 1
       : 0;
 
-  const totals = (payload.totalAmount != null || payload.total != null) ? {
-    total: Number(payload.totalAmount ?? payload.total),
+  const derivedSubtotal = items.reduce((sum, item) => sum + (Number.isFinite(Number(item.totalPrice)) ? Number(item.totalPrice) : 0), 0);
+  const subtotalAmount = Number(
+    order?.subtotalAmount
+      ?? payload.subtotalAmount
+      ?? payload.subtotal
+      ?? order?.totalAmount
+      ?? payload.totalAmount
+      ?? derivedSubtotal,
+  );
+  const discountAmount = Number(order?.discountAmount ?? payload.discountAmount ?? payload.discount ?? 0);
+  const promotionCode = [
+    order?.promotionCode,
+    payload?.promotion?.code,
+    payload?.promotionCode,
+    payload?.promotion_code,
+    payload?.promotion?.name,
+  ].find((value) => typeof value === 'string' && value.trim().length > 0);
+
+  const totals = (payload.totalAmount != null || payload.total != null || order?.totalAmount != null) ? {
+    subtotal: Number.isFinite(subtotalAmount) ? subtotalAmount : undefined,
+    discount: Number.isFinite(discountAmount) ? discountAmount : undefined,
+    total: Number(payload.totalAmount ?? payload.total ?? order?.totalAmount),
     currency: payload.currency || 'CHF',
+    promotionCode: promotionCode ? String(promotionCode) : undefined,
   } : undefined;
 
   const notesExtra = [order.notes || payload.notes || null].filter(Boolean).join(' | ') || undefined;
@@ -180,7 +207,19 @@ export function normalizeOrderForDisplay(order) {
     }
   });
   itemDisplayLines.forEach((line) => displaySections.push({ key: 'item', line }));
-  if (totals && Number.isFinite(Number(totals.total))) displaySections.push({ key: 'total', line: `Total: ${Number(totals.total).toFixed(2)} ${totals.currency || 'CHF'}` });
+  if (totals && Number.isFinite(Number(totals.total))) {
+    const hasAppliedDiscount = Number.isFinite(Number(totals.discount)) && Number(totals.discount) > 0;
+    if (hasAppliedDiscount && Number.isFinite(Number(totals.subtotal))) {
+      displaySections.push({ key: 'subtotal', line: `Sous-total: ${formatCurrencyAmount(Number(totals.subtotal), totals.currency || 'CHF')}` });
+    }
+    if (hasAppliedDiscount && totals.promotionCode) {
+      displaySections.push({ key: 'promotion_code', line: `Code promo: ${totals.promotionCode}` });
+    }
+    if (hasAppliedDiscount) {
+      displaySections.push({ key: 'discount', line: `Réduction: -${formatCurrencyAmount(Number(totals.discount), totals.currency || 'CHF')}` });
+    }
+    displaySections.push({ key: 'total', line: `Total: ${formatCurrencyAmount(Number(totals.total), totals.currency || 'CHF')}` });
+  }
   if (notesExtra) displaySections.push({ key: 'notes', line: `Notes: ${notesExtra}` });
 
   const phoneCandidateDiagnostics = [
@@ -210,7 +249,7 @@ export function normalizeOrderForDisplay(order) {
   });
 
   const receiptMetaLines = displaySections
-    .filter((section) => !['items_header', 'item', 'total', 'notes'].includes(section.key))
+    .filter((section) => !['items_header', 'item', 'subtotal', 'promotion_code', 'discount', 'total', 'notes'].includes(section.key))
     .map((section) => section.line);
 
   const receiptLines = [
@@ -221,7 +260,19 @@ export function normalizeOrderForDisplay(order) {
     ...receiptItemLines,
     '------------------------------',
   ];
-  if (totals && Number.isFinite(Number(totals.total))) receiptLines.push(`TOTAL: ${Number(totals.total).toFixed(2)} ${totals.currency || 'CHF'}`);
+  if (totals && Number.isFinite(Number(totals.total))) {
+    const hasAppliedDiscount = Number.isFinite(Number(totals.discount)) && Number(totals.discount) > 0;
+    if (hasAppliedDiscount && Number.isFinite(Number(totals.subtotal))) {
+      receiptLines.push(`Sous-total: ${formatCurrencyAmount(Number(totals.subtotal), totals.currency || 'CHF')}`);
+    }
+    if (hasAppliedDiscount && totals.promotionCode) {
+      receiptLines.push(`Code promo: ${totals.promotionCode}`);
+    }
+    if (hasAppliedDiscount) {
+      receiptLines.push(`Réduction: -${formatCurrencyAmount(Number(totals.discount), totals.currency || 'CHF')}`);
+    }
+    receiptLines.push(`TOTAL: ${formatCurrencyAmount(Number(totals.total), totals.currency || 'CHF')}`);
+  }
   if (notesExtra) receiptLines.push(`Notes: ${notesExtra}`);
 
   return {
