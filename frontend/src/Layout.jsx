@@ -282,7 +282,7 @@ export default function Layout({ children, currentPageName }) {
         <div className="max-w-6xl mx-auto px-6 py-10">
           <div className="flex flex-col items-center text-center gap-8 md:flex-row md:items-start md:justify-between md:text-left">
             <div className="flex flex-col items-center text-center md:items-start md:text-left">
-              <img src={footerLogoUrl} alt={brandName} className="h-28 sm:h-32 md:h-36 lg:h-40" style={{ imageRendering: 'crisp-edges' }} />
+              <img src={footerLogoUrl} alt={brandName} className="h-32 sm:h-36 md:h-40 lg:h-44" style={{ imageRendering: 'crisp-edges' }} />
               <h3 className="font-script mt-3 text-4xl leading-none text-white sm:text-5xl md:hidden">{brandName}</h3>
             </div>
             <div className="space-y-3 text-sm text-gray-300 md:max-w-sm md:pt-2">
