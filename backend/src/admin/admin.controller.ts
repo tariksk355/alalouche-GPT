@@ -217,7 +217,7 @@ export class AdminController {
     const settings = await this.adminSettingsService.updateBrandingSettings(auth.restaurantId, dto);
 
     if (previous.logoUrl && previous.logoUrl !== settings.logoUrl) {
-      void this.adminMenuImageStorageService.deleteBrandingLogoIfManaged(auth.restaurantId, previous.logoUrl).catch(() => undefined);
+      void this.adminMediaStorageService.deleteBrandingLogoIfManaged(auth.restaurantId, previous.logoUrl).catch(() => undefined);
     }
 
     return ok({ settings });
