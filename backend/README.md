@@ -118,6 +118,7 @@ In production, 5xx messages are sanitized to avoid leaking internals.
 - `MARKETING_EMAIL_PROVIDER=resend` + `RESEND_API_KEY` + (`MARKETING_EMAIL_FROM` or `EMAIL_FROM`) for admin bulk marketing
 - `TRANSACTIONAL_EMAIL_PROVIDER=smtp` + `SMTP_HOST` + `SMTP_PORT` + `SMTP_SECURE` + `SMTP_USER` + `SMTP_PASS` + `SMTP_FROM` for transactional emails
 - `RESTAURANT_CONTACT_EMAIL` when you want `npm run prisma:seed` to provision/update the primary restaurant contact email in DB (`Restaurant.contactInfo.email`) for restaurant notification recipients
+- `INITIAL_ADMIN_USERNAME` + `INITIAL_ADMIN_PASSWORD` to explicitly bootstrap the first admin user during production seeding; `INITIAL_ADMIN_DISPLAY_NAME` is optional
 
 ### Example local container run
 
@@ -200,6 +201,12 @@ To provision the primary restaurant notification email into the DB without manua
 
 ```bash
 RESTAURANT_CONTACT_EMAIL=operations@your-restaurant.tld npm run prisma:seed
+```
+
+To explicitly bootstrap the first production admin user during seed:
+
+```bash
+INITIAL_ADMIN_USERNAME=owner INITIAL_ADMIN_PASSWORD=choose-a-strong-password-here RESTAURANT_CONTACT_EMAIL=operations@your-restaurant.tld npm run prisma:seed
 ```
 
 Seed creates:

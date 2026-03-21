@@ -9,6 +9,40 @@ function hashPassword(password) {
   return `${salt}:${hash}`;
 }
 
+function isProductionSafeAdminPassword(password) {
+  const normalized = normalizeOptionalString(password);
+  if (!normalized) return false;
+  if (normalized.length < 12) return false;
+
+  const weakPasswords = new Set([
+    'admin1234',
+    'password',
+    'password123',
+    '12345678',
+    '123456789',
+    '1234567890',
+    'qwerty123',
+  ]);
+
+  return !weakPasswords.has(normalized.toLowerCase());
+}
+
+async function ensureAdminUser({ restaurantId, username, displayName, password }) {
+  return prisma.adminUser.upsert({
+    where: { username },
+    update: {
+      displayName,
+      restaurantId,
+      passwordHash: hashPassword(password),
+    },
+    create: {
+      username,
+      displayName,
+      restaurantId,
+      passwordHash: hashPassword(password),
+    },
+  });
+}
 
 function normalizeNodeEnv() {
   const raw = (process.env.NODE_ENV || 'development').trim().toLowerCase();
@@ -151,36 +185,47 @@ async function main() {
       })
     : null;
 
-  await prisma.adminUser.upsert({
-    where: { username: 'admin' },
-    update: {
-      displayName: 'Admin Local',
+  const initialAdminUsername = normalizeOptionalString(process.env.INITIAL_ADMIN_USERNAME);
+  const initialAdminPassword = normalizeOptionalString(process.env.INITIAL_ADMIN_PASSWORD);
+  const initialAdminDisplayName = normalizeOptionalString(process.env.INITIAL_ADMIN_DISPLAY_NAME) || 'Initial Admin';
+  const seededAdminUsernames = [];
+
+  if (isProduction) {
+    if (initialAdminUsername || initialAdminPassword || process.env.INITIAL_ADMIN_DISPLAY_NAME) {
+      if (!initialAdminUsername || !initialAdminPassword) {
+        throw new Error('INITIAL_ADMIN_USERNAME and INITIAL_ADMIN_PASSWORD must both be provided to bootstrap an admin in production.');
+      }
+
+      if (!isProductionSafeAdminPassword(initialAdminPassword)) {
+        throw new Error('INITIAL_ADMIN_PASSWORD must be at least 12 characters and must not use a weak/default value.');
+      }
+
+      await ensureAdminUser({
+        restaurantId: primaryRestaurant.id,
+        username: initialAdminUsername,
+        displayName: initialAdminDisplayName,
+        password: initialAdminPassword,
+      });
+      seededAdminUsernames.push(initialAdminUsername);
+    }
+  } else {
+    await ensureAdminUser({
       restaurantId: primaryRestaurant.id,
-      passwordHash: hashPassword('admin1234'),
-    },
-    create: {
       username: 'admin',
       displayName: 'Admin Local',
-      restaurantId: primaryRestaurant.id,
-      passwordHash: hashPassword('admin1234'),
-    },
-  });
+      password: 'admin1234',
+    });
+    seededAdminUsernames.push('admin');
 
-  if (secondaryRestaurant) {
-    await prisma.adminUser.upsert({
-      where: { username: 'admin_demo_bistro' },
-      update: {
-        displayName: 'Admin Demo Bistro',
+    if (secondaryRestaurant) {
+      await ensureAdminUser({
         restaurantId: secondaryRestaurant.id,
-        passwordHash: hashPassword('admin1234'),
-      },
-      create: {
         username: 'admin_demo_bistro',
         displayName: 'Admin Demo Bistro',
-        restaurantId: secondaryRestaurant.id,
-        passwordHash: hashPassword('admin1234'),
-      },
-    });
+        password: 'admin1234',
+      });
+      seededAdminUsernames.push('admin_demo_bistro');
+    }
   }
 
   await prisma.customer.upsert({
@@ -292,7 +337,7 @@ async function main() {
   console.log('[seed] primary restaurant contact email:', normalizeOptionalString(primaryContactInfo.email) || 'not set');
   console.log('[seed] sample orders:', withSampleOrders ? 'enabled' : 'disabled');
   console.log('[seed] demo tenant:', secondaryRestaurant ? 'included' : 'skipped');
-  console.log('[seed] admin users:', secondaryRestaurant ? 'admin/admin1234, admin_demo_bistro/admin1234' : 'admin/admin1234');
+  console.log('[seed] admin bootstrap:', seededAdminUsernames.length > 0 ? `ensured (${seededAdminUsernames.join(', ')})` : 'skipped');
   console.log('[seed] demo customers:', secondaryRestaurant ? 'demo.customer@alalouche.local, demo.customer@demobistro.local / customer1234' : 'demo.customer@alalouche.local / customer1234');
 }
 
