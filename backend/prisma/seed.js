@@ -15,6 +15,12 @@ function normalizeNodeEnv() {
   return raw || 'development';
 }
 
+function normalizeOptionalString(value) {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  return trimmed || null;
+}
+
 function defaultBranding(name) {
   return {
     logoUrl: null,
@@ -59,7 +65,28 @@ function defaultMenuCatalog() {
   ];
 }
 
-async function upsertRestaurant({ id, slug, name, primaryDomain, email, phone }) {
+async function upsertRestaurant({ id, slug, name, primaryDomain, email, phone, provisionedContactEmail = null }) {
+  const existingRestaurant = await prisma.restaurant.findUnique({
+    where: { id },
+    select: { contactInfo: true },
+  });
+
+  const existingContact = existingRestaurant?.contactInfo && typeof existingRestaurant.contactInfo === 'object' && !Array.isArray(existingRestaurant.contactInfo)
+    ? existingRestaurant.contactInfo
+    : {};
+
+  const nextContactEmail =
+    normalizeOptionalString(provisionedContactEmail) ||
+    normalizeOptionalString(existingContact.email) ||
+    normalizeOptionalString(email);
+  const nextContactPhone = normalizeOptionalString(existingContact.phone) || normalizeOptionalString(phone);
+  const contactInfo = {
+    ...defaultContact(nextContactEmail, nextContactPhone),
+    ...existingContact,
+    ...(nextContactPhone ? { phone: nextContactPhone } : {}),
+    ...(nextContactEmail ? { email: nextContactEmail } : {}),
+  };
+
   return prisma.restaurant.upsert({
     where: { id },
     update: {
@@ -68,7 +95,7 @@ async function upsertRestaurant({ id, slug, name, primaryDomain, email, phone })
       primaryDomain,
       status: 'active',
       branding: defaultBranding(name),
-      contactInfo: defaultContact(email, phone),
+      contactInfo,
       locale: 'fr-CH',
       timezone: 'Europe/Zurich',
       currency: 'CHF',
@@ -83,7 +110,7 @@ async function upsertRestaurant({ id, slug, name, primaryDomain, email, phone })
       primaryDomain,
       status: 'active',
       branding: defaultBranding(name),
-      contactInfo: defaultContact(email, phone),
+      contactInfo,
       locale: 'fr-CH',
       timezone: 'Europe/Zurich',
       currency: 'CHF',
@@ -94,10 +121,12 @@ async function upsertRestaurant({ id, slug, name, primaryDomain, email, phone })
   });
 }
 
+
 async function main() {
   const nodeEnv = normalizeNodeEnv();
   const isProduction = nodeEnv === 'production';
-  const primaryRestaurantId = (process.env.DEFAULT_RESTAURANT_ID || '').trim() || (isProduction ? 'alalouche' : 'demo-restaurant');
+  const primaryRestaurantId = (process.env.DEFAULT_RESTAURANT_ID || '').trim() || 'alalouche';
+  const provisionedPrimaryRestaurantContactEmail = normalizeOptionalString(process.env.RESTAURANT_CONTACT_EMAIL);
   const withSampleOrders = process.env.SEED_SAMPLE_ORDERS === 'true';
   const includeDemoTenant = !isProduction || process.env.SEED_INCLUDE_DEMO_TENANT === 'true';
 
@@ -106,8 +135,9 @@ async function main() {
     slug: 'alalouche',
     name: 'À la Louche',
     primaryDomain: null,
-    email: 'info@alalouche.local',
+    email: isProduction ? null : 'info@alalouche.local',
     phone: '0263034561',
+    provisionedContactEmail: provisionedPrimaryRestaurantContactEmail,
   });
 
   const secondaryRestaurant = includeDemoTenant
@@ -254,7 +284,12 @@ async function main() {
     }
   }
 
+  const primaryContactInfo = primaryRestaurant.contactInfo && typeof primaryRestaurant.contactInfo === 'object' && !Array.isArray(primaryRestaurant.contactInfo)
+    ? primaryRestaurant.contactInfo
+    : {};
+
   console.log('[seed] restaurants:', primaryRestaurant.id, secondaryRestaurant ? secondaryRestaurant.id : '(primary only)');
+  console.log('[seed] primary restaurant contact email:', normalizeOptionalString(primaryContactInfo.email) || 'not set');
   console.log('[seed] sample orders:', withSampleOrders ? 'enabled' : 'disabled');
   console.log('[seed] demo tenant:', secondaryRestaurant ? 'included' : 'skipped');
   console.log('[seed] admin users:', secondaryRestaurant ? 'admin/admin1234, admin_demo_bistro/admin1234' : 'admin/admin1234');

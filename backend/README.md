@@ -27,7 +27,7 @@ Request-driven customer auth and reservation flows now resolve tenant context by
 - subdomain slug match (`TENANT_BASE_DOMAIN` optional)
 - slug fallback (`:restaurantSlug`, `?restaurantSlug=...`, or `x-restaurant-slug`)
 
-`DEFAULT_RESTAURANT_ID` is now reserved for local seed/dev fallback only.
+`DEFAULT_RESTAURANT_ID` is now reserved for local seed/dev fallback only, and the seed default primary restaurant id is `alalouche`.
 
 Public config bootstrap endpoint:
 - `GET /public/restaurant-config`
@@ -116,7 +116,8 @@ In production, 5xx messages are sanitized to avoid leaking internals.
 - `AUTH_TOKEN_SECRET`
 - `NODE_ENV=production`
 - `MARKETING_EMAIL_PROVIDER=resend` + `RESEND_API_KEY` + (`MARKETING_EMAIL_FROM` or `EMAIL_FROM`) for admin bulk marketing
-- `TRANSACTIONAL_EMAIL_PROVIDER=smtp` + `SMTP_HOST` + `SMTP_PORT` + `SMTP_SECURE` + `SMTP_USER` + `SMTP_PASS` + `SMTP_FROM` for transactional customer emails
+- `TRANSACTIONAL_EMAIL_PROVIDER=smtp` + `SMTP_HOST` + `SMTP_PORT` + `SMTP_SECURE` + `SMTP_USER` + `SMTP_PASS` + `SMTP_FROM` for transactional emails
+- `RESTAURANT_CONTACT_EMAIL` when you want `npm run prisma:seed` to provision/update the primary restaurant contact email in DB (`Restaurant.contactInfo.email`) for restaurant notification recipients
 
 ### Example local container run
 
@@ -195,8 +196,14 @@ npm run prisma:migrate
 npm run prisma:seed
 ```
 
+To provision the primary restaurant notification email into the DB without manual editing:
+
+```bash
+RESTAURANT_CONTACT_EMAIL=operations@your-restaurant.tld npm run prisma:seed
+```
+
 Seed creates:
-- one primary restaurant (`DEFAULT_RESTAURANT_ID` in local/dev, or `alalouche` if seeded in production)
+- one primary restaurant (`DEFAULT_RESTAURANT_ID` when explicitly set for local/dev fallback, otherwise `alalouche`)
 - an extra demo tenant only outside production by default (`SEED_INCLUDE_DEMO_TENANT=true` can force it)
 - optional sample orders when `SEED_SAMPLE_ORDERS=true`
 
