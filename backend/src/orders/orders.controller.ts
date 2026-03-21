@@ -5,6 +5,7 @@ import { TenantContextGuard } from '../tenant/tenant-context.guard';
 import { TenantCtx } from '../tenant/tenant.decorator';
 import { TenantContext } from '../tenant/tenant.types';
 import { CreateStorefrontOrderDto } from './dto/create-storefront-order.dto';
+import { PreviewStorefrontPromotionDto } from './dto/preview-storefront-promotion.dto';
 import { OrdersService } from './orders.service';
 
 @Controller('orders')
@@ -43,6 +44,38 @@ export class OrdersController {
       customerEmail,
     });
     return ok({ order });
+  }
+
+  @Post('promotion-preview')
+  @UseGuards(TenantContextGuard)
+  async previewPromotion(
+    @TenantCtx() tenant: TenantContext,
+    @Body() dto: PreviewStorefrontPromotionDto,
+    @Headers('authorization') authorization?: string,
+  ) {
+    let customerId: string | null = null;
+    let customerEmail: string | null = null;
+
+    if (authorization?.startsWith('Bearer ')) {
+      const token = authorization.slice('Bearer '.length);
+      const customer = this.authService.verifyAccessToken(token, 'customer');
+      if (customer.restaurantId !== tenant.restaurantId) {
+        throw new UnauthorizedException({
+          error: 'TENANT_CONTEXT_MISMATCH',
+          message: 'Customer token restaurant does not match request tenant context.',
+        });
+      }
+
+      customerId = customer.sub;
+      customerEmail = customer.email || null;
+    }
+
+    const promotion = await this.ordersService.previewStorefrontPromotion(tenant.restaurantId, dto, {
+      customerId,
+      customerEmail,
+    });
+
+    return ok({ promotion });
   }
 
   @Get('me/history')

@@ -3,7 +3,8 @@ import { useNavigate } from "react-router-dom";
 import { createPageUrl } from "@/utils";
 import { getCart, saveCart, clearCart } from "@/components/cartStore";
 import { Trash2 } from "lucide-react";
-import { createStorefrontOrder, getStoredCheckoutDefaults, getStorefrontCustomerPrefill, getStorefrontOrder, saveCheckoutDefaults } from "@/lib/api/storefrontOps";
+import { StorefrontPromoCodeCard } from "@/components/storefront/StorefrontPromoCodeCard";
+import { createStorefrontOrder, getStoredCheckoutDefaults, getStorefrontCustomerPrefill, getStorefrontOrder, previewStorefrontPromotion, saveCheckoutDefaults } from "@/lib/api/storefrontOps";
 import { StorefrontNotice } from "@/components/storefront/feedback";
 
 const BASE_FORM = {
@@ -27,6 +28,10 @@ export default function Panier() {
   const [success, setSuccess] = useState(null);
   const [orderStatus, setOrderStatus] = useState(null);
   const [checkingStatus, setCheckingStatus] = useState(false);
+  const [promoInput, setPromoInput] = useState('');
+  const [promoLoading, setPromoLoading] = useState(false);
+  const [promoFeedback, setPromoFeedback] = useState(null);
+  const [appliedPromotion, setAppliedPromotion] = useState(null);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -62,6 +67,43 @@ export default function Panier() {
 
   const cartTotal = cart.reduce((s, i) => s + i.price * i.quantity, 0);
   const cartCount = cart.reduce((s, i) => s + i.quantity, 0);
+  const finalTotal = appliedPromotion?.totalAmount ?? cartTotal;
+
+  useEffect(() => {
+    if (!appliedPromotion) return;
+    setAppliedPromotion(null);
+    setPromoFeedback({ type: 'info', message: 'Le panier a changé. Veuillez réappliquer votre code promo.' });
+  }, [cart]);
+
+  const applyPromotion = async () => {
+    if (!promoInput.trim()) return;
+    setPromoLoading(true);
+    setPromoFeedback(null);
+
+    try {
+      const promotion = await previewStorefrontPromotion({
+        promotionCode: promoInput.trim(),
+        customerEmail: form.customer_email || undefined,
+        customerPhone: form.customer_phone || undefined,
+        items: cart.map((item) => ({ id: item.id, price: Number(item.price || 0), quantity: item.quantity })),
+      });
+
+      setAppliedPromotion(promotion);
+      setPromoInput(promotion.promotionCode);
+      setPromoFeedback({ type: 'success', message: 'Code promo appliqué.' });
+    } catch (error) {
+      setAppliedPromotion(null);
+      setPromoFeedback({ type: 'error', message: error.message || "Impossible d'appliquer ce code promo." });
+    } finally {
+      setPromoLoading(false);
+    }
+  };
+
+  const removePromotion = () => {
+    setAppliedPromotion(null);
+    setPromoInput('');
+    setPromoFeedback({ type: 'info', message: 'Code promo retiré.' });
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -77,6 +119,7 @@ export default function Panier() {
         orderType: form.order_type,
         paymentMethod: form.payment_method,
         notes: form.notes || undefined,
+        promotionCode: appliedPromotion?.promotionCode || undefined,
         items: cart.map(i => ({ id: i.id, name: i.name, price: Number(i.price || 0), quantity: i.quantity })),
       });
 
@@ -87,6 +130,9 @@ export default function Panier() {
       });
 
       clearCart();
+      setAppliedPromotion(null);
+      setPromoInput('');
+      setPromoFeedback(null);
       setSuccess({ orderNumber: created.order_number });
     } catch (e) {
       setSubmitError(e.message || "La commande n'a pas pu être envoyée.");
@@ -210,9 +256,30 @@ export default function Panier() {
                   ))}
                 </div>
 
-                <div className="flex justify-between font-bold text-lg border-t border-gray-200 pt-4 mb-6">
-                  <span>Total</span>
-                  <span>CHF {cartTotal.toFixed(2)}</span>
+                <div className="border-t border-gray-200 pt-4 mb-6 space-y-3">
+                  <div className="flex justify-between text-sm">
+                    <span>Sous-total</span>
+                    <span>CHF {cartTotal.toFixed(2)}</span>
+                  </div>
+                  <StorefrontPromoCodeCard
+                    promoInput={promoInput}
+                    appliedPromotion={appliedPromotion}
+                    loading={promoLoading}
+                    feedback={promoFeedback}
+                    onPromoInputChange={setPromoInput}
+                    onApply={applyPromotion}
+                    onRemove={removePromotion}
+                  />
+                  {appliedPromotion && (
+                    <div className="flex justify-between text-sm text-green-700">
+                      <span>Remise ({appliedPromotion.promotionCode})</span>
+                      <span>- CHF {Number(appliedPromotion.discountAmount || 0).toFixed(2)}</span>
+                    </div>
+                  )}
+                  <div className="flex justify-between font-bold text-lg">
+                    <span>Total</span>
+                    <span>CHF {finalTotal.toFixed(2)}</span>
+                  </div>
                 </div>
 
                 <div className="flex gap-3">
@@ -302,9 +369,30 @@ export default function Panier() {
                     <span>CHF {(item.price * item.quantity).toFixed(2)}</span>
                   </div>
                 ))}
-                <div className="border-t border-gray-200 mt-2 pt-2 flex justify-between font-bold">
-                  <span>Total</span>
-                  <span>CHF {cartTotal.toFixed(2)}</span>
+                <div className="border-t border-gray-200 mt-2 pt-2 space-y-3">
+                  <div className="flex justify-between text-sm">
+                    <span>Sous-total</span>
+                    <span>CHF {cartTotal.toFixed(2)}</span>
+                  </div>
+                  <StorefrontPromoCodeCard
+                    promoInput={promoInput}
+                    appliedPromotion={appliedPromotion}
+                    loading={promoLoading}
+                    feedback={promoFeedback}
+                    onPromoInputChange={setPromoInput}
+                    onApply={applyPromotion}
+                    onRemove={removePromotion}
+                  />
+                  {appliedPromotion && (
+                    <div className="flex justify-between text-sm text-green-700">
+                      <span>Remise ({appliedPromotion.promotionCode})</span>
+                      <span>- CHF {Number(appliedPromotion.discountAmount || 0).toFixed(2)}</span>
+                    </div>
+                  )}
+                  <div className="flex justify-between font-bold">
+                    <span>Total</span>
+                    <span>CHF {finalTotal.toFixed(2)}</span>
+                  </div>
                 </div>
               </div>
 
@@ -312,7 +400,7 @@ export default function Panier() {
 
               <button type="submit" disabled={loading}
                 className="w-full py-4 rounded-lg bg-[#b5122a] text-white font-semibold text-lg hover:bg-[#8f0e21] transition-colors disabled:opacity-60">
-                {loading ? "Envoi en cours..." : `Confirmer — CHF ${cartTotal.toFixed(2)}`}
+                {loading ? "Envoi en cours..." : `Confirmer — CHF ${finalTotal.toFixed(2)}`}
               </button>
             </form>
           </>

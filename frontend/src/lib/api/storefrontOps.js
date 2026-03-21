@@ -36,6 +36,9 @@ export function normalizeStorefrontOrder(order) {
     customer_address: payload.customerAddress || null,
     order_type: payload.orderType || 'takeaway',
     payment_method: payload.paymentMethod || 'cash',
+    subtotal_amount: Number((order.subtotalAmount ?? payload.subtotalAmount ?? order.totalAmount) || 0),
+    discount_amount: Number((order.discountAmount ?? payload.discountAmount) || 0),
+    promotion_code: order.promotionCode || payload?.promotion?.code || null,
     total_amount: Number(order.totalAmount || 0),
     items: Array.isArray(payload.items) ? payload.items : [],
     notes: payload.notes || null,
@@ -57,6 +60,16 @@ export async function createStorefrontOrder(payload) {
     body: JSON.stringify(payload),
   });
   return normalizeStorefrontOrder(data.data.order);
+}
+
+export async function previewStorefrontPromotion(payload) {
+  const data = await backendClient.request('/orders/promotion-preview', {
+    method: 'POST',
+    headers: customerAuthHeaders(),
+    body: JSON.stringify(payload),
+  });
+
+  return data.data.promotion;
 }
 
 export async function getStorefrontOrder(orderNumber) {

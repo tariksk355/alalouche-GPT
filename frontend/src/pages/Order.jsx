@@ -1,5 +1,7 @@
 import { useState, useEffect } from "react";
-import { createStorefrontOrder, getStoredCheckoutDefaults, getStorefrontCustomerPrefill, getStorefrontOrder, listMenuCatalog, saveCheckoutDefaults } from "@/lib/api/storefrontOps";
+import { StorefrontNotice } from "@/components/storefront/feedback";
+import { StorefrontPromoCodeCard } from "@/components/storefront/StorefrontPromoCodeCard";
+import { createStorefrontOrder, getStoredCheckoutDefaults, getStorefrontCustomerPrefill, getStorefrontOrder, listMenuCatalog, previewStorefrontPromotion, saveCheckoutDefaults } from "@/lib/api/storefrontOps";
 
 const BASE_FORM = {
   customer_name: "",
@@ -22,9 +24,14 @@ export default function Order() {
     ...BASE_FORM,
   });
   const [loading, setLoading] = useState(false);
+  const [submitError, setSubmitError] = useState("");
   const [success, setSuccess] = useState(null); // { orderNumber, phone }
   const [orderStatus, setOrderStatus] = useState(null);
   const [checkingStatus, setCheckingStatus] = useState(false);
+  const [promoInput, setPromoInput] = useState("");
+  const [promoLoading, setPromoLoading] = useState(false);
+  const [promoFeedback, setPromoFeedback] = useState(null);
+  const [appliedPromotion, setAppliedPromotion] = useState(null);
 
   useEffect(() => {
     const checkoutDefaults = getStoredCheckoutDefaults();
@@ -77,10 +84,48 @@ export default function Order() {
 
   const cartTotal = cart.reduce((sum, i) => sum + i.price * i.quantity, 0);
   const cartCount = cart.reduce((sum, i) => sum + i.quantity, 0);
+  const finalTotal = appliedPromotion?.totalAmount ?? cartTotal;
+
+  useEffect(() => {
+    if (!appliedPromotion) return;
+    setAppliedPromotion(null);
+    setPromoFeedback({ type: "info", message: "Le panier a changé. Veuillez réappliquer votre code promo." });
+  }, [cart]);
+
+  const applyPromotion = async () => {
+    if (!promoInput.trim()) return;
+    setPromoLoading(true);
+    setPromoFeedback(null);
+
+    try {
+      const promotion = await previewStorefrontPromotion({
+        promotionCode: promoInput.trim(),
+        customerEmail: form.customer_email || undefined,
+        customerPhone: form.customer_phone || undefined,
+        items: cart.map((item) => ({ id: item.id, price: Number(item.price || 0), quantity: item.quantity })),
+      });
+
+      setAppliedPromotion(promotion);
+      setPromoInput(promotion.promotionCode);
+      setPromoFeedback({ type: "success", message: "Code promo appliqué." });
+    } catch (error) {
+      setAppliedPromotion(null);
+      setPromoFeedback({ type: "error", message: error.message || "Impossible d’appliquer ce code promo." });
+    } finally {
+      setPromoLoading(false);
+    }
+  };
+
+  const removePromotion = () => {
+    setAppliedPromotion(null);
+    setPromoInput("");
+    setPromoFeedback({ type: "info", message: "Code promo retiré." });
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
+    setSubmitError("");
 
     try {
       const created = await createStorefrontOrder({
@@ -91,6 +136,7 @@ export default function Order() {
         orderType: form.order_type,
         paymentMethod: form.payment_method,
         notes: form.notes || undefined,
+        promotionCode: appliedPromotion?.promotionCode || undefined,
         items: cart.map(i => ({ id: i.id, name: i.name, price: Number(i.price || 0), quantity: i.quantity })),
       });
 
@@ -103,6 +149,9 @@ export default function Order() {
       const successData = { orderNumber: created.order_number, phone: form.customer_phone };
       setSuccess(successData);
       setCart([]);
+      setAppliedPromotion(null);
+      setPromoInput("");
+      setPromoFeedback(null);
       setForm({
         ...BASE_FORM,
         ...getStoredCheckoutDefaults(),
@@ -112,6 +161,8 @@ export default function Order() {
       });
       setStep("menu");
       setOrderStatus(null);
+    } catch (error) {
+      setSubmitError(error.message || "La commande n'a pas pu être envoyée.");
     } finally {
       setLoading(false);
     }
@@ -299,9 +350,28 @@ export default function Order() {
                       ))}
                     </div>
                     <div className="border-t border-gray-100 pt-3 mb-5">
-                      <div className="flex justify-between font-bold">
-                        <span>Total</span>
+                      <div className="flex justify-between text-sm mb-2">
+                        <span>Sous-total</span>
                         <span>CHF {cartTotal.toFixed(2)}</span>
+                      </div>
+                      <StorefrontPromoCodeCard
+                        promoInput={promoInput}
+                        appliedPromotion={appliedPromotion}
+                        loading={promoLoading}
+                        feedback={promoFeedback}
+                        onPromoInputChange={setPromoInput}
+                        onApply={applyPromotion}
+                        onRemove={removePromotion}
+                      />
+                      {appliedPromotion && (
+                        <div className="flex justify-between text-sm text-green-700 mt-3">
+                          <span>Remise ({appliedPromotion.promotionCode})</span>
+                          <span>- CHF {Number(appliedPromotion.discountAmount || 0).toFixed(2)}</span>
+                        </div>
+                      )}
+                      <div className="flex justify-between font-bold mt-3">
+                        <span>Total</span>
+                        <span>CHF {finalTotal.toFixed(2)}</span>
                       </div>
                     </div>
                     <button
@@ -398,15 +468,38 @@ export default function Order() {
                     <span>CHF {(item.price * item.quantity).toFixed(2)}</span>
                   </div>
                 ))}
-                <div className="border-t border-gray-200 mt-2 pt-2 flex justify-between font-bold">
-                  <span>Total</span>
-                  <span>CHF {cartTotal.toFixed(2)}</span>
+                <div className="border-t border-gray-200 mt-2 pt-2 space-y-3">
+                  <div className="flex justify-between text-sm">
+                    <span>Sous-total</span>
+                    <span>CHF {cartTotal.toFixed(2)}</span>
+                  </div>
+                  <StorefrontPromoCodeCard
+                    promoInput={promoInput}
+                    appliedPromotion={appliedPromotion}
+                    loading={promoLoading}
+                    feedback={promoFeedback}
+                    onPromoInputChange={setPromoInput}
+                    onApply={applyPromotion}
+                    onRemove={removePromotion}
+                  />
+                  {appliedPromotion && (
+                    <div className="flex justify-between text-sm text-green-700">
+                      <span>Remise ({appliedPromotion.promotionCode})</span>
+                      <span>- CHF {Number(appliedPromotion.discountAmount || 0).toFixed(2)}</span>
+                    </div>
+                  )}
+                  <div className="flex justify-between font-bold">
+                    <span>Total</span>
+                    <span>CHF {finalTotal.toFixed(2)}</span>
+                  </div>
                 </div>
               </div>
 
+              {submitError && <StorefrontNotice type="error">{submitError}</StorefrontNotice>}
+
               <button type="submit" disabled={loading}
                 className="w-full py-4 bg-[#b5122a] text-white font-semibold text-lg hover:bg-[#8f0e21] transition-colors disabled:opacity-60">
-                {loading ? "Envoi en cours..." : `Confirmer — CHF ${cartTotal.toFixed(2)}`}
+                {loading ? "Envoi en cours..." : `Confirmer — CHF ${finalTotal.toFixed(2)}`}
               </button>
             </form>
           </div>

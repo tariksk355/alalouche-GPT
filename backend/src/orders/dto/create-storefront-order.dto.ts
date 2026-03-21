@@ -1,5 +1,5 @@
 import { Type } from 'class-transformer';
-import { IsArray, IsEmail, IsIn, IsNotEmpty, IsNumber, IsOptional, IsString, Min, ValidateIf, ValidateNested } from 'class-validator';
+import { ArrayMinSize, IsArray, IsEmail, IsIn, IsNotEmpty, IsNumber, IsOptional, IsString, Min, MinLength, ValidateIf, ValidateNested } from 'class-validator';
 
 class StorefrontOrderItemDto {
   @IsString()
@@ -49,7 +49,13 @@ export class CreateStorefrontOrderDto {
   @IsString()
   notes?: string;
 
+  @IsOptional()
+  @IsString()
+  @MinLength(3)
+  promotionCode?: string;
+
   @IsArray()
+  @ArrayMinSize(1)
   @ValidateNested({ each: true })
   @Type(() => StorefrontOrderItemDto)
   items!: StorefrontOrderItemDto[];
