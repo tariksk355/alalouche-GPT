@@ -126,17 +126,27 @@ export default function Menu() {
           ) : (
             categoryItems.map((item, idx) => (
               <div key={item.id} className={`py-5 ${idx < categoryItems.length - 1 ? "border-b border-gray-100" : ""}`}>
-                <div className="flex justify-between items-start gap-4">
-                  <div className="flex-1">
-                    <h3 className="text-lg font-semibold text-gray-900">{item.name}</h3>
-                    {item.description && (
-                      <p className="text-gray-500 text-sm mt-0.5">{item.description}</p>
+                <div className="flex flex-col gap-4 sm:flex-row sm:justify-between sm:items-start">
+                  <div className="flex flex-1 gap-4">
+                    {item.image_url && (
+                      <img
+                        src={item.image_url}
+                        alt={item.name}
+                        className="h-24 w-24 rounded-xl object-cover border border-gray-100 flex-shrink-0"
+                        loading="lazy"
+                      />
                     )}
-                    {item.allergens && (
-                      <p className="text-gray-400 text-xs mt-1">Allergènes: {item.allergens}</p>
-                    )}
+                    <div className="flex-1">
+                      <h3 className="text-lg font-semibold text-gray-900">{item.name}</h3>
+                      {item.description && (
+                        <p className="text-gray-500 text-sm mt-0.5">{item.description}</p>
+                      )}
+                      {item.allergens && (
+                        <p className="text-gray-400 text-xs mt-1">Allergènes: {item.allergens}</p>
+                      )}
+                    </div>
                   </div>
-                  <span className="text-[#b5122a] font-semibold whitespace-nowrap text-base">CHF {item.price?.toFixed(2)}</span>
+                  <span className="text-[#b5122a] font-semibold whitespace-nowrap text-base sm:pt-1">CHF {item.price?.toFixed(2)}</span>
                 </div>
                 <div className="mt-3">
                   {!isViewOnlyMenu && (

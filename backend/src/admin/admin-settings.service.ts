@@ -136,11 +136,7 @@ export class AdminSettingsService {
     const branding = raw && typeof raw === 'object' && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
 
     return {
-      logoUrl:
-        this.normalizeOptionalString(branding.logoUrl) ||
-        this.normalizeOptionalString(branding.logo_url) ||
-        this.normalizeOptionalString(branding.logo) ||
-        defaults.logoUrl,
+      logoUrl: this.normalizeOptionalString(branding.logoUrl) || defaults.logoUrl,
       primaryColor: this.normalizeColor(branding.primaryColor, defaults.primaryColor),
       secondaryColor: this.normalizeColor(branding.secondaryColor, defaults.secondaryColor),
       accentColor: this.normalizeColor(branding.accentColor, defaults.accentColor),

@@ -9,7 +9,7 @@ import { AdminCustomersService } from './admin-customers.service';
 import { AdminAnalyticsService } from './admin-analytics.service';
 import { AdminSettingsService } from './admin-settings.service';
 import { AdminMarketingService } from './admin-marketing.service';
-import { AdminMenuImageStorageService } from './admin-menu-image-storage.service';
+import { AdminMediaStorageService } from './admin-media-storage.service';
 
 @Module({
   imports: [OrdersModule, AuthModule, PrismaModule, NotificationModule],
@@ -20,7 +20,7 @@ import { AdminMenuImageStorageService } from './admin-menu-image-storage.service
     AdminAnalyticsService,
     AdminSettingsService,
     AdminMarketingService,
-    AdminMenuImageStorageService,
+    AdminMediaStorageService,
   ],
 })
 export class AdminModule {}

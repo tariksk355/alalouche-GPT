@@ -20,13 +20,12 @@ const ADMIN_DEFAULT_LOGO_URL =
 
 const NAV_ITEMS = [
   { id: "orders", label: "Commandes", icon: "🛒" },
-  { id: "devices", label: "Appareils", icon: "📟" },
   { id: "menu", label: "Menu", icon: "🍽️" },
   { id: "reservations", label: "Réservations", icon: "📅" },
   { id: "customers", label: "Clients", icon: "👥" },
   { id: "marketing", label: "Marketing", icon: "📢" },
   { id: "analytics", label: "Analytiques", icon: "📊" },
-  { id: "settings", label: "Paramètres", icon: "⚙️" },
+  { id: "settings", label: "Réglages", icon: "⚙️" },
 ];
 
 function AdminNotice({ type = "success", children }) {
@@ -53,6 +52,7 @@ export default function AdminDashboard() {
   const [activeTab, setActiveTab] = useState(() => {
     try {
       const persisted = window.localStorage.getItem(ADMIN_ACTIVE_TAB_STORAGE_KEY);
+      if (persisted === "devices") return "settings";
       if (persisted && NAV_ITEMS.some((item) => item.id === persisted)) return persisted;
     } catch {
       // ignore storage errors
@@ -140,7 +140,7 @@ export default function AdminDashboard() {
       {/* Sidebar */}
       <aside className={`fixed lg:static inset-y-0 left-0 z-30 w-64 bg-white border-r border-gray-200 flex flex-col transition-transform duration-300 ${sidebarOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"}`}>
         <div className="p-6 border-b border-gray-200">
-          <img src={ADMIN_DEFAULT_LOGO_URL} alt="" className="w-14 mb-3" />
+          <img src={ADMIN_DEFAULT_LOGO_URL} alt="" className="w-28 mb-3" />
           <p className="text-gray-900 font-semibold">Administration</p>
           <p className="text-gray-500 text-sm">{admin.name || admin.username}</p>
         </div>
@@ -178,7 +178,6 @@ export default function AdminDashboard() {
 
         <main className="flex-1 p-4 lg:p-6 overflow-auto">
           {activeTab === "orders" && <AdminOrders />}
-          {activeTab === "devices" && <AdminDevices />}
           {activeTab === "menu" && <AdminMenu />}
           {activeTab === "reservations" && <AdminReservations />}
           {activeTab === "customers" && <AdminCustomers />}
@@ -187,16 +186,6 @@ export default function AdminDashboard() {
           {activeTab === "settings" && <AdminSettings />}
         </main>
       </div>
-    </div>
-  );
-}
-
-function AdminDevices() {
-  return (
-    <div className="max-w-3xl space-y-4">
-      <AdminNotice type="info">Générez un code d'association puis confirmez la demande pour rattacher un terminal Sunmi à ce restaurant.</AdminNotice>
-      <AdminMenuQrCard />
-      <DeviceProvisioning />
     </div>
   );
 }
@@ -1254,7 +1243,7 @@ function AdminSettings() {
   const [brandingError, setBrandingError] = useState("");
   const [printerLoading, setPrinterLoading] = useState(false);
   const [brandingLoading, setBrandingLoading] = useState(false);
-  const [brandingUploadLoading, setBrandingUploadLoading] = useState(false);
+  const [brandingUploadFeedback, setBrandingUploadFeedback] = useState({ type: "", message: "" });
 
   useEffect(() => {
     loadSettings();
@@ -1271,7 +1260,7 @@ function AdminSettings() {
       setPrinterSettings(printerData);
       setBrandingSettings(brandingData);
     } catch (e) {
-      const message = e.message || "Impossible de charger les paramètres.";
+      const message = e.message || "Impossible de charger les réglages.";
       setPrinterError(message);
       setBrandingError(message);
       setPrinterSettings({ auto_print: true, paper_width: "58mm", copies: 1, default_prep_time: 30, require_prep_time: true });
@@ -1285,10 +1274,10 @@ function AdminSettings() {
     try {
       const updated = await updateAdminPrinterSettings(printerSettings);
       setPrinterSettings(updated);
-      setPrinterSuccess("Paramètres imprimante sauvegardés !");
+      setPrinterSuccess("Réglages imprimante sauvegardés !");
       setTimeout(() => setPrinterSuccess(""), 3000);
     } catch (e) {
-      setPrinterError(e.message || "Impossible de sauvegarder les paramètres imprimante.");
+      setPrinterError(e.message || "Impossible de sauvegarder les réglages imprimante.");
     } finally {
       setPrinterLoading(false);
     }
@@ -1309,22 +1298,27 @@ function AdminSettings() {
     }
   };
 
-  const handleBrandingFileUpload = async (e) => {
-    const selectedFile = e.target.files?.[0];
+  const handleBrandingLogoUpload = async (event) => {
+    const selectedFile = event.target.files?.[0];
     if (!selectedFile) return;
 
-    setBrandingUploadLoading(true);
+    setBrandingLoading(true);
     setBrandingError("");
+    setBrandingUploadFeedback({ type: "info", message: `Upload de ${selectedFile.name} en cours...` });
+
     try {
       const uploaded = await uploadAdminBrandingLogo(selectedFile);
       setBrandingSettings(uploaded.settings);
-      setBrandingSuccess(`Logo uploadé et sauvegardé : ${selectedFile.name}`);
+      setBrandingSuccess("Logo restaurant uploadé et sauvegardé avec succès !");
+      setBrandingUploadFeedback({ type: "success", message: `Logo uploadé : ${selectedFile.name}` });
       setTimeout(() => setBrandingSuccess(""), 3000);
-    } catch (uploadError) {
-      setBrandingError(uploadError.message || "Impossible d'uploader le logo du restaurant.");
+    } catch (e) {
+      const message = e.message || "Impossible d'uploader le logo du restaurant.";
+      setBrandingError(message);
+      setBrandingUploadFeedback({ type: "error", message });
     } finally {
-      setBrandingUploadLoading(false);
-      e.target.value = "";
+      setBrandingLoading(false);
+      event.target.value = "";
     }
   };
 
@@ -1333,62 +1327,64 @@ function AdminSettings() {
   return (
     <div className="max-w-3xl space-y-6">
       <div className="bg-white rounded-xl border border-gray-200 p-6 space-y-6 shadow-sm">
+        <div>
+          <h3 className="font-semibold text-lg text-gray-900">Appareils</h3>
+          <p className="text-sm text-gray-500 mt-1">Générez un code d'association puis confirmez la demande pour rattacher un terminal Sunmi à ce restaurant.</p>
+        </div>
+        <AdminMenuQrCard />
         <DeviceProvisioning />
       </div>
 
       <div className="bg-white rounded-xl border border-gray-200 p-6 space-y-4 shadow-sm">
         <div>
-          <h3 className="font-semibold text-lg text-gray-900">Identité visuelle</h3>
+          <h3 className="font-semibold text-lg text-gray-900">Branding</h3>
           <p className="text-sm text-gray-500 mt-1">Le logo enregistré ici est stocké dans la configuration branding du restaurant et sera réutilisé par les e-mails et les autres surfaces dépendantes du branding.</p>
         </div>
         {brandingSuccess && <AdminNotice>{brandingSuccess}</AdminNotice>}
         {brandingError && <AdminNotice type="error">{brandingError}</AdminNotice>}
-        <div className="space-y-3">
-          <div>
-            <label className="block text-sm text-gray-500 mb-2">Uploader un logo</label>
-            <input
-              type="file"
-              accept="image/png,image/jpeg,image/webp,image/gif"
-              onChange={handleBrandingFileUpload}
-              className="block w-full text-sm text-gray-600 file:mr-4 file:rounded-lg file:border-0 file:bg-[#b5122a] file:px-4 file:py-2 file:font-medium file:text-white hover:file:bg-[#8f0e21]"
-            />
-            <p className="text-xs text-gray-500 mt-2">Cette option réutilise le même stockage objet public que les images produits afin d'obtenir une URL directe, stable et compatible e-mail.</p>
-          </div>
-          <div>
-            <label className="block text-sm text-gray-500 mb-2">Ou renseigner manuellement l'URL du logo</label>
-            <input
-              type="url"
-              value={brandingSettings.logoUrl || ""}
-              onChange={(e) => setBrandingSettings((current) => ({ ...current, logoUrl: e.target.value }))}
-              className="w-full bg-gray-50 border border-gray-200 text-gray-900 px-4 py-2 rounded-lg focus:outline-none focus:border-gray-400"
-              placeholder="https://.../logo.png"
-            />
-            <p className="text-xs text-amber-700 mt-2">Attention : certains liens collés (Google Drive, liens de partage/aperçu, pages HTML) ne sont pas des URL directes d'image publique et peuvent échouer dans les e-mails. Préférez l'upload ci-dessus ou une URL d'image publique directe.</p>
-          </div>
-          {brandingSettings.logoUrl ? (
-            <div className="rounded-lg border border-gray-200 bg-gray-50 p-4">
-              <div className="text-sm text-gray-500 mb-2">Aperçu actuel</div>
-              <img src={brandingSettings.logoUrl} alt="Logo restaurant" className="h-20 w-auto object-contain" />
+        <div>
+          <label className="block text-sm text-gray-500 mb-2">Logo local</label>
+          <input
+            type="file"
+            accept="image/png,image/jpeg,image/webp,image/gif"
+            onChange={handleBrandingLogoUpload}
+            disabled={brandingLoading}
+            className="w-full bg-gray-50 border border-gray-200 text-gray-900 px-3 py-2 rounded-lg focus:outline-none focus:border-gray-400 file:mr-3 file:rounded file:border-0 file:bg-gray-200 file:px-2 file:py-1 file:text-gray-700"
+          />
+          <p className="text-xs text-gray-500 mt-2">PNG, JPG, WEBP ou GIF. Le fichier est stocké via le même pipeline S3 que les images des produits.</p>
+          {brandingUploadFeedback.message && (
+            <p className={`mt-2 text-sm ${brandingUploadFeedback.type === "error" ? "text-red-600" : brandingUploadFeedback.type === "success" ? "text-green-600" : "text-gray-500"}`}>
+              {brandingUploadFeedback.message}
+            </p>
+          )}
+        </div>
+        <div>
+          <label className="block text-sm text-gray-500 mb-2">URL du logo (optionnel)</label>
+          <input
+            type="url"
+            value={brandingSettings.logoUrl || ""}
+            onChange={(e) => setBrandingSettings((current) => ({ ...current, logoUrl: e.target.value }))}
+            className="w-full bg-gray-50 border border-gray-200 text-gray-900 px-4 py-2 rounded-lg focus:outline-none focus:border-gray-400"
+            placeholder="https://.../logo.png"
+          />
+          <p className="text-xs text-gray-500 mt-2">Vous pouvez encore renseigner manuellement une URL si nécessaire. Laissez vide pour supprimer le logo stocké et conserver les fallbacks gracieux existants.</p>
+        </div>
+        {brandingSettings.logoUrl && (
+          <div className="p-3 border border-gray-200 rounded-lg bg-gray-50 flex items-center gap-4">
+            <img src={brandingSettings.logoUrl} alt="Logo du restaurant" className="w-20 h-20 object-contain rounded bg-white border border-gray-200 p-2" />
+            <div className="text-sm text-gray-500 min-w-0">
+              <p className="font-medium text-gray-700">Logo actuel</p>
+              <p className="break-all">{brandingSettings.logoUrl}</p>
             </div>
-          ) : null}
-        </div>
-        <div className="grid gap-3 sm:grid-cols-2">
-          <button
-            onClick={handleSaveBranding}
-            disabled={brandingLoading || brandingUploadLoading}
-            className="w-full py-3 bg-[#b5122a] text-white font-semibold rounded-lg hover:bg-[#8f0e21] disabled:opacity-60 transition-colors"
-          >
-            {brandingLoading ? "Sauvegarde..." : "Sauvegarder l'URL du logo"}
-          </button>
-          <button
-            type="button"
-            onClick={() => setBrandingSettings((current) => ({ ...current, logoUrl: "" }))}
-            disabled={brandingLoading || brandingUploadLoading}
-            className="w-full py-3 border border-gray-200 text-gray-700 font-semibold rounded-lg hover:border-gray-400 disabled:opacity-60 transition-colors"
-          >
-            {brandingUploadLoading ? "Upload..." : "Effacer le logo"}
-          </button>
-        </div>
+          </div>
+        )}
+        <button
+          onClick={handleSaveBranding}
+          disabled={brandingLoading}
+          className="w-full py-3 bg-[#b5122a] text-white font-semibold rounded-lg hover:bg-[#8f0e21] disabled:opacity-60 transition-colors"
+        >
+          {brandingLoading ? "Sauvegarde..." : "Sauvegarder le logo"}
+        </button>
       </div>
 
       <div className="bg-white rounded-xl border border-gray-200 p-6 space-y-6 shadow-sm">
@@ -1403,28 +1399,6 @@ function AdminSettings() {
                 className={`w-12 h-6 rounded-full transition-colors ${printerSettings.auto_print ? "bg-[#b5122a]" : "bg-gray-300"} relative`}>
                 <span className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-transform ${printerSettings.auto_print ? "translate-x-7" : "translate-x-1"}`} />
               </button>
-            </div>
-            <div>
-              <label className="block text-sm text-gray-500 mb-2">Largeur du papier</label>
-              <div className="flex gap-3">
-                {["58mm", "80mm"].map(w => (
-                  <button key={w} onClick={() => setPrinterSettings(s => ({ ...s, paper_width: w }))}
-                    className={`px-4 py-2 rounded-lg border transition-colors ${printerSettings.paper_width === w ? "border-[#b5122a] text-[#b5122a] bg-red-50" : "border-gray-200 text-gray-500 hover:border-gray-400"}`}>
-                    {w}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <div>
-              <label className="block text-sm text-gray-500 mb-2">Nombre de copies</label>
-              <div className="flex gap-3">
-                {[1, 2, 3].map(n => (
-                  <button key={n} onClick={() => setPrinterSettings(s => ({ ...s, copies: n }))}
-                    className={`w-10 h-10 rounded-lg border transition-colors ${printerSettings.copies === n ? "border-[#b5122a] text-[#b5122a] bg-red-50" : "border-gray-200 text-gray-500 hover:border-gray-400"}`}>
-                    {n}
-                  </button>
-                ))}
-              </div>
             </div>
           </div>
         </div>
@@ -1453,7 +1427,7 @@ function AdminSettings() {
         </div>
         <button onClick={handleSavePrinter} disabled={printerLoading}
           className="w-full py-3 bg-[#b5122a] text-white font-semibold rounded-lg hover:bg-[#8f0e21] disabled:opacity-60 transition-colors">
-          {printerLoading ? "Sauvegarde..." : "Sauvegarder les paramètres imprimante"}
+          {printerLoading ? "Sauvegarde..." : "Sauvegarder les réglages imprimante"}
         </button>
       </div>
     </div>

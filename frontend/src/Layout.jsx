@@ -5,12 +5,31 @@ import { useAuth } from '@/lib/AuthContext';
 import { useTenant } from '@/lib/TenantContext';
 import PrivacyPolicyModal from '@/components/PrivacyPolicyModal';
 import { getCart, cartCount } from '@/components/cartStore';
-import { ShoppingCart } from 'lucide-react';
+import { Mail, MapPin, Phone, ShoppingCart } from 'lucide-react';
 
 const DEFAULT_HEADER_LOGO =
   'https://qtrypzzcjebvfcihiynt.supabase.co/storage/v1/object/public/base44-prod/public/user_6988e8d4fc295c9d940c5901/05562fbc0_Alalouche-logo.png';
 const DEFAULT_FOOTER_LOGO =
   'https://qtrypzzcjebvfcihiynt.supabase.co/storage/v1/object/public/base44-prod/public/699f6d055b5dc5582a3c406f/109735483_Footer-logo.png';
+const RESTAURANT_HOURS = [
+  { day: 'Lundi:', hours: 'fermé' },
+  { day: 'Ma - Ven:', hours: '10h00 - 14h00 & 17h00 - 22h00' },
+  { day: 'Samedi:', hours: '10h00 - 23h00 non stop' },
+  { day: 'Dimanche:', hours: '12h00 - 21h00 non stop' },
+];
+
+const RESTAURANT_CONTACT = {
+  phone: '026 303 45 61',
+  addressLine1: 'Rte de Chantemerle 58',
+  addressLine2: '1763 Granges-Paccot',
+  email: 'info@alalouche.ch',
+};
+
+const sanitizeBrandName = (value) => {
+  const normalized = value?.trim();
+  if (!normalized) return 'Restaurant';
+  return normalized.replace(/\s*(?:\(|-|–)?\s*local\)?\s*$/i, '').trim() || normalized;
+};
 
 export default function Layout({ children, currentPageName }) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -21,13 +40,15 @@ export default function Layout({ children, currentPageName }) {
   const [itemCount, setItemCount] = useState(cartCount(getCart()));
 
   const primaryColor = tenant?.branding?.primaryColor || '#b5122a';
-  const brandName = tenant?.name || 'Restaurant';
+  const brandName = sanitizeBrandName(tenant?.name || 'À la Louche');
   const logoUrl = tenant?.branding?.logoUrl || DEFAULT_HEADER_LOGO;
-  const footerLogoUrl = tenant?.branding?.footerLogoUrl || logoUrl || DEFAULT_FOOTER_LOGO;
-  const contact = tenant?.contactInfo || {};
-  const fullAddress = [contact.addressLine1, contact.postalCode && contact.city ? `${contact.postalCode} ${contact.city}` : contact.city]
-    .filter(Boolean)
-    .join(' · ');
+  const footerLogoUrl = DEFAULT_FOOTER_LOGO;
+  const headerContact = {
+    phone: RESTAURANT_CONTACT.phone,
+    addressLine1: RESTAURANT_CONTACT.addressLine1,
+    addressLine2: RESTAURANT_CONTACT.addressLine2,
+  };
+  const footerContact = RESTAURANT_CONTACT;
 
   useEffect(() => {
     // TODO(migration): wire analytics events to backend analytics endpoint.
@@ -79,46 +100,53 @@ export default function Layout({ children, currentPageName }) {
   return (
     <div className="min-h-screen flex flex-col">
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,600;1,400;1,600&family=Inter:wght@300;400;500;600&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Allura&family=Playfair+Display:ital,wght@0,400;0,600;1,400;1,600&family=Inter:wght@300;400;500;600&display=swap');
         body { font-family: 'Inter', sans-serif; }
         .font-serif { font-family: 'Playfair Display', serif; }
+        .font-script { font-family: 'Allura', 'Playfair Display', serif; }
       `}</style>
 
       <div className="hidden md:block border-b border-gray-200 bg-white">
         <div className="max-w-6xl mx-auto px-4 py-3 grid grid-cols-3 items-start text-sm">
           <div>
-            <p className="font-semibold text-gray-800 mb-1">Heures d'ouverture</p>
-            <p className="text-gray-600"><span className="font-semibold">Lundi:</span> fermé</p>
-            <p className="text-gray-600"><span className="font-semibold">Ma - Ven:</span> 10h00 - 14h00 &amp; 17h00 - 22h00</p>
-            <p className="text-gray-600"><span className="font-semibold">Samedi:</span> 10h00 - 23h00 non stop</p>
-            <p className="text-gray-600"><span className="font-semibold">Dimanche:</span> 12h00 - 21h00 non stop</p>
+            <p className="font-script text-3xl leading-none text-gray-900 sm:text-[2.4rem]">Heures d’ouverture</p>
+            <div className="mt-3 space-y-1 text-gray-600">
+              {RESTAURANT_HOURS.map((line) => (
+                <p key={line.day}>
+                  <span className="font-semibold text-gray-800">{line.day}</span>{' '}
+                  <span>{line.hours}</span>
+                </p>
+              ))}
+            </div>
           </div>
           <div className="flex justify-center items-center">
             <Link to={createPageUrl('Home')}>
-              <img src={logoUrl} alt={brandName} className="h-24" />
+              <img src={logoUrl} alt={brandName} className="h-36 lg:h-40" />
             </Link>
           </div>
           <div className="text-right">
-            <p className="font-semibold text-gray-800 mb-1">Contact</p>
-            {contact.phone && (
-              <a href={`tel:${contact.phone.replace(/\s+/g, '')}`} className="flex items-center justify-end gap-1 hover:underline mb-1" style={{ color: primaryColor }}>
-                <span>📞</span> {contact.phone}
+            <p className="font-script text-3xl leading-none text-gray-900 sm:text-[2.4rem]">Contact</p>
+            <div className="mt-3 space-y-1 text-gray-600">
+              <a href={`tel:${headerContact.phone.replace(/\s+/g, '')}`} className="flex items-center justify-center gap-2 hover:underline md:justify-end" style={{ color: primaryColor }}>
+                <Phone className="h-4 w-4 flex-shrink-0" />
+                <span>{headerContact.phone}</span>
               </a>
-            )}
-            {fullAddress && (
-              <p style={{ color: primaryColor }}>
-                <span>📍</span> {contact.addressLine1}
-                {contact.city && <><br /><span className="ml-4">{contact.postalCode ? `${contact.postalCode} ` : ''}{contact.city}</span></>}
-              </p>
-            )}
+              <div className="flex items-start justify-end gap-2" style={{ color: primaryColor }}>
+                <MapPin className="mt-0.5 h-4 w-4 flex-shrink-0" />
+                <div>
+                  <div>{headerContact.addressLine1}</div>
+                  <div>{headerContact.addressLine2}</div>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </div>
 
       <nav className="bg-white border-b border-gray-200 sticky top-0 z-50">
-        <div className="max-w-6xl mx-auto px-4 flex items-center justify-between h-20 md:h-12">
+        <div className="max-w-6xl mx-auto px-4 flex items-center justify-between h-24 md:h-12">
           <Link to={createPageUrl('Home')} className="md:hidden">
-            <img src={logoUrl} alt={brandName} className="h-16" style={{ imageRendering: 'crisp-edges' }} />
+            <img src={logoUrl} alt={brandName} className="h-24" style={{ imageRendering: 'crisp-edges' }} />
           </Link>
 
           <div className="hidden md:flex items-center gap-8">
@@ -251,38 +279,40 @@ export default function Layout({ children, currentPageName }) {
       )}
 
       <footer className="bg-black text-white">
-        <div className="max-w-6xl mx-auto px-8 py-10 flex flex-col md:flex-row items-center md:items-center justify-between gap-8">
-          <div className="flex-shrink-0">
-            <img src={footerLogoUrl} alt={brandName} className="h-72" style={{ imageRendering: 'crisp-edges' }} />
-          </div>
-          <div className="text-right text-sm">
-            <h3 className="font-serif italic text-2xl mb-2 text-white">{brandName}</h3>
-            {fullAddress && <div className="text-gray-300 mb-1"><span>📍</span> {fullAddress}</div>}
-            {contact.phone && (
-              <div className="text-gray-300 mb-1">
-                <span>📞</span>{' '}
-                <a href={`tel:${contact.phone.replace(/\s+/g, '')}`} className="hover:text-white transition-colors">
-                  {contact.phone}
+        <div className="max-w-6xl mx-auto px-6 py-10">
+          <div className="flex flex-col items-center text-center gap-8 md:flex-row md:items-start md:justify-between md:text-left">
+            <div className="flex flex-col items-center text-center md:items-start md:text-left">
+              <img src={footerLogoUrl} alt={brandName} className="h-32 sm:h-36 md:h-40 lg:h-44" style={{ imageRendering: 'crisp-edges' }} />
+              <h3 className="font-script mt-3 text-4xl leading-none text-white sm:text-5xl md:hidden">{brandName}</h3>
+            </div>
+            <div className="space-y-3 text-sm text-gray-300 md:max-w-sm md:pt-2">
+              <h3 className="font-script hidden text-5xl leading-none text-white md:block">{brandName}</h3>
+              <div className="flex items-start justify-center gap-2 text-center leading-relaxed md:justify-start md:text-left">
+                <MapPin className="mt-0.5 h-4 w-4 flex-shrink-0" />
+                <span>{`${footerContact.addressLine1} · ${footerContact.addressLine2}`}</span>
+              </div>
+              <div className="flex items-center justify-center gap-2 md:justify-start">
+                <Phone className="h-4 w-4 flex-shrink-0" />
+                <a href={`tel:${footerContact.phone.replace(/\s+/g, '')}`} className="hover:text-white transition-colors">
+                  {footerContact.phone}
                 </a>
               </div>
-            )}
-            {contact.email && (
-              <div className="text-gray-300">
-                <span>✉</span>{' '}
-                <a href={`mailto:${contact.email}`} className="hover:text-white transition-colors">
-                  {contact.email}
+              <div className="flex items-center justify-center gap-2 break-all sm:break-normal md:justify-start">
+                <Mail className="h-4 w-4 flex-shrink-0" />
+                <a href={`mailto:${footerContact.email}`} className="hover:text-white transition-colors">
+                  {footerContact.email}
                 </a>
               </div>
-            )}
+            </div>
           </div>
         </div>
-        <div className="border-t border-gray-800 px-4 py-4 text-center text-gray-600 text-xs">
+        <div className="border-t border-gray-800 px-4 py-4 text-center text-sm text-gray-400 md:text-[15px]">
           © {new Date().getFullYear()} {brandName}.{' '}
-          <button onClick={() => setShowPrivacy(true)} className="text-gray-400 hover:text-white transition-colors underline">
-            Politique de confidentialité
+          <button onClick={() => setShowPrivacy(true)} className="text-gray-200 hover:text-white transition-colors underline">
+            Politique de Confidentialité
           </button>{' '}
           | Web by{' '}
-          <a href="https://kodlantis.com" target="_blank" rel="noopener noreferrer" className="text-gray-400 hover:text-white transition-colors">
+          <a href="https://kodlantis.com" target="_blank" rel="noopener noreferrer" className="text-gray-200 hover:text-white transition-colors">
             Kodlantis
           </a>
         </div>

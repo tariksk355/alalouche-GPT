@@ -57,6 +57,7 @@ const state = {
     orderEnabled: true,
     reservationEnabled: true,
     volume: 0.2,
+    theme: 'dark',
   },
   isSettingsPanelOpen: false,
   hasLoggedInfoImprimanteRemoval: false,
@@ -86,6 +87,7 @@ const state = {
 };
 
 const SUPPORTED_RECEIVER_LANGUAGES = ['en', 'fr', 'de'];
+const SUPPORTED_RECEIVER_THEMES = ['dark', 'light'];
 
 const RECEIVER_I18N = {
   en: {
@@ -146,13 +148,16 @@ const RECEIVER_I18N = {
     label_note: 'Note',
     label_guests: '{count} guests',
     settings_title: 'Settings',
-    settings_subtitle: 'Control visual, sound, and language preferences.',
+    settings_subtitle: 'Control visual, sound, language, and theme preferences.',
     settings_close: 'Close settings',
     settings_sound: 'Global sound',
     settings_orders: 'Orders',
     settings_reservations: 'Reservations',
     settings_volume: 'Volume: {value}%',
     settings_language: 'Language',
+    settings_theme: 'Theme',
+    theme_dark: 'Dark',
+    theme_light: 'Light',
     language_en: 'English',
     language_fr: 'Français',
     language_de: 'Deutsch',
@@ -239,13 +244,16 @@ const RECEIVER_I18N = {
     label_note: 'Note',
     label_guests: '{count} couverts',
     settings_title: 'Paramètres',
-    settings_subtitle: 'Contrôlez les alertes visuelles, sonores et la langue.',
+    settings_subtitle: 'Contrôlez les alertes visuelles, sonores, la langue et le thème.',
     settings_close: 'Fermer les paramètres',
     settings_sound: 'Son global',
     settings_orders: 'Commandes',
     settings_reservations: 'Réservations',
     settings_volume: 'Volume: {value}%',
     settings_language: 'Langue',
+    settings_theme: 'Thème',
+    theme_dark: 'Sombre',
+    theme_light: 'Clair',
     language_en: 'English',
     language_fr: 'Français',
     language_de: 'Deutsch',
@@ -332,13 +340,16 @@ const RECEIVER_I18N = {
     label_note: 'Notiz',
     label_guests: '{count} Gäste',
     settings_title: 'Einstellungen',
-    settings_subtitle: 'Steuern Sie visuelle Hinweise, Ton und Sprache.',
+    settings_subtitle: 'Steuern Sie visuelle Hinweise, Ton, Sprache und Design.',
     settings_close: 'Einstellungen schließen',
     settings_sound: 'Globaler Ton',
     settings_orders: 'Bestellungen',
     settings_reservations: 'Reservierungen',
     settings_volume: 'Lautstärke: {value}%',
     settings_language: 'Sprache',
+    settings_theme: 'Design',
+    theme_dark: 'Dunkel',
+    theme_light: 'Hell',
     language_en: 'English',
     language_fr: 'Français',
     language_de: 'Deutsch',
@@ -372,6 +383,15 @@ const RECEIVER_I18N = {
 function normalizeReceiverLanguage(value) {
   const normalized = String(value || '').trim().toLowerCase();
   return SUPPORTED_RECEIVER_LANGUAGES.includes(normalized) ? normalized : 'en';
+}
+
+function normalizeReceiverTheme(value) {
+  const normalized = String(value || '').trim().toLowerCase();
+  return SUPPORTED_RECEIVER_THEMES.includes(normalized) ? normalized : 'dark';
+}
+
+function applyReceiverTheme() {
+  document.body.dataset.receiverTheme = normalizeReceiverTheme(state.alertSettings.theme);
 }
 
 function t(key, vars = {}) {
@@ -551,6 +571,7 @@ function normalizeAlertSettings(value) {
     reservationEnabled: candidate.reservationEnabled !== false,
     volume: Math.min(1, Math.max(0, Number.isFinite(Number(candidate.volume)) ? Number(candidate.volume) : 0.2)),
     language: normalizeReceiverLanguage(candidate.language),
+    theme: normalizeReceiverTheme(candidate.theme),
   };
 }
 
@@ -1355,6 +1376,8 @@ function renderPairingCard() {
 }
 
 function render() {
+  applyReceiverTheme();
+
   if (state.mode === 'booting') {
     app.innerHTML = `<div class="card"><div class="title">${t('app_title')}</div><p>${t('booting')}</p></div>`;
     return;
@@ -1622,6 +1645,20 @@ function render() {
                     data-language="${languageCode}"
                     aria-pressed="${state.alertSettings.language === languageCode ? 'true' : 'false'}"
                   >${t(`language_${languageCode}`)}</button>
+                `).join('')}
+              </div>
+            </div>
+            <div class="alert-theme-row">
+              <span>${t('settings_theme')}</span>
+              <div class="chip-row alert-theme-chip-row" role="group" aria-label="${t('settings_theme')}">
+                ${SUPPORTED_RECEIVER_THEMES.map((themeCode) => `
+                  <button
+                    class="prep-chip alert-theme-chip ${state.alertSettings.theme === themeCode ? 'active' : ''}"
+                    type="button"
+                    data-action="set-alert-theme"
+                    data-theme="${themeCode}"
+                    aria-pressed="${state.alertSettings.theme === themeCode ? 'true' : 'false'}"
+                  >${t(`theme_${themeCode}`)}</button>
                 `).join('')}
               </div>
             </div>
@@ -2228,6 +2265,14 @@ app.addEventListener('click', async (event) => {
     return;
   }
 
+  if (target.dataset.action === 'set-alert-theme' && target.dataset.theme) {
+    state.alertSettings.theme = normalizeReceiverTheme(target.dataset.theme);
+    persistAlertSettings();
+    debugLog('alert_settings_updated', state.alertSettings);
+    render();
+    return;
+  }
+
   if (target.dataset.action === 'set-prep' && target.dataset.id) {
     const minutes = Number(target.dataset.minutes || 0);
     if ([15, 30, 45, 60].includes(minutes)) {
@@ -2435,6 +2480,7 @@ window.addEventListener('beforeunload', () => {
 async function boot() {
   debugLog('app_boot');
   loadAlertSettings();
+  applyReceiverTheme();
   loadCompletedOrdersCache();
   loadCompletedSectionOpenState();
   loadProcessedReservationsSectionOpenState();

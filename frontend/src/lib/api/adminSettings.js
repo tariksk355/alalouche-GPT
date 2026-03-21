@@ -49,7 +49,7 @@ export async function updateAdminBrandingSettings(payload) {
 export async function uploadAdminBrandingLogo(file) {
   const formData = new FormData();
   formData.append('file', file);
-  const data = await backendClient.request('/admin/settings/branding/logo-upload', {
+  const data = await backendClient.request('/admin/settings/branding/logo/upload', {
     method: 'POST',
     headers: authHeaders(),
     body: formData,
