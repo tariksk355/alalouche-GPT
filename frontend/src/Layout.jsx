@@ -280,12 +280,19 @@ export default function Layout({ children, currentPageName }) {
 
       <footer className="bg-black text-white">
         <div className="max-w-6xl mx-auto px-6 py-10">
-          <div className="flex flex-col items-center text-center gap-8 md:flex-row md:items-start md:justify-between md:text-left">
-            <div className="flex flex-col items-center text-center md:items-start md:text-left">
-              <img src={footerLogoUrl} alt={brandName} className="h-32 sm:h-36 md:h-40 lg:h-44" style={{ imageRendering: 'crisp-edges' }} />
-              <h3 className="font-script mt-3 text-4xl leading-none text-white sm:text-5xl md:hidden">{brandName}</h3>
+          <div className="flex flex-col items-center text-center gap-8 md:flex-row md:items-center md:justify-between md:text-left">
+            <div className="flex flex-col items-center text-center md:items-start md:text-left md:self-center">
+              <img
+                src={footerLogoUrl}
+                alt={brandName}
+                className="h-48 sm:h-56 md:h-64 lg:h-80 w-auto object-contain"
+                style={{ imageRendering: 'auto' }}
+              />
+              <h3 className="font-script mt-3 text-4xl leading-none text-white sm:text-5xl md:hidden">
+                {brandName}
+              </h3>
             </div>
-            <div className="space-y-3 text-sm text-gray-300 md:max-w-sm md:pt-2">
+            <div className="space-y-3 text-sm text-gray-300 md:max-w-sm md:pt-0 md:self-center">
               <h3 className="font-script hidden text-5xl leading-none text-white md:block">{brandName}</h3>
               <div className="flex items-start justify-center gap-2 text-center leading-relaxed md:justify-start md:text-left">
                 <MapPin className="mt-0.5 h-4 w-4 flex-shrink-0" />
