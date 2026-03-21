@@ -27,6 +27,7 @@ const DISMISSED_COMPLETED_ORDERS_STORAGE_KEY = 'sunmi_dismissed_completed_orders
 const DISMISSED_PROCESSED_RESERVATIONS_STORAGE_KEY = 'sunmi_dismissed_processed_reservations_v1';
 const PRINT_DISPATCH_DEDUP_MS = 15000;
 const ATTENTION_ALERT_DURATION_MS = 7000;
+const SYSTEM_NOTICE_DURATION_MS = 2600;
 
 const state = {
   mode: 'booting', // booting | not_paired | pairing_submitting | pairing_waiting | verifying | server_error | receiver_loaded
@@ -69,6 +70,8 @@ const state = {
   dismissedProcessedReservationIds: {},
   activeAttentionAlert: null,
   attentionAlertTimeoutId: null,
+  systemNotice: null,
+  systemNoticeTimeoutId: null,
   reservationUiById: {},
   reservationFeedbackTimeoutsById: {},
   completedOrderUiById: {},
@@ -185,6 +188,7 @@ const RECEIVER_I18N = {
     archived_order_delete_aria: 'Delete this archived order',
     archived_reservation_delete_aria: 'Delete this archived reservation',
     print_blocked_operator_action: 'Operator action required.',
+    device_dissociated_notice: 'This device has been dissociated.',
   },
   fr: {
     app_title: 'Sunmi Receiver',
@@ -281,6 +285,7 @@ const RECEIVER_I18N = {
     archived_order_delete_aria: 'Supprimer cette commande archivée',
     archived_reservation_delete_aria: 'Supprimer cette réservation archivée',
     print_blocked_operator_action: 'Action opérateur requise.',
+    device_dissociated_notice: 'Cet appareil a été dissocié.',
   },
   de: {
     app_title: 'Sunmi Receiver',
@@ -377,6 +382,7 @@ const RECEIVER_I18N = {
     archived_order_delete_aria: 'Diese archivierte Bestellung löschen',
     archived_reservation_delete_aria: 'Diese archivierte Reservierung löschen',
     print_blocked_operator_action: 'Bedienereingriff erforderlich.',
+    device_dissociated_notice: 'Dieses Gerät wurde getrennt.',
   },
 };
 
@@ -685,6 +691,60 @@ function clearAttentionAlert() {
     state.attentionAlertTimeoutId = null;
   }
   state.activeAttentionAlert = null;
+}
+
+function clearSystemNotice() {
+  if (state.systemNoticeTimeoutId) {
+    clearTimeout(state.systemNoticeTimeoutId);
+    state.systemNoticeTimeoutId = null;
+  }
+  state.systemNotice = null;
+}
+
+function showSystemNotice(message, kind = 'warning') {
+  clearSystemNotice();
+  if (!message) return;
+  state.systemNotice = { message, kind };
+  state.systemNoticeTimeoutId = setTimeout(() => {
+    clearSystemNotice();
+    render();
+  }, SYSTEM_NOTICE_DURATION_MS);
+}
+
+function resetOperationalState() {
+  state.deviceName = '';
+  state.orders = [];
+  state.reservations = [];
+  state.printerMessage = '';
+  state.prepMinutesByOrderId = {};
+  state.printJobsByOrderId = {};
+  state.printRetryInFlightByOrderId = {};
+  state.printDispatchInFlightByOrderId = {};
+  state.lastPrintDispatchAtByOrderId = {};
+  state.seenOrderIds = new Set();
+  state.seenReservationIds = new Set();
+  state.hasHydratedOperationalBaseline = false;
+  state.isSettingsPanelOpen = false;
+  clearAttentionAlert();
+  clearCompletedOrdersCache();
+  clearPersistedPrintJobTracking();
+}
+
+function enterNotPairedState({ error = '', notice = '', preservePairingCode = true } = {}) {
+  state.mode = 'not_paired';
+  state.pairingMessage = '';
+  state.error = error;
+  if (!preservePairingCode) {
+    state.pairingCode = '';
+  }
+  resetOperationalState();
+  stopReceiverPolling();
+  stopPairingPolling();
+  if (notice) {
+    showSystemNotice(notice);
+  } else {
+    clearSystemNotice();
+  }
 }
 
 async function playAttentionBeep(type, id) {
@@ -1359,9 +1419,14 @@ function prepMinutesForOrder(order) {
 }
 
 function renderPairingCard() {
+  const systemNoticeHtml = state.systemNotice
+    ? `<div class="receiver-system-notice receiver-system-notice-${state.systemNotice.kind || 'warning'}">${escapeHtml(state.systemNotice.message || '')}</div>`
+    : '';
+
   return `
     <div class="card">
       <div class="title">${t('app_title')}</div>
+      ${systemNoticeHtml}
       <p class="warning">${t('device_not_paired')}</p>
       <p class="subtle">${t('pairing_enter_code')}</p>
       <input id="pairing-code-input" class="input" placeholder="${t('pairing_placeholder')}" value="${state.pairingCode}" />
@@ -1747,32 +1812,19 @@ async function validateDeviceOnceAndEnterReceiver() {
     state.mode = 'receiver_loaded';
     state.deviceName = validation.device?.deviceName || '';
     state.error = '';
+    clearSystemNotice();
     debugLog('device_validation_success', { deviceName: state.deviceName || 'unknown' });
     render();
     return true;
   }
 
   if (validation.state === 'not_paired') {
-    state.mode = 'not_paired';
-    state.pairingMessage = '';
-    state.error = validation.error || '';
-    state.deviceName = '';
-    state.orders = [];
-    state.reservations = [];
-    state.printerMessage = '';
-    state.prepMinutesByOrderId = {};
-    state.printJobsByOrderId = {};
-    state.printRetryInFlightByOrderId = {};
-    state.printDispatchInFlightByOrderId = {};
-    state.lastPrintDispatchAtByOrderId = {};
-    state.seenOrderIds = new Set();
-    state.seenReservationIds = new Set();
-    state.hasHydratedOperationalBaseline = false;
-    clearAttentionAlert();
-    clearCompletedOrdersCache();
-    clearPersistedPrintJobTracking();
-    stopReceiverPolling();
-    debugLog('device_validation_not_paired', { message: state.error || 'no_message' });
+    const wasDissociated = validation.reason === 'DEVICE_DISSOCIATED';
+    enterNotPairedState({
+      error: wasDissociated ? '' : (validation.error || ''),
+      notice: wasDissociated ? t('device_dissociated_notice') : '',
+    });
+    debugLog('device_validation_not_paired', { message: state.error || 'no_message', reason: validation.reason || null });
     render();
     return false;
   }
@@ -1849,26 +1901,12 @@ async function refreshOperations() {
       reservations: state.reservations.length,
     });
   } else if (result.state === 'not_paired') {
-    state.mode = 'not_paired';
-    state.pairingMessage = '';
-    state.error = result.error || '';
-    state.deviceName = '';
-    state.orders = [];
-    state.reservations = [];
-    state.printerMessage = '';
-    state.prepMinutesByOrderId = {};
-    state.printJobsByOrderId = {};
-    state.printRetryInFlightByOrderId = {};
-    state.printDispatchInFlightByOrderId = {};
-    state.lastPrintDispatchAtByOrderId = {};
-    state.seenOrderIds = new Set();
-    state.seenReservationIds = new Set();
-    state.hasHydratedOperationalBaseline = false;
-    clearCompletedOrdersCache();
-    clearAttentionAlert();
-    clearPersistedPrintJobTracking();
-    stopReceiverPolling();
-    debugLog('operations_poll_auth_failed', { message: state.error || 'token_invalid' });
+    const wasDissociated = result.reason === 'DEVICE_DISSOCIATED';
+    enterNotPairedState({
+      error: wasDissociated ? '' : (result.error || ''),
+      notice: wasDissociated ? t('device_dissociated_notice') : '',
+    });
+    debugLog('operations_poll_auth_failed', { message: state.error || 'token_invalid', reason: result.reason || null });
   } else {
     // Keep receiver UI stable; only report background polling error.
     state.error = result.error || t('server_error_title');
@@ -1904,6 +1942,7 @@ async function startPairingSubmit() {
   state.mode = 'pairing_submitting';
   state.error = '';
   state.pairingMessage = '';
+  clearSystemNotice();
   render();
 
   const res = await submitPairingCode(code);
@@ -2174,35 +2213,14 @@ app.addEventListener('click', async (event) => {
 
   if (target.id === 'pairing-cancel-btn') {
     stopPairingPolling();
-    state.mode = 'not_paired';
-    state.pairingMessage = '';
-    state.error = '';
+    enterNotPairedState({ error: '' });
     render();
     return;
   }
 
   if (target.id === 'reset-token-btn' || target.id === 'unpair-btn') {
     tokenStore.clear();
-    state.mode = 'not_paired';
-    state.deviceName = '';
-    state.orders = [];
-    state.reservations = [];
-    state.error = '';
-    state.pairingMessage = '';
-    state.printerMessage = '';
-    state.prepMinutesByOrderId = {};
-    state.printJobsByOrderId = {};
-    state.printRetryInFlightByOrderId = {};
-    state.printDispatchInFlightByOrderId = {};
-    state.lastPrintDispatchAtByOrderId = {};
-    state.seenOrderIds = new Set();
-    state.seenReservationIds = new Set();
-    state.hasHydratedOperationalBaseline = false;
-    clearAttentionAlert();
-    clearCompletedOrdersCache();
-    clearPersistedPrintJobTracking();
-    stopReceiverPolling();
-    stopPairingPolling();
+    enterNotPairedState({ error: '' });
     render();
     return;
   }

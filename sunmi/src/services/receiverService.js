@@ -8,7 +8,7 @@ import {
 import { tokenStore } from '../storage/tokenStore.js';
 
 function isAuthError(error) {
-  return error?.code === 'DEVICE_TOKEN_INVALID' || error?.code === 'DEVICE_AUTH_REQUIRED' || error?.status === 401;
+  return error?.code === 'DEVICE_TOKEN_INVALID' || error?.code === 'DEVICE_AUTH_REQUIRED' || error?.code === 'DEVICE_DISSOCIATED' || error?.status === 401;
 }
 
 export async function validateDeviceSession() {
@@ -19,14 +19,14 @@ export async function validateDeviceSession() {
 
   try {
     const device = await getDeviceMe(token);
-    return { state: 'validated', device, error: null };
+    return { state: 'validated', device, error: null, reason: null };
   } catch (error) {
     if (isAuthError(error)) {
       tokenStore.clear();
-      return { state: 'not_paired', device: null, error: 'Périphérique non associé ou token invalide.' };
+      return { state: 'not_paired', device: null, error: error.message || 'Périphérique non associé ou token invalide.', reason: error.code || null };
     }
 
-    return { state: 'server_error', device: null, error: error.message || 'Erreur serveur.' };
+    return { state: 'server_error', device: null, error: error.message || 'Erreur serveur.', reason: error.code || null };
   }
 }
 
@@ -42,7 +42,7 @@ export async function loadOperationalData() {
       getReceiverReservations(token),
     ]);
 
-    return { state: 'loaded', orders, reservations, error: null };
+    return { state: 'loaded', orders, reservations, error: null, reason: null };
   } catch (error) {
     if (isAuthError(error)) {
       tokenStore.clear();
@@ -50,11 +50,12 @@ export async function loadOperationalData() {
         state: 'not_paired',
         orders: [],
         reservations: [],
-        error: 'Périphérique non associé ou token invalide.',
+        error: error.message || 'Périphérique non associé ou token invalide.',
+        reason: error.code || null,
       };
     }
 
-    return { state: 'server_error', orders: [], reservations: [], error: error.message || 'Erreur serveur.' };
+    return { state: 'server_error', orders: [], reservations: [], error: error.message || 'Erreur serveur.', reason: error.code || null };
   }
 }
 

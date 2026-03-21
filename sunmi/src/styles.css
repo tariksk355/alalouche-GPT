@@ -106,6 +106,20 @@ body { margin: 0; font-family: Arial, sans-serif; background: var(--receiver-bg)
 .subtle { color: var(--receiver-muted); font-size: 13px; }
 .error { color: var(--receiver-error); }
 .warning { color: var(--receiver-warning); }
+.receiver-system-notice {
+  margin: 10px 0 12px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.receiver-system-notice-warning {
+  background: var(--receiver-feedback-warning-bg);
+  border: 1px solid var(--receiver-feedback-warning-border);
+  color: var(--receiver-feedback-warning-text);
+}
+
 .btn-row { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
 button { border: 0; border-radius: 10px; padding: 12px 14px; font-size: 16px; font-weight: 600; color: var(--receiver-button-text); min-height: 44px; margin-top: 10px; }
 button:disabled { opacity: 0.6; }

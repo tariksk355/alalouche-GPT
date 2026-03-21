@@ -139,7 +139,7 @@ export class DevicePairingService {
 
     await this.prisma.device.update({
       where: { id: device.id },
-      data: { status: 'device_revoked', tokenHash: null },
+      data: { status: 'device_revoked' },
     });
 
     if (device.pairingRequestId) {

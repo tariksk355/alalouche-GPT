@@ -7,6 +7,28 @@ import {
   revokeAssociatedDevice,
 } from "@/lib/api/devicePairing";
 
+const DEVICE_PRESENCE_STALE_MS = 20 * 1000;
+
+function getDevicePresence(device) {
+  const lastSeenAtMs = device?.lastSeenAt ? new Date(device.lastSeenAt).getTime() : 0;
+  if (!lastSeenAtMs) {
+    return {
+      isOnline: false,
+      label: "Hors ligne",
+      toneClass: "bg-gray-100 text-gray-700 border-gray-200",
+    };
+  }
+
+  const isOnline = Date.now() - lastSeenAtMs <= DEVICE_PRESENCE_STALE_MS;
+  return {
+    isOnline,
+    label: isOnline ? "En ligne" : "Hors ligne",
+    toneClass: isOnline
+      ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+      : "bg-gray-100 text-gray-700 border-gray-200",
+  };
+}
+
 export default function DeviceProvisioning() {
   const [requests, setRequests] = useState([]);
   const [codes, setCodes] = useState([]);
@@ -72,7 +94,6 @@ export default function DeviceProvisioning() {
     }
   }
 
-
   async function onRevokeDevice(deviceId) {
     setBusy(true);
     try {
@@ -99,21 +120,33 @@ export default function DeviceProvisioning() {
         </div>
       </div>
 
-
       <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
-        <h3 className="font-semibold mb-4">Appareil associé</h3>
+        <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
+          <div>
+            <h3 className="font-semibold">Appareil associé</h3>
+            <p className="text-xs text-gray-500 mt-1">Association et présence en ligne sont affichées séparément. Un terminal peut rester associé tout en étant hors ligne.</p>
+          </div>
+          <span className="text-[11px] uppercase tracking-wide text-gray-400">Seuil hors ligne: {Math.round(DEVICE_PRESENCE_STALE_MS / 1000)}s</span>
+        </div>
         <div className="space-y-3">
-          {associatedDevices.filter((device) => device.status === 'device_active').map((device) => (
-            <div key={device.id} className="flex flex-wrap items-center justify-between gap-3 border rounded-lg p-3">
-              <div className="min-w-0">
-                <p className="font-medium text-gray-900">{device.deviceName || 'Sunmi Receiver'}</p>
-                <p className="text-xs text-gray-500">ID: {device.id}</p>
-                <p className="text-xs text-gray-500">{device.platform || 'platform inconnue'} {device.deviceModel ? `· ${device.deviceModel}` : ''}</p>
-                <p className="text-xs text-gray-400">Dernière activité: {device.lastSeenAt ? new Date(device.lastSeenAt).toLocaleString('fr-CH') : 'jamais'}</p>
+          {associatedDevices.filter((device) => device.status === 'device_active').map((device) => {
+            const presence = getDevicePresence(device);
+            return (
+              <div key={device.id} className="flex flex-wrap items-center justify-between gap-3 border rounded-lg p-3">
+                <div className="min-w-0 space-y-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="font-medium text-gray-900">{device.deviceName || 'Sunmi Receiver'}</p>
+                    <span className="inline-flex items-center rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 text-[11px] font-semibold text-blue-700">Associé</span>
+                    <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold ${presence.toneClass}`}>{presence.label}</span>
+                  </div>
+                  <p className="text-xs text-gray-500">ID: {device.id}</p>
+                  <p className="text-xs text-gray-500">{device.platform || 'platform inconnue'} {device.deviceModel ? `· ${device.deviceModel}` : ''}</p>
+                  <p className="text-xs text-gray-400">Dernière activité: {device.lastSeenAt ? new Date(device.lastSeenAt).toLocaleString('fr-CH') : 'jamais'}</p>
+                </div>
+                <button onClick={() => onRevokeDevice(device.id)} disabled={busy} className="text-xs px-3 py-2 border border-red-300 text-red-700 rounded hover:bg-red-50 disabled:opacity-60">Desassocier</button>
               </div>
-              <button onClick={() => onRevokeDevice(device.id)} disabled={busy} className="text-xs px-3 py-2 border border-red-300 text-red-700 rounded hover:bg-red-50 disabled:opacity-60">Desassocier</button>
-            </div>
-          ))}
+            );
+          })}
           {associatedDevices.filter((device) => device.status === 'device_active').length === 0 && (
             <p className="text-sm text-gray-400">Aucun appareil actif associé.</p>
           )}
