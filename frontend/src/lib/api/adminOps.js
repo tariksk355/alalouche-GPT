@@ -21,11 +21,28 @@ export async function getAdminKpis() {
   return data.data;
 }
 
-export async function listAdminOrders() {
-  const data = await backendClient.request('/admin/orders', {
+export async function listAdminOrders({ includeHidden = false } = {}) {
+  const query = includeHidden ? '?includeHidden=true' : '';
+  const data = await backendClient.request(`/admin/orders${query}`, {
     headers: authHeaders(),
   });
   return data.data.orders || [];
+}
+
+export async function hideAdminOrder(orderId) {
+  const data = await backendClient.request(`/admin/orders/${orderId}/hide`, {
+    method: 'POST',
+    headers: authHeaders(),
+  });
+  return data.data.order;
+}
+
+export async function restoreAdminOrder(orderId) {
+  const data = await backendClient.request(`/admin/orders/${orderId}/restore`, {
+    method: 'POST',
+    headers: authHeaders(),
+  });
+  return data.data.order;
 }
 
 export async function updateAdminOrderStatus(orderId, payload) {
@@ -37,11 +54,28 @@ export async function updateAdminOrderStatus(orderId, payload) {
   return data.data.order;
 }
 
-export async function listAdminReservations() {
-  const data = await backendClient.request('/admin/reservations', {
+export async function listAdminReservations({ includeHidden = false } = {}) {
+  const query = includeHidden ? '?includeHidden=true' : '';
+  const data = await backendClient.request(`/admin/reservations${query}`, {
     headers: authHeaders(),
   });
   return data.data.reservations || [];
+}
+
+export async function hideAdminReservation(reservationId) {
+  const data = await backendClient.request(`/admin/reservations/${reservationId}/hide`, {
+    method: 'POST',
+    headers: authHeaders(),
+  });
+  return data.data.reservation;
+}
+
+export async function restoreAdminReservation(reservationId) {
+  const data = await backendClient.request(`/admin/reservations/${reservationId}/restore`, {
+    method: 'POST',
+    headers: authHeaders(),
+  });
+  return data.data.reservation;
 }
 
 export async function updateAdminReservationStatus(reservationId, payload) {

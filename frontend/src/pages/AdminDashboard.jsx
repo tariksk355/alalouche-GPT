@@ -7,7 +7,7 @@ import AdminMarketing from "@/components/admin/AdminMarketing";
 import DeviceProvisioning from "@/components/admin/DeviceProvisioning";
 import { recordAdminLoginDiagnostic } from "@/lib/adminLoginDiagnostics";
 import { clearStoredAdminSession, getStoredAdminSession } from "@/lib/customerAuth";
-import { getAdminKpis, listAdminOrders, listAdminReservations, updateAdminOrderStatus, updateAdminReservationStatus } from "@/lib/api/adminOps";
+import { getAdminKpis, hideAdminOrder, hideAdminReservation, listAdminOrders, listAdminReservations, restoreAdminOrder, restoreAdminReservation, updateAdminOrderStatus, updateAdminReservationStatus } from "@/lib/api/adminOps";
 import { createAdminMenuItem, deleteAdminMenuItem, listAdminMenuCatalog, updateAdminMenuItem, uploadAdminMenuImage } from "@/lib/api/adminMenuCatalog";
 import { createAdminCustomer, deleteAdminCustomer, listAdminCustomers, updateAdminCustomer } from "@/lib/api/adminCustomers";
 import { getAdminBrandingSettings, getAdminPrinterSettings, updateAdminBrandingSettings, updateAdminPrinterSettings, uploadAdminBrandingLogo } from "@/lib/api/adminSettings";
@@ -385,11 +385,8 @@ function AdminOrders() {
   const [successMsg, setSuccessMsg] = useState("");
   const [errorMsg, setErrorMsg] = useState("");
   const [kpis, setKpis] = useState(null);
-
-  useEffect(() => {
-    loadOrders();
-    loadKpis();
-  }, []);
+  const [showHidden, setShowHidden] = useState(false);
+  const [pendingOrderActionId, setPendingOrderActionId] = useState("");
 
   const normalizeOrder = (order) => {
     const payload = order?.payload && typeof order.payload === 'object' ? order.payload : {};
@@ -407,14 +404,15 @@ function AdminOrders() {
       notes: payload.notes || null,
       created_date: order.createdAt,
       prep_time_minutes: order.prepMinutes,
+      admin_hidden_at: order.adminHiddenAt || null,
     };
   };
 
-  const loadOrders = async () => {
+  const loadOrders = async (nextShowHidden = showHidden) => {
     setLoading(true);
     setErrorMsg("");
     try {
-      const data = await listAdminOrders();
+      const data = await listAdminOrders({ includeHidden: nextShowHidden });
       setOrders(data.map(normalizeOrder));
     } catch (error) {
       setErrorMsg(error.message || 'Impossible de charger les commandes.');
@@ -422,6 +420,11 @@ function AdminOrders() {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    loadOrders(showHidden);
+    loadKpis();
+  }, [showHidden]);
 
   const loadKpis = async () => {
     try {
@@ -440,14 +443,40 @@ function AdminOrders() {
   const setPrepTime = async (order, minutes) => {
     await updateAdminOrderStatus(order.id, { status: 'accepted', prepMinutes: minutes });
     showSuccess(`Commande acceptée — prête dans ${minutes} min`);
-    await Promise.all([loadOrders(), loadKpis()]);
+    await Promise.all([loadOrders(showHidden), loadKpis()]);
   };
 
   const updateStatus = async (order, status) => {
     await updateAdminOrderStatus(order.id, { status });
     const labels = { ready: 'Commande marquée comme prête ✓', completed: 'Commande terminée ✓' };
     showSuccess(labels[status] || 'Statut mis à jour ✓');
-    await Promise.all([loadOrders(), loadKpis()]);
+    await Promise.all([loadOrders(showHidden), loadKpis()]);
+  };
+
+  const toggleOrderVisibility = async (order) => {
+    const isHidden = Boolean(order.admin_hidden_at);
+    const confirmationMessage = isHidden
+      ? `Réafficher la commande ${order.order_number} dans la vue principale ?`
+      : `Masquer la commande ${order.order_number} de la vue principale ?`;
+    if (!window.confirm(confirmationMessage)) return;
+
+    setPendingOrderActionId(order.id);
+    setErrorMsg('');
+    try {
+      if (isHidden) {
+        await restoreAdminOrder(order.id);
+        showSuccess('Commande réaffichée dans la vue admin ✓');
+      } else {
+        await hideAdminOrder(order.id);
+        if (selectedOrder?.id === order.id) setSelectedOrder(null);
+        showSuccess('Commande masquée de la vue admin ✓');
+      }
+      await loadOrders(showHidden);
+    } catch (error) {
+      setErrorMsg(error.message || 'Impossible de mettre à jour la visibilité de la commande.');
+    } finally {
+      setPendingOrderActionId('');
+    }
   };
 
   const STATUS_COLORS = { new: "bg-yellow-500", accepted: "bg-blue-500", ready: "bg-green-500", completed: "bg-gray-400", cancelled: "bg-red-500" };
@@ -477,16 +506,24 @@ function AdminOrders() {
         </div>
       )}
 
-      <div className="flex gap-2 mb-6 overflow-x-auto pb-2">
-        {["all", "new", "accepted", "ready", "completed"].map(f => (
-          <button key={f} onClick={() => setFilter(f)}
-            className={`px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-colors ${filter === f ? "bg-[#b5122a] text-white" : "bg-white border border-gray-200 text-gray-600 hover:text-gray-900"}`}>
-            {f === "all" ? "Toutes" : STATUS_LABELS[f]}
-            {f === "new" && orders.filter(o => o.status === "new").length > 0 && (
-              <span className="ml-1 bg-yellow-500 text-black text-xs rounded-full px-1.5">{orders.filter(o => o.status === "new").length}</span>
-            )}
-          </button>
-        ))}
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
+        <div className="flex gap-2 overflow-x-auto pb-2">
+          {["all", "new", "accepted", "ready", "completed"].map(f => (
+            <button key={f} onClick={() => setFilter(f)}
+              className={`px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-colors ${filter === f ? "bg-[#b5122a] text-white" : "bg-white border border-gray-200 text-gray-600 hover:text-gray-900"}`}>
+              {f === "all" ? "Toutes" : STATUS_LABELS[f]}
+              {f === "new" && orders.filter(o => o.status === "new").length > 0 && (
+                <span className="ml-1 bg-yellow-500 text-black text-xs rounded-full px-1.5">{orders.filter(o => o.status === "new").length}</span>
+              )}
+            </button>
+          ))}
+        </div>
+        <button
+          onClick={() => setShowHidden((current) => !current)}
+          className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${showHidden ? "bg-gray-900 text-white" : "bg-white border border-gray-200 text-gray-600 hover:text-gray-900"}`}
+        >
+          {showHidden ? "Masqués visibles" : "Afficher les masqués"}
+        </button>
       </div>
 
       {loading ? (
@@ -512,8 +549,18 @@ function AdminOrders() {
                     )}
                   </div>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap justify-end">
                   <span className={`px-2 py-1 rounded text-xs font-medium ${STATUS_COLORS[order.status]} text-white`}>{STATUS_LABELS[order.status]}</span>
+                  {order.admin_hidden_at && (
+                    <span className="px-2 py-1 rounded text-xs font-medium border border-gray-200 bg-gray-100 text-gray-600">Masquée</span>
+                  )}
+                  <button
+                    onClick={() => toggleOrderVisibility(order)}
+                    disabled={pendingOrderActionId === order.id}
+                    className="text-xs text-gray-500 hover:text-gray-900 border border-gray-200 px-2 py-1 rounded disabled:opacity-60"
+                  >
+                    {pendingOrderActionId === order.id ? '...' : order.admin_hidden_at ? 'Réafficher' : 'Masquer'}
+                  </button>
                   <button onClick={() => setSelectedOrder(selectedOrder?.id === order.id ? null : order)}
                     className="text-xs text-gray-500 hover:text-gray-900 border border-gray-200 px-2 py-1 rounded">
                     {selectedOrder?.id === order.id ? "Fermer" : "Détails"}
@@ -842,6 +889,8 @@ function AdminReservations() {
   const [loading, setLoading] = useState(true);
   const [successMsg, setSuccessMsg] = useState("");
   const [errorMsg, setErrorMsg] = useState("");
+  const [showHidden, setShowHidden] = useState(false);
+  const [pendingReservationActionId, setPendingReservationActionId] = useState("");
 
   const normalizeReservation = (reservation) => ({
     ...reservation,
@@ -852,13 +901,14 @@ function AdminReservations() {
     date: formatDate(reservation.reservationDate),
     time: formatTime(reservation.reservationDate),
     created_date: reservation.createdAt,
+    admin_hidden_at: reservation.adminHiddenAt || null,
   });
 
-  const loadReservations = async () => {
+  const loadReservations = async (nextShowHidden = showHidden) => {
     setLoading(true);
     setErrorMsg('');
     try {
-      const data = await listAdminReservations();
+      const data = await listAdminReservations({ includeHidden: nextShowHidden });
       setReservations(data.map(normalizeReservation));
     } catch (error) {
       setErrorMsg(error.message || 'Impossible de charger les réservations.');
@@ -868,8 +918,8 @@ function AdminReservations() {
   };
 
   useEffect(() => {
-    loadReservations();
-  }, []);
+    loadReservations(showHidden);
+  }, [showHidden]);
 
   const updateStatus = async (r, status) => {
     try {
@@ -882,6 +932,32 @@ function AdminReservations() {
     }
   };
 
+  const toggleReservationVisibility = async (reservation) => {
+    const isHidden = Boolean(reservation.admin_hidden_at);
+    const confirmationMessage = isHidden
+      ? `Réafficher la réservation de ${reservation.name} dans la vue principale ?`
+      : `Masquer la réservation de ${reservation.name} de la vue principale ?`;
+    if (!window.confirm(confirmationMessage)) return;
+
+    setPendingReservationActionId(reservation.id);
+    setErrorMsg('');
+    try {
+      if (isHidden) {
+        await restoreAdminReservation(reservation.id);
+        setSuccessMsg('Réservation réaffichée dans la vue admin ✓');
+      } else {
+        await hideAdminReservation(reservation.id);
+        setSuccessMsg('Réservation masquée de la vue admin ✓');
+      }
+      setTimeout(() => setSuccessMsg(''), 4000);
+      await loadReservations(showHidden);
+    } catch (error) {
+      setErrorMsg(error.message || 'Impossible de mettre à jour la visibilité de la réservation.');
+    } finally {
+      setPendingReservationActionId('');
+    }
+  };
+
   const STATUS_COLORS = { pending: 'bg-yellow-500', confirmed: 'bg-green-500', cancelled: 'bg-red-500' };
   const STATUS_LABELS = { pending: 'En attente', confirmed: 'Confirmée', cancelled: 'Annulée' };
 
@@ -889,6 +965,14 @@ function AdminReservations() {
     <div>
       {successMsg && <AdminNotice>{successMsg}</AdminNotice>}
       {errorMsg && <AdminNotice type="error">{errorMsg}</AdminNotice>}
+      <div className="flex justify-end mb-4">
+        <button
+          onClick={() => setShowHidden((current) => !current)}
+          className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${showHidden ? "bg-gray-900 text-white" : "bg-white border border-gray-200 text-gray-600 hover:text-gray-900"}`}
+        >
+          {showHidden ? "Masquées visibles" : "Afficher les masquées"}
+        </button>
+      </div>
       <div className="space-y-3">
         {loading ? <AdminLoadingState /> :
           reservations.map(r => (
@@ -902,8 +986,18 @@ function AdminReservations() {
                   {r.created_date && <div className="text-gray-400 text-xs mt-1">Reçu le {formatDateFull(r.created_date)} à {formatTime(r.created_date)}</div>}
                   {r.notes && <div className="text-gray-500 text-sm mt-1 italic">"{r.notes}"</div>}
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap justify-end">
                   <span className={`px-2 py-1 rounded text-xs font-medium text-white ${STATUS_COLORS[r.status]}`}>{STATUS_LABELS[r.status]}</span>
+                  {r.admin_hidden_at && (
+                    <span className="px-2 py-1 rounded text-xs font-medium border border-gray-200 bg-gray-100 text-gray-600">Masquée</span>
+                  )}
+                  <button
+                    onClick={() => toggleReservationVisibility(r)}
+                    disabled={pendingReservationActionId === r.id}
+                    className="px-3 py-1 border border-gray-200 text-gray-600 rounded text-xs hover:text-gray-900 disabled:opacity-60"
+                  >
+                    {pendingReservationActionId === r.id ? '...' : r.admin_hidden_at ? 'Réafficher' : 'Masquer'}
+                  </button>
                   {r.status === 'pending' && (
                     <>
                       <button onClick={() => updateStatus(r, 'confirmed')} className="px-3 py-1 bg-green-600 text-white rounded text-xs hover:bg-green-500">Confirmer</button>

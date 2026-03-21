@@ -325,19 +325,73 @@ export class OrdersService {
   }
 
 
-  async listAdminOrders(restaurantId: string) {
+  async listAdminOrders(restaurantId: string, options?: { includeHidden?: boolean }) {
     return this.prisma.order.findMany({
-      where: { restaurantId },
+      where: {
+        restaurantId,
+        ...(options?.includeHidden ? {} : { adminHiddenAt: null }),
+      },
       orderBy: { createdAt: 'desc' },
       take: 200,
     });
   }
 
-  async listAdminReservations(restaurantId: string) {
+  async hideAdminOrder(restaurantId: string, orderId: string) {
+    const order = await this.prisma.order.findFirst({ where: { id: orderId, restaurantId } });
+    if (!order) {
+      throw new NotFoundException({ error: 'ORDER_NOT_FOUND', message: 'Order not found for this restaurant.' });
+    }
+
+    return this.prisma.order.update({
+      where: { id: orderId },
+      data: { adminHiddenAt: new Date() },
+    });
+  }
+
+  async restoreAdminOrder(restaurantId: string, orderId: string) {
+    const order = await this.prisma.order.findFirst({ where: { id: orderId, restaurantId } });
+    if (!order) {
+      throw new NotFoundException({ error: 'ORDER_NOT_FOUND', message: 'Order not found for this restaurant.' });
+    }
+
+    return this.prisma.order.update({
+      where: { id: orderId },
+      data: { adminHiddenAt: null },
+    });
+  }
+
+  async listAdminReservations(restaurantId: string, options?: { includeHidden?: boolean }) {
     return this.prisma.reservation.findMany({
-      where: { restaurantId },
+      where: {
+        restaurantId,
+        ...(options?.includeHidden ? {} : { adminHiddenAt: null }),
+      },
       orderBy: [{ reservationDate: 'asc' }, { createdAt: 'desc' }],
       take: 200,
+    });
+  }
+
+  async hideAdminReservation(restaurantId: string, reservationId: string) {
+    const reservation = await this.prisma.reservation.findFirst({ where: { id: reservationId, restaurantId } });
+    if (!reservation) {
+      throw new NotFoundException({ error: 'RESERVATION_NOT_FOUND', message: 'Reservation not found for this restaurant.' });
+    }
+
+    return this.prisma.reservation.update({
+      where: { id: reservationId },
+      data: { adminHiddenAt: new Date() },
+    });
+  }
+
+  async restoreAdminReservation(restaurantId: string, reservationId: string) {
+    const reservation = await this.prisma.reservation.findFirst({ where: { id: reservationId, restaurantId } });
+    if (!reservation) {
+      throw new NotFoundException({ error: 'RESERVATION_NOT_FOUND', message: 'Reservation not found for this restaurant.' });
+    }
+
+    return this.prisma.reservation.update({
+      where: { id: reservationId },
+      data: { adminHiddenAt: null },
     });
   }
 

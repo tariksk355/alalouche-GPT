@@ -101,6 +101,7 @@ body[data-receiver-theme="light"] {
 body { margin: 0; font-family: Arial, sans-serif; background: var(--receiver-bg); color: var(--receiver-text); transition: background 160ms ease, color 160ms ease; }
 .app { min-height: 100vh; padding: 16px; }
 .card { background: var(--receiver-card-bg); border: 1px solid var(--receiver-card-border); border-radius: 12px; padding: 14px; margin-bottom: 12px; box-shadow: 0 10px 24px var(--receiver-shadow); }
+.card-confirming-delete { border-color: var(--receiver-warning); box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.18); }
 .title { font-size: 22px; font-weight: 700; margin-bottom: 6px; }
 .subtle { color: var(--receiver-muted); font-size: 13px; }
 .error { color: var(--receiver-error); }
@@ -133,6 +134,12 @@ button:disabled { opacity: 0.6; }
 }
 .archive-delete-confirm {
   margin-top: 8px;
+}
+
+.archive-delete-confirm-note {
+  color: var(--receiver-warning);
+  font-size: 13px;
+  font-weight: 600;
 }
 
 .prep-row { margin-top: 10px; }

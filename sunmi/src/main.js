@@ -1473,9 +1473,10 @@ function render() {
     const printJob = state.printJobsByOrderId[order.id];
     const printUiState = printJob?.uiState ? normalizePrintUiState(printJob.uiState) : null;
     const printMessage = printUiState ? printStateMessage(printUiState) : '';
+    const hideCompletedReprintActions = isCompleted && completedOrderUi.confirmDelete;
 
     return `
-      <div class="card" data-order-id="${order.id}">
+      <div class="card ${hideCompletedReprintActions ? 'card-confirming-delete' : ''}" data-order-id="${order.id}">
         <div class="topbar">
           <strong>${order.orderNumber || order.id}</strong>
           <div class="card-actions-right">
@@ -1485,14 +1486,13 @@ function render() {
         </div>
         ${isCompleted && completedOrderUi.confirmDelete
           ? `<div class="archive-delete-confirm">
-              <div class="reservation-feedback reservation-feedback-warning">${t('archived_remove_order_confirm')}</div>
               <div class="btn-row">
-                <button class="btn-danger btn-inline" data-action="delete-completed-order-confirm" data-id="${order.id}">${t('action_delete')}</button>
-                <button class="btn-secondary-inline btn-inline" data-action="delete-completed-order-abort" data-id="${order.id}">${t('action_back')}</button>
+                <button class="btn-danger btn-inline" data-action="delete-completed-order-confirm" data-id="${order.id}">${t('action_confirm')}</button>
+                <button class="btn-secondary-inline btn-inline" data-action="delete-completed-order-abort" data-id="${order.id}">${t('cancel')}</button>
               </div>
             </div>`
           : ''}
-        <div class="print-state-row">${printUiState === 'NEEDS_ATTENTION' ? `<span class="print-status-pill print-status-pill-${printUiState.toLowerCase()}">${printMessage}</span>` : ''}${printUiState === 'NEEDS_ATTENTION' && printJob?.jobId && !printJob?.nonRetryable ? `<button class="btn-secondary-inline print-retry-btn" data-action="retry-print" data-job-id="${printJob.jobId}" data-id="${order.id}" ${state.printRetryInFlightByOrderId[order.id] ? 'disabled' : ''}>${t('action_retry_print')}</button>` : ''}<button class="btn-secondary-inline print-retry-btn" data-action="reprint-order" data-id="${order.id}" ${state.printDispatchInFlightByOrderId[order.id] ? 'disabled' : ''}>${t('action_reprint')}</button></div>
+        <div class="print-state-row">${printUiState === 'NEEDS_ATTENTION' ? `<span class="print-status-pill print-status-pill-${printUiState.toLowerCase()}">${printMessage}</span>` : ''}${!hideCompletedReprintActions && printUiState === 'NEEDS_ATTENTION' && printJob?.jobId && !printJob?.nonRetryable ? `<button class="btn-secondary-inline print-retry-btn" data-action="retry-print" data-job-id="${printJob.jobId}" data-id="${order.id}" ${state.printRetryInFlightByOrderId[order.id] ? 'disabled' : ''}>${t('action_retry_print')}</button>` : ''}${hideCompletedReprintActions ? `<span class="archive-delete-confirm-note">${t('archived_remove_order_confirm')}</span>` : `<button class="btn-secondary-inline print-retry-btn" data-action="reprint-order" data-id="${order.id}" ${state.printDispatchInFlightByOrderId[order.id] ? 'disabled' : ''}>${t('action_reprint')}</button>`}</div>
         ${printJob?.nonRetryable ? `<div class="subtle print-status-unavailable">${t('print_blocked')}: ${escapeHtml(printJob.blockedReasonMessage || t('print_blocked_operator_action'))}</div>` : ''}
         ${printJob?.transientUnavailable ? `<div class="subtle print-status-unavailable">${t('print_status_unavailable')}</div>` : ''}
         ${sectionRowsHtml}

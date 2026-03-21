@@ -162,12 +162,14 @@ model Order {
   promotionCode String?
   prepMinutes   Int?
   totalAmount   Decimal     @default(0) @db.Decimal(10, 2)
+  adminHiddenAt DateTime?
   payload       Json?
   createdAt     DateTime    @default(now())
   updatedAt     DateTime    @updatedAt
 
   @@index([restaurantId, customerId, createdAt])
   @@index([restaurantId, promotionId, createdAt])
+  @@index([restaurantId, adminHiddenAt, createdAt])
 }
 
 model Reservation {
@@ -182,8 +184,11 @@ model Reservation {
   status          ReservationStatus @default(pending)
   notes           String?
   statusUpdatedAt DateTime?
+  adminHiddenAt   DateTime?
   createdAt       DateTime          @default(now())
   updatedAt       DateTime          @updatedAt
+
+  @@index([restaurantId, adminHiddenAt, reservationDate])
 }
 
 model Promotion {

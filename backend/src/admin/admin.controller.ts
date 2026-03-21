@@ -148,13 +148,40 @@ export class AdminController {
 
   @Get('orders')
   async listOrders(
+    @Query('includeHidden') includeHidden?: string,
     @Headers('authorization') authorization?: string,
     @Headers('x-admin-token') adminToken?: string,
     @Headers('x-restaurant-id') legacyRestaurantId?: string,
   ) {
     const auth = this.requireAdmin(authorization, adminToken, legacyRestaurantId);
-    const orders = await this.ordersService.listAdminOrders(auth.restaurantId);
+    const orders = await this.ordersService.listAdminOrders(auth.restaurantId, {
+      includeHidden: includeHidden === 'true',
+    });
     return ok({ orders });
+  }
+
+  @Post('orders/:id/hide')
+  async hideOrderFromAdminView(
+    @Param('id') id: string,
+    @Headers('authorization') authorization?: string,
+    @Headers('x-admin-token') adminToken?: string,
+    @Headers('x-restaurant-id') legacyRestaurantId?: string,
+  ) {
+    const auth = this.requireAdmin(authorization, adminToken, legacyRestaurantId);
+    const order = await this.ordersService.hideAdminOrder(auth.restaurantId, id);
+    return ok({ order });
+  }
+
+  @Post('orders/:id/restore')
+  async restoreOrderToAdminView(
+    @Param('id') id: string,
+    @Headers('authorization') authorization?: string,
+    @Headers('x-admin-token') adminToken?: string,
+    @Headers('x-restaurant-id') legacyRestaurantId?: string,
+  ) {
+    const auth = this.requireAdmin(authorization, adminToken, legacyRestaurantId);
+    const order = await this.ordersService.restoreAdminOrder(auth.restaurantId, id);
+    return ok({ order });
   }
 
   @Post('orders/:id/status')
@@ -172,13 +199,40 @@ export class AdminController {
 
   @Get('reservations')
   async listReservations(
+    @Query('includeHidden') includeHidden?: string,
     @Headers('authorization') authorization?: string,
     @Headers('x-admin-token') adminToken?: string,
     @Headers('x-restaurant-id') legacyRestaurantId?: string,
   ) {
     const auth = this.requireAdmin(authorization, adminToken, legacyRestaurantId);
-    const reservations = await this.ordersService.listAdminReservations(auth.restaurantId);
+    const reservations = await this.ordersService.listAdminReservations(auth.restaurantId, {
+      includeHidden: includeHidden === 'true',
+    });
     return ok({ reservations });
+  }
+
+  @Post('reservations/:id/hide')
+  async hideReservationFromAdminView(
+    @Param('id') id: string,
+    @Headers('authorization') authorization?: string,
+    @Headers('x-admin-token') adminToken?: string,
+    @Headers('x-restaurant-id') legacyRestaurantId?: string,
+  ) {
+    const auth = this.requireAdmin(authorization, adminToken, legacyRestaurantId);
+    const reservation = await this.ordersService.hideAdminReservation(auth.restaurantId, id);
+    return ok({ reservation });
+  }
+
+  @Post('reservations/:id/restore')
+  async restoreReservationToAdminView(
+    @Param('id') id: string,
+    @Headers('authorization') authorization?: string,
+    @Headers('x-admin-token') adminToken?: string,
+    @Headers('x-restaurant-id') legacyRestaurantId?: string,
+  ) {
+    const auth = this.requireAdmin(authorization, adminToken, legacyRestaurantId);
+    const reservation = await this.ordersService.restoreAdminReservation(auth.restaurantId, id);
+    return ok({ reservation });
   }
 
   @Post('reservations/:id/status')
