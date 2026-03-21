@@ -1,0 +1,8 @@
+<svg width="720" height="260" viewBox="0 0 720 260" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="720" height="260" rx="28" fill="black"/>
+  <path d="M147 57C161.5 57 172 67.1 172 80.2C172 87.3 168.7 94 162.8 98.7C154.5 105.4 149.9 113.1 149.1 124.3H130.9C131.7 110.6 138.3 99.8 149.3 90.7C153.1 87.6 155.2 84.1 155.2 80.2C155.2 75 151.7 71.2 146.3 71.2C140.6 71.2 136.8 75.4 136.8 81.4H119C119.4 67.3 130.4 57 147 57ZM140.2 152.8C146.4 152.8 151.4 157.6 151.4 163.7C151.4 169.8 146.4 174.7 140.2 174.7C134 174.7 129 169.8 129 163.7C129 157.6 134 152.8 140.2 152.8Z" fill="white"/>
+  <path d="M200 180C247 162 289 150 333 145C415 135.7 490.1 145.1 577 173.5" stroke="white" stroke-width="6" stroke-linecap="round"/>
+  <path d="M558 164.5C576.5 163 593.5 167.2 608 177" stroke="#C9A86A" stroke-width="7" stroke-linecap="round"/>
+  <text x="357" y="118" text-anchor="middle" fill="white" font-size="78" font-family="'Brush Script MT', 'Lucida Handwriting', cursive">À la Louche</text>
+  <text x="357" y="160" text-anchor="middle" fill="#D9D9D9" font-size="23" font-family="'Inter', Arial, sans-serif" letter-spacing="4">RESTAURANT • GRANGES-PACCOT</text>
+</svg>

@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom';
+import footerLogoLight from './assets/footer-logo-light.svg';
 import { createPageUrl } from '@/utils';
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/lib/AuthContext';
@@ -9,9 +10,6 @@ import { Mail, MapPin, Phone, ShoppingCart } from 'lucide-react';
 
 const DEFAULT_HEADER_LOGO =
   'https://qtrypzzcjebvfcihiynt.supabase.co/storage/v1/object/public/base44-prod/public/user_6988e8d4fc295c9d940c5901/05562fbc0_Alalouche-logo.png';
-const DEFAULT_FOOTER_LOGO =
-  'https://qtrypzzcjebvfcihiynt.supabase.co/storage/v1/object/public/base44-prod/public/699f6d055b5dc5582a3c406f/109735483_Footer-logo.png';
-
 const RESTAURANT_HOURS = [
   { day: 'Lundi:', hours: 'fermé' },
   { day: 'Ma - Ven:', hours: '10h00 - 14h00 & 17h00 - 22h00' },
@@ -43,7 +41,7 @@ export default function Layout({ children, currentPageName }) {
   const primaryColor = tenant?.branding?.primaryColor || '#b5122a';
   const brandName = sanitizeBrandName(tenant?.name || 'À la Louche');
   const logoUrl = tenant?.branding?.logoUrl || DEFAULT_HEADER_LOGO;
-  const footerLogoUrl = tenant?.branding?.footerLogoUrl || logoUrl || DEFAULT_FOOTER_LOGO;
+  const footerLogoUrl = footerLogoLight;
   const headerContact = {
     phone: RESTAURANT_CONTACT.phone,
     addressLine1: RESTAURANT_CONTACT.addressLine1,
