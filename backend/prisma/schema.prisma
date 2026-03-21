@@ -36,6 +36,11 @@ enum RestaurantStatus {
   onboarding
 }
 
+enum PromotionDiscountType {
+  percentage
+  fixed_amount
+}
+
 model Restaurant {
   id                  String                 @id @default(cuid())
   name                String
@@ -59,6 +64,7 @@ model Restaurant {
   pairingRequests     DevicePairingRequest[]
   adminUsers          AdminUser[]
   customers           Customer[]
+  promotions          Promotion[]
 }
 
 model AdminUser {
@@ -172,4 +178,25 @@ model Reservation {
   statusUpdatedAt DateTime?
   createdAt       DateTime          @default(now())
   updatedAt       DateTime          @updatedAt
+}
+
+model Promotion {
+  id               String                @id @default(cuid())
+  restaurantId     String
+  restaurant       Restaurant            @relation(fields: [restaurantId], references: [id])
+  name             String
+  code             String
+  discountType     PromotionDiscountType
+  discountValue    Decimal               @db.Decimal(10, 2)
+  startsAt         DateTime?
+  endsAt           DateTime?
+  isActive         Boolean               @default(true)
+  usageLimit       Int?
+  perCustomerLimit Int?
+  usageCount       Int                   @default(0)
+  createdAt        DateTime              @default(now())
+  updatedAt        DateTime              @updatedAt
+
+  @@unique([restaurantId, code])
+  @@index([restaurantId, isActive, startsAt, endsAt])
 }

@@ -3,6 +3,7 @@ import { createPageUrl } from "@/utils";
 import { backendClient } from "@/api/backendClient";
 import { formatTime, formatDate, formatDateFull } from "@/components/formatDate";
 import AdminAnalytics from "@/components/admin/AdminAnalytics";
+import AdminMarketing from "@/components/admin/AdminMarketing";
 import DeviceProvisioning from "@/components/admin/DeviceProvisioning";
 import { recordAdminLoginDiagnostic } from "@/lib/adminLoginDiagnostics";
 import { clearStoredAdminSession, getStoredAdminSession } from "@/lib/customerAuth";
@@ -10,7 +11,6 @@ import { getAdminKpis, listAdminOrders, listAdminReservations, updateAdminOrderS
 import { createAdminMenuItem, deleteAdminMenuItem, listAdminMenuCatalog, updateAdminMenuItem, uploadAdminMenuImage } from "@/lib/api/adminMenuCatalog";
 import { createAdminCustomer, deleteAdminCustomer, listAdminCustomers, updateAdminCustomer } from "@/lib/api/adminCustomers";
 import { getAdminBrandingSettings, getAdminPrinterSettings, updateAdminBrandingSettings, updateAdminPrinterSettings, uploadAdminBrandingLogo } from "@/lib/api/adminSettings";
-import { getAdminMarketingRecipientCount, listAdminMarketingRecipients, sendAdminMarketingBulkEmail } from "@/lib/api/adminMarketing";
 import { useTenant } from "@/lib/TenantContext";
 import html2canvas from "html2canvas";
 
@@ -1080,155 +1080,6 @@ function AdminCustomers() {
         ))}
         {!loading && filtered.length === 0 && <AdminEmptyState label="Aucun client trouvé." />}
       </div>
-    </div>
-  );
-}
-
-function AdminMarketing() {
-  const [emailForm, setEmailForm] = useState({ subject: "", body: "" });
-  const [loading, setLoading] = useState(false);
-  const [success, setSuccess] = useState("");
-  const [error, setError] = useState("");
-  const [customerCount, setCustomerCount] = useState(0);
-  const [recipients, setRecipients] = useState([]);
-  const [loadingRecipients, setLoadingRecipients] = useState(false);
-  const [excludedRecipientIds, setExcludedRecipientIds] = useState([]);
-
-  const loadRecipients = async () => {
-    setLoadingRecipients(true);
-    setError("");
-    try {
-      const [count, subscribedRecipients] = await Promise.all([
-        getAdminMarketingRecipientCount(),
-        listAdminMarketingRecipients(),
-      ]);
-      setCustomerCount(count);
-      setRecipients(subscribedRecipients);
-      setExcludedRecipientIds((prev) => prev.filter((id) => subscribedRecipients.some((recipient) => recipient.id === id)));
-    } catch (e) {
-      setError(e.message || "Impossible de charger les destinataires marketing.");
-    } finally {
-      setLoadingRecipients(false);
-    }
-  };
-
-  useEffect(() => {
-    loadRecipients();
-  }, []);
-
-  const targetedCount = Math.max(recipients.length - excludedRecipientIds.length, 0);
-
-  const toggleExcludedRecipient = (customerId) => {
-    setExcludedRecipientIds((prev) =>
-      prev.includes(customerId)
-        ? prev.filter((id) => id !== customerId)
-        : [...prev, customerId]
-    );
-  };
-
-  const sendBulkEmail = async (e) => {
-    e.preventDefault();
-    if (loading) return;
-    setLoading(true);
-    setSuccess("");
-    setError("");
-
-    try {
-      const result = await sendAdminMarketingBulkEmail({
-        subject: emailForm.subject,
-        body: emailForm.body,
-        excludedCustomerIds: excludedRecipientIds,
-      });
-
-      if (result.recipientsMatched === 0) {
-        setSuccess("Aucun client abonné à l'email marketing.");
-      } else {
-        const exclusionMessage = result.excludedCount > 0 ? ` (${result.excludedCount} exclu${result.excludedCount > 1 ? "s" : ""})` : "";
-        setSuccess(`✅ Envoi traité pour ${result.recipientsDispatched} client(s) sur ${result.recipientsMatched} ciblé(s)${exclusionMessage}.`);
-      }
-
-      setEmailForm({ subject: "", body: "" });
-      setExcludedRecipientIds([]);
-      await loadRecipients();
-    } catch (e) {
-      setError(e.message || "Impossible d'envoyer la campagne marketing.");
-    } finally {
-      setLoading(false);
-      setTimeout(() => {
-        setSuccess("");
-        setError("");
-      }, 6000);
-    }
-  };
-
-  return (
-    <div className="max-w-2xl">
-      {success && <AdminNotice>{success}</AdminNotice>}
-      {error && <AdminNotice type="error">{error}</AdminNotice>}
-      <form onSubmit={sendBulkEmail} className="bg-white rounded-xl border border-gray-200 p-6 space-y-4 shadow-sm">
-        <p className="text-gray-500 text-sm">{customerCount} clients abonnés aux emails</p>
-        <AdminNotice type="info">
-          Cette action envoie immédiatement la campagne aux clients abonnés. Vous pouvez exclure certains destinataires avant l’envoi.
-        </AdminNotice>
-        <div className="rounded-lg border border-gray-200 bg-gray-50 p-4">
-          <div className="flex items-center justify-between gap-3 mb-3">
-            <div>
-              <p className="text-sm font-medium text-gray-900">Destinataires abonnés</p>
-              <p className="text-xs text-gray-500">{targetedCount} destinataire{targetedCount > 1 ? "s" : ""} ciblé{targetedCount > 1 ? "s" : ""} après exclusions.</p>
-            </div>
-            {excludedRecipientIds.length > 0 && (
-              <button
-                type="button"
-                onClick={() => setExcludedRecipientIds([])}
-                className="text-xs text-gray-500 hover:text-gray-700"
-              >
-                Réinitialiser les exclusions
-              </button>
-            )}
-          </div>
-          {loadingRecipients ? (
-            <AdminLoadingState label="Chargement des abonnés..." />
-          ) : recipients.length === 0 ? (
-            <AdminEmptyState label="Aucun client abonné à l'email marketing." />
-          ) : (
-            <div className="space-y-2 max-h-72 overflow-auto">
-              {recipients.map((recipient) => {
-                const isExcluded = excludedRecipientIds.includes(recipient.id);
-                return (
-                  <label key={recipient.id} className={`flex items-start gap-3 rounded-lg border px-3 py-3 cursor-pointer ${isExcluded ? "border-red-200 bg-red-50" : "border-gray-200 bg-white"}`}>
-                    <input
-                      type="checkbox"
-                      checked={isExcluded}
-                      onChange={() => toggleExcludedRecipient(recipient.id)}
-                      className="mt-1 h-4 w-4 rounded border-gray-300 text-[#b5122a] focus:ring-[#b5122a]"
-                    />
-                    <div className="min-w-0">
-                      <div className="text-sm font-medium text-gray-900">{recipient.fullName}</div>
-                      <div className="text-xs text-gray-500 break-all">{recipient.email}</div>
-                    </div>
-                    <span className={`ml-auto text-xs font-medium ${isExcluded ? "text-red-600" : "text-green-600"}`}>
-                      {isExcluded ? "Exclu" : "Inclus"}
-                    </span>
-                  </label>
-                );
-              })}
-            </div>
-          )}
-        </div>
-        <div>
-          <label className="block text-sm text-gray-500 mb-1">Sujet *</label>
-          <input required value={emailForm.subject} onChange={e => setEmailForm({ ...emailForm, subject: e.target.value })}
-            className="w-full bg-gray-50 border border-gray-200 text-gray-900 px-4 py-2 rounded-lg focus:outline-none focus:border-gray-400" placeholder="Promotion du week-end !" />
-        </div>
-        <div>
-          <label className="block text-sm text-gray-500 mb-1">Message *</label>
-          <textarea required rows={8} value={emailForm.body} onChange={e => setEmailForm({ ...emailForm, body: e.target.value })}
-            className="w-full bg-gray-50 border border-gray-200 text-gray-900 px-4 py-2 rounded-lg focus:outline-none focus:border-gray-400 resize-none" placeholder="Votre message..." />
-        </div>
-        <button type="submit" disabled={loading || targetedCount === 0} className="w-full py-3 bg-[#b5122a] text-white font-semibold rounded-lg hover:bg-[#8f0e21] disabled:opacity-60 transition-colors">
-          {loading ? "Envoi en cours..." : targetedCount === customerCount ? "Envoyer à tous les abonnés" : `Envoyer à ${targetedCount} abonné${targetedCount > 1 ? "s" : ""}`}
-        </button>
-      </form>
     </div>
   );
 }

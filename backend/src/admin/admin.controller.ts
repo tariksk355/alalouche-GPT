@@ -35,6 +35,7 @@ import { UpdateAdminPrinterSettingsDto } from './dto/update-admin-printer-settin
 import { UpdateAdminBrandingSettingsDto } from './dto/update-admin-branding-settings.dto';
 import { AdminMarketingService } from './admin-marketing.service';
 import { SendAdminMarketingEmailDto } from './dto/send-admin-marketing-email.dto';
+import { UpsertAdminPromotionDto } from './dto/upsert-admin-promotion.dto';
 import { AdminMediaStorageService } from './admin-media-storage.service';
 import { UploadedMenuImageFile } from './menu-image-upload.types';
 
@@ -301,6 +302,44 @@ export class AdminController {
     const subscribedOnly = subscribed !== 'false';
     const count = await this.adminMarketingService.getRecipientCount(auth.restaurantId, subscribedOnly);
     return ok({ count, subscribed: subscribedOnly });
+  }
+
+  @Get('marketing/promotions')
+  async listMarketingPromotions(
+    @Headers('authorization') authorization?: string,
+    @Headers('x-admin-token') adminToken?: string,
+    @Headers('x-restaurant-id') legacyRestaurantId?: string,
+    @Query('search') search?: string,
+    @Query('status') status?: string,
+  ) {
+    const auth = this.requireAdmin(authorization, adminToken, legacyRestaurantId);
+    const promotions = await this.adminMarketingService.listPromotions(auth.restaurantId, { search, status });
+    return ok({ promotions });
+  }
+
+  @Post('marketing/promotions')
+  async createMarketingPromotion(
+    @Body() dto: UpsertAdminPromotionDto,
+    @Headers('authorization') authorization?: string,
+    @Headers('x-admin-token') adminToken?: string,
+    @Headers('x-restaurant-id') legacyRestaurantId?: string,
+  ) {
+    const auth = this.requireAdmin(authorization, adminToken, legacyRestaurantId);
+    const promotion = await this.adminMarketingService.createPromotion(auth.restaurantId, dto);
+    return ok({ promotion });
+  }
+
+  @Patch('marketing/promotions/:promotionId')
+  async updateMarketingPromotion(
+    @Param('promotionId') promotionId: string,
+    @Body() dto: UpsertAdminPromotionDto,
+    @Headers('authorization') authorization?: string,
+    @Headers('x-admin-token') adminToken?: string,
+    @Headers('x-restaurant-id') legacyRestaurantId?: string,
+  ) {
+    const auth = this.requireAdmin(authorization, adminToken, legacyRestaurantId);
+    const promotion = await this.adminMarketingService.updatePromotion(auth.restaurantId, promotionId, dto);
+    return ok({ promotion });
   }
 
   @Post('marketing/send-bulk-email')

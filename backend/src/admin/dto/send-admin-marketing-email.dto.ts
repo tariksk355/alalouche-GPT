@@ -15,4 +15,8 @@ export class SendAdminMarketingEmailDto {
   @IsArray()
   @IsString({ each: true })
   excludedCustomerIds?: string[];
+
+  @IsOptional()
+  @IsString()
+  promotionId?: string;
 }
