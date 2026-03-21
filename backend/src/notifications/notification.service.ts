@@ -75,6 +75,12 @@ interface TransactionalEmailMessage {
   };
 }
 
+interface TransactionalEmailDelivery {
+  audience: 'customer' | 'restaurant';
+  recipient: string;
+  message: TransactionalEmailMessage;
+}
+
 interface MarketingEmailMessage {
   subject: string;
   text: string;
@@ -852,6 +858,27 @@ export class NotificationService {
     return normalized.replace(/[_-]+/g, ' ').replace(/\b\w/g, (char) => char.toUpperCase());
   }
 
+  private normalizeRecipientEmail(value: string | null | undefined): string | null {
+    const recipient = value?.trim().toLowerCase() || null;
+    return recipient && /.+@.+\..+/.test(recipient) ? recipient : null;
+  }
+
+  private getOrderEventStatus(event: NotificationEvent): string {
+    return String(event.payload.status || '').trim().toLowerCase();
+  }
+
+  private getReservationEventStatus(event: NotificationEvent): string {
+    return String(event.payload.status || '').trim().toLowerCase();
+  }
+
+  private shouldSendRestaurantNotification(event: NotificationEvent): boolean {
+    if (event.type === 'order.status_changed') {
+      return this.getOrderEventStatus(event) === 'new';
+    }
+
+    return this.getReservationEventStatus(event) === 'pending';
+  }
+
   private getOrderStatusContent(status: string) {
     switch (status) {
       case 'new':
@@ -963,6 +990,7 @@ export class NotificationService {
     detailRows: Array<{ label: string; value: string }>;
     notes?: string | null;
     closing?: string | null;
+    headerLabel?: string | null;
   }): string {
     const detailRowsHtml = params.detailRows
       .map(
@@ -1006,7 +1034,7 @@ export class NotificationService {
                     : ''
                 }
                 <div style="color:#111111;font-size:30px;font-weight:700;line-height:1.2;">${this.escapeHtml(params.context.name)}</div>
-                <div style="margin-top:8px;color:#6b7280;font-size:13px;letter-spacing:0.08em;text-transform:uppercase;">Confirmation client</div>
+                <div style="margin-top:8px;color:#6b7280;font-size:13px;letter-spacing:0.08em;text-transform:uppercase;">${this.escapeHtml(params.headerLabel || 'Confirmation client')}</div>
               </td>
             </tr>
             <tr>
@@ -1269,7 +1297,7 @@ export class NotificationService {
     };
   }
 
-  private async buildEventEmail(event: NotificationEvent): Promise<TransactionalEmailMessage> {
+  private async getRestaurantEmailContextForEvent(event: NotificationEvent): Promise<RestaurantEmailContext> {
     const restaurant = await this.prisma.restaurant.findUnique({
       where: { id: event.restaurantId },
       select: {
@@ -1283,7 +1311,7 @@ export class NotificationService {
       },
     });
 
-    const context = this.getRestaurantEmailContext(
+    return this.getRestaurantEmailContext(
       restaurant || {
         id: event.restaurantId,
         name: 'Notre restaurant',
@@ -1294,12 +1322,203 @@ export class NotificationService {
         currency: 'CHF',
       },
     );
+  }
+
+  private async buildCustomerEventEmail(event: NotificationEvent): Promise<TransactionalEmailMessage> {
+    const context = await this.getRestaurantEmailContextForEvent(event);
 
     if (event.type === 'order.status_changed') {
       return this.buildOrderEventEmail(event, context);
     }
 
     return this.buildReservationEventEmail(event, context);
+  }
+
+  private async buildRestaurantOrderCreatedEmail(
+    event: NotificationEvent,
+    context: RestaurantEmailContext,
+  ): Promise<TransactionalEmailMessage> {
+    const orderId = typeof event.payload.orderId === 'string' ? event.payload.orderId : null;
+    const order = orderId
+      ? await this.prisma.order.findFirst({
+          where: { id: orderId, restaurantId: event.restaurantId },
+        })
+      : null;
+
+    const payload = (order?.payload as Record<string, unknown> | null) || {};
+    const orderNumber = String(order?.orderNumber || event.payload.orderNumber || orderId || 'Commande');
+    const customerName =
+      typeof order?.customerName === 'string'
+        ? order.customerName
+        : typeof event.payload.customerName === 'string'
+          ? event.payload.customerName
+          : 'Client non renseigné';
+    const customerEmail = order?.customerEmail || event.customerEmail || null;
+    const customerPhone =
+      typeof payload.customerPhone === 'string'
+        ? payload.customerPhone
+        : typeof event.payload.customerPhone === 'string'
+          ? event.payload.customerPhone
+          : null;
+    const customerAddress = typeof payload.customerAddress === 'string' ? payload.customerAddress : null;
+    const orderType = this.formatOrderType(payload.orderType);
+    const totalAmount = this.formatCurrency(payload.totalAmount ?? order?.totalAmount?.toString(), context);
+    const notes = typeof payload.notes === 'string' ? payload.notes : null;
+    const items = Array.isArray(payload.items)
+      ? payload.items
+          .filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === 'object')
+          .map((item) => {
+            const name = typeof item.name === 'string' ? item.name : 'Article';
+            const quantity = Number(item.quantity || 1);
+            return `${quantity} × ${name}`;
+          })
+      : [];
+
+    const detailRows = [
+      { label: 'Référence de commande', value: orderNumber },
+      { label: 'Client', value: customerName },
+      ...(customerPhone ? [{ label: 'Téléphone', value: customerPhone }] : []),
+      ...(customerEmail ? [{ label: 'Email', value: customerEmail }] : []),
+      ...(orderType ? [{ label: 'Type de commande', value: orderType }] : []),
+      ...(customerAddress ? [{ label: 'Adresse', value: customerAddress }] : []),
+      ...(totalAmount ? [{ label: 'Total', value: totalAmount }] : []),
+      ...(items.length > 0 ? [{ label: 'Articles', value: items.join(', ') }] : []),
+    ];
+
+    return {
+      subject: `Nouvelle commande reçue - ${context.name}${orderNumber ? ` - ${orderNumber}` : ''}`,
+      text: [
+        `Bonjour ${context.name},`,
+        '',
+        'Une nouvelle commande vient d’être créée sur la boutique.',
+        '',
+        `Référence de commande : ${orderNumber}`,
+        `Client : ${customerName}`,
+        ...(customerPhone ? [`Téléphone : ${customerPhone}`] : []),
+        ...(customerEmail ? [`Email : ${customerEmail}`] : []),
+        ...(orderType ? [`Type de commande : ${orderType}`] : []),
+        ...(customerAddress ? [`Adresse : ${customerAddress}`] : []),
+        ...(totalAmount ? [`Total : ${totalAmount}`] : []),
+        ...(items.length > 0 ? ['Articles :', ...items.map((item) => `- ${item}`)] : []),
+        ...(notes ? ['', 'Notes :', notes] : []),
+        '',
+        'Ouvrez le receiver ou le tableau de bord admin pour traiter cette commande.',
+      ].join('\n'),
+      html: this.buildEmailShell({
+        context,
+        preheader: `Nouvelle commande - ${orderNumber}`,
+        title: 'Nouvelle commande reçue',
+        intro: 'Une nouvelle commande vient d’être créée sur la boutique. Vous pouvez la traiter depuis le receiver ou le tableau de bord admin.',
+        badgeLabel: 'Nouvelle commande',
+        badgeBackground: '#fef2f2',
+        badgeColor: '#991b1b',
+        detailRows,
+        notes,
+        closing: 'Pensez à confirmer rapidement le délai de préparation afin que le client reçoive la bonne mise à jour.',
+        headerLabel: 'Notification restaurant',
+      }),
+      debug: {
+        logoUrl: context.logoUrl,
+        logoSourcePath: context.logoSourcePath,
+      },
+    };
+  }
+
+  private async buildRestaurantReservationCreatedEmail(
+    event: NotificationEvent,
+    context: RestaurantEmailContext,
+  ): Promise<TransactionalEmailMessage> {
+    const reservationId = typeof event.payload.reservationId === 'string' ? event.payload.reservationId : null;
+    const reservation = reservationId
+      ? await this.prisma.reservation.findFirst({
+          where: { id: reservationId, restaurantId: event.restaurantId },
+        })
+      : null;
+
+    const customerName =
+      typeof reservation?.customerName === 'string'
+        ? reservation.customerName
+        : typeof event.payload.customerName === 'string'
+          ? event.payload.customerName
+          : 'Client non renseigné';
+    const customerEmail = reservation?.customerEmail || event.customerEmail || null;
+    const customerPhone =
+      typeof reservation?.customerPhone === 'string'
+        ? reservation.customerPhone
+        : typeof event.payload.phone === 'string'
+          ? event.payload.phone
+          : null;
+    const reservationDate = this.formatDateTime(
+      reservation?.reservationDate || (typeof event.payload.reservationDate === 'string' ? event.payload.reservationDate : null),
+      context,
+    );
+    const guestCount =
+      typeof reservation?.guestCount === 'number'
+        ? reservation.guestCount
+        : Number.isFinite(Number(event.payload.guestCount))
+          ? Number(event.payload.guestCount)
+          : null;
+    const guestLabel = guestCount ? `${guestCount} personne${guestCount > 1 ? 's' : ''}` : null;
+    const notes = typeof reservation?.notes === 'string' ? reservation.notes : null;
+
+    const detailRows = [
+      { label: 'Client', value: customerName },
+      ...(customerPhone ? [{ label: 'Téléphone', value: customerPhone }] : []),
+      ...(customerEmail ? [{ label: 'Email', value: customerEmail }] : []),
+      ...(reservationDate ? [{ label: 'Date et heure', value: reservationDate }] : []),
+      ...(guestLabel ? [{ label: 'Nombre de personnes', value: guestLabel }] : []),
+      { label: 'Statut', value: 'En attente' },
+    ];
+
+    return {
+      subject: `Nouvelle demande de réservation - ${context.name}`,
+      text: [
+        `Bonjour ${context.name},`,
+        '',
+        'Une nouvelle demande de réservation vient d’être créée.',
+        '',
+        `Client : ${customerName}`,
+        ...(customerPhone ? [`Téléphone : ${customerPhone}`] : []),
+        ...(customerEmail ? [`Email : ${customerEmail}`] : []),
+        ...(reservationDate ? [`Date et heure : ${reservationDate}`] : []),
+        ...(guestLabel ? [`Nombre de personnes : ${guestLabel}`] : []),
+        ...(notes ? ['', 'Notes :', notes] : []),
+        '',
+        'Connectez-vous au tableau de bord admin pour confirmer ou annuler cette réservation.',
+      ].join('\n'),
+      html: this.buildEmailShell({
+        context,
+        preheader: 'Nouvelle demande de réservation',
+        title: 'Nouvelle demande de réservation',
+        intro: 'Une nouvelle demande de réservation vient d’être créée. Vérifiez les disponibilités puis confirmez-la depuis le tableau de bord admin.',
+        badgeLabel: 'Nouvelle réservation',
+        badgeBackground: '#fef2f2',
+        badgeColor: '#991b1b',
+        detailRows,
+        notes,
+        closing: 'Traitez cette demande dès que possible afin que le client reçoive sa confirmation.',
+        headerLabel: 'Notification restaurant',
+      }),
+      debug: {
+        logoUrl: context.logoUrl,
+        logoSourcePath: context.logoSourcePath,
+      },
+    };
+  }
+
+  private async buildRestaurantEventEmail(
+    event: NotificationEvent,
+    context: RestaurantEmailContext,
+  ): Promise<TransactionalEmailMessage | null> {
+    if (!this.shouldSendRestaurantNotification(event)) {
+      return null;
+    }
+
+    if (event.type === 'order.status_changed') {
+      return this.buildRestaurantOrderCreatedEmail(event, context);
+    }
+
+    return this.buildRestaurantReservationCreatedEmail(event, context);
   }
 
   async publish(event: NotificationEvent): Promise<void> {
@@ -1319,74 +1538,110 @@ export class NotificationService {
       return;
     }
 
-    if (
-      event.type === 'order.status_changed' &&
-      String(event.payload.status || '').trim().toLowerCase() === 'completed'
-    ) {
-      this.logger.log(
-        `Skipping completed-order customer email. type=${event.type} restaurantId=${event.restaurantId}`,
-      );
-      return;
-    }
-
-    const recipient = event.customerEmail?.trim().toLowerCase();
-    if (!recipient || !/.+@.+\..+/.test(recipient)) {
-      this.logger.warn(
-        `Skipping transactional email with missing/invalid target. type=${event.type} restaurantId=${event.restaurantId}`,
-      );
-      return;
-    }
-
     const smtpConfig = this.getSmtpConfig();
     if (!smtpConfig) return;
 
-    const message = await this.buildEventEmail(event);
-    const htmlContainsFrenchMarker = /bonjour|commande|réservation|confirmation client/i.test(message.html);
-    const htmlContainsLogoImg = /<img\s/i.test(message.html);
-    const htmlContainsBlackWhitePalette = message.html.includes('#111111') && message.html.includes('#f3f4f6');
-    const htmlLogoSrc = message.html ? this.extractFirstImageSrc(message.html) : null;
+    const deliveries: TransactionalEmailDelivery[] = [];
 
-    this.logger.log(
-      JSON.stringify({
-        event: 'transactional_email_rendered',
-        notificationType: event.type,
-        restaurantId: event.restaurantId,
-        recipient,
-        subject: message.subject,
-        hasHtml: Boolean(message.html),
-        mimeMode: message.html ? 'multipart_alternative' : 'text_only',
-        htmlContainsFrenchMarker,
-        htmlContainsLogoImg,
-        htmlContainsBlackWhitePalette,
-        resolvedLogoUrl: message.debug.logoUrl,
-        logoSourcePath: message.debug.logoSourcePath,
-        htmlLogoSrc,
-        logoDiagnostic:
-          message.debug.logoUrl && htmlContainsLogoImg
-            ? 'logo_img_rendered_in_html'
-            : message.debug.logoUrl
-              ? 'logo_url_present_but_img_missing'
-              : 'logo_data_missing_or_unusable',
-      }),
-    );
-
-    const result = await this.sendViaSmtp({
-      config: smtpConfig,
-      to: recipient,
-      subject: message.subject,
-      text: message.text,
-      html: message.html,
-    });
-
-    if (!result.ok) {
-      this.logger.error(
-        `SMTP transactional email failed. type=${event.type} restaurantId=${event.restaurantId} recipient=${recipient} error=${result.error}`,
+    if (!(event.type === 'order.status_changed' && this.getOrderEventStatus(event) === 'completed')) {
+      const customerRecipient = this.normalizeRecipientEmail(event.customerEmail);
+      if (customerRecipient) {
+        deliveries.push({
+          audience: 'customer',
+          recipient: customerRecipient,
+          message: await this.buildCustomerEventEmail(event),
+        });
+      } else {
+        this.logger.warn(
+          `Skipping transactional customer email with missing/invalid target. type=${event.type} restaurantId=${event.restaurantId}`,
+        );
+      }
+    } else {
+      this.logger.log(
+        `Skipping completed-order customer email. type=${event.type} restaurantId=${event.restaurantId}`,
       );
+    }
+
+    if (this.shouldSendRestaurantNotification(event)) {
+      const context = await this.getRestaurantEmailContextForEvent(event);
+      const restaurantRecipient = this.normalizeRecipientEmail(context.contactEmail);
+
+      if (restaurantRecipient) {
+        const restaurantMessage = await this.buildRestaurantEventEmail(event, context);
+        if (restaurantMessage) {
+          deliveries.push({
+            audience: 'restaurant',
+            recipient: restaurantRecipient,
+            message: restaurantMessage,
+          });
+        }
+      } else {
+        this.logger.warn(
+          `Skipping transactional restaurant email with missing/invalid restaurant contactInfo.email. type=${event.type} restaurantId=${event.restaurantId}`,
+        );
+      }
+    }
+
+    if (deliveries.length === 0) {
       return;
     }
 
-    this.logger.log(
-      `SMTP transactional email sent. type=${event.type} restaurantId=${event.restaurantId} recipient=${recipient}`,
-    );
+    for (const delivery of deliveries) {
+      try {
+        const htmlContainsFrenchMarker = /bonjour|commande|réservation|confirmation client/i.test(delivery.message.html);
+        const htmlContainsLogoImg = /<img\s/i.test(delivery.message.html);
+        const htmlContainsBlackWhitePalette = delivery.message.html.includes('#111111') && delivery.message.html.includes('#f3f4f6');
+        const htmlLogoSrc = delivery.message.html ? this.extractFirstImageSrc(delivery.message.html) : null;
+
+        this.logger.log(
+          JSON.stringify({
+            event: 'transactional_email_rendered',
+            notificationType: event.type,
+            audience: delivery.audience,
+            restaurantId: event.restaurantId,
+            recipient: delivery.recipient,
+            subject: delivery.message.subject,
+            hasHtml: Boolean(delivery.message.html),
+            mimeMode: delivery.message.html ? 'multipart_alternative' : 'text_only',
+            htmlContainsFrenchMarker,
+            htmlContainsLogoImg,
+            htmlContainsBlackWhitePalette,
+            resolvedLogoUrl: delivery.message.debug.logoUrl,
+            logoSourcePath: delivery.message.debug.logoSourcePath,
+            htmlLogoSrc,
+            logoDiagnostic:
+              delivery.message.debug.logoUrl && htmlContainsLogoImg
+                ? 'logo_img_rendered_in_html'
+                : delivery.message.debug.logoUrl
+                  ? 'logo_url_present_but_img_missing'
+                  : 'logo_data_missing_or_unusable',
+          }),
+        );
+
+        const result = await this.sendViaSmtp({
+          config: smtpConfig,
+          to: delivery.recipient,
+          subject: delivery.message.subject,
+          text: delivery.message.text,
+          html: delivery.message.html,
+        });
+
+        if (!result.ok) {
+          this.logger.error(
+            `SMTP transactional email failed. type=${event.type} audience=${delivery.audience} restaurantId=${event.restaurantId} recipient=${delivery.recipient} error=${result.error}`,
+          );
+          continue;
+        }
+
+        this.logger.log(
+          `SMTP transactional email sent. type=${event.type} audience=${delivery.audience} restaurantId=${event.restaurantId} recipient=${delivery.recipient}`,
+        );
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'unknown_transactional_email_error';
+        this.logger.error(
+          `Transactional email dispatch crashed. type=${event.type} audience=${delivery.audience} restaurantId=${event.restaurantId} recipient=${delivery.recipient} error=${message}`,
+        );
+      }
+    }
   }
 }
