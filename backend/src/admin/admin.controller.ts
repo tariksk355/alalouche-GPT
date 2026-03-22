@@ -33,6 +33,7 @@ import { AdminAnalyticsService } from './admin-analytics.service';
 import { AdminSettingsService } from './admin-settings.service';
 import { UpdateAdminPrinterSettingsDto } from './dto/update-admin-printer-settings.dto';
 import { UpdateAdminBrandingSettingsDto } from './dto/update-admin-branding-settings.dto';
+import { UpdateAdminStorefrontAnnouncementDto } from './dto/update-admin-storefront-announcement.dto';
 import { AdminMarketingService } from './admin-marketing.service';
 import { SendAdminMarketingEmailDto } from './dto/send-admin-marketing-email.dto';
 import { UpsertAdminPromotionDto } from './dto/upsert-admin-promotion.dto';
@@ -329,6 +330,29 @@ export class AdminController {
   ) {
     const auth = this.requireAdmin(authorization, adminToken, legacyRestaurantId);
     const settings = await this.adminSettingsService.updatePrinterSettings(auth.restaurantId, dto);
+    return ok({ settings });
+  }
+
+  @Get('settings/storefront-announcement')
+  async getStorefrontAnnouncementSettings(
+    @Headers('authorization') authorization?: string,
+    @Headers('x-admin-token') adminToken?: string,
+    @Headers('x-restaurant-id') legacyRestaurantId?: string,
+  ) {
+    const auth = this.requireAdmin(authorization, adminToken, legacyRestaurantId);
+    const settings = await this.adminSettingsService.getStorefrontAnnouncementSettings(auth.restaurantId);
+    return ok({ settings });
+  }
+
+  @Patch('settings/storefront-announcement')
+  async updateStorefrontAnnouncementSettings(
+    @Body() dto: UpdateAdminStorefrontAnnouncementDto,
+    @Headers('authorization') authorization?: string,
+    @Headers('x-admin-token') adminToken?: string,
+    @Headers('x-restaurant-id') legacyRestaurantId?: string,
+  ) {
+    const auth = this.requireAdmin(authorization, adminToken, legacyRestaurantId);
+    const settings = await this.adminSettingsService.updateStorefrontAnnouncementSettings(auth.restaurantId, dto);
     return ok({ settings });
   }
 

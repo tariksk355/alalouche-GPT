@@ -43,6 +43,13 @@ export default function Layout({ children, currentPageName }) {
   const brandName = sanitizeBrandName(tenant?.name || 'À la Louche');
   const logoUrl = tenant?.branding?.logoUrl || DEFAULT_HEADER_LOGO;
   const footerLogoUrl = DEFAULT_FOOTER_LOGO;
+  const storefrontAnnouncement = tenant?.orderingSettings?.storefrontAnnouncement && typeof tenant.orderingSettings.storefrontAnnouncement === 'object'
+    ? tenant.orderingSettings.storefrontAnnouncement
+    : null;
+  const storefrontAnnouncementMessage = typeof storefrontAnnouncement?.message === 'string'
+    ? storefrontAnnouncement.message.trim()
+    : '';
+  const showStorefrontAnnouncement = storefrontAnnouncement?.active === true && storefrontAnnouncementMessage.length > 0;
   const headerContact = {
     phone: RESTAURANT_CONTACT.phone,
     addressLine1: RESTAURANT_CONTACT.addressLine1,
@@ -262,6 +269,17 @@ export default function Layout({ children, currentPageName }) {
           </div>
         )}
       </nav>
+
+      {showStorefrontAnnouncement && (
+        <div className="border-b border-amber-200 bg-amber-50">
+          <div className="max-w-6xl mx-auto px-4 py-3">
+            <div className="rounded-lg border border-amber-200 bg-white/70 px-4 py-3 text-sm text-amber-900 shadow-sm">
+              <span className="font-semibold">Annonce :</span>{' '}
+              <span>{storefrontAnnouncementMessage}</span>
+            </div>
+          </div>
+        </div>
+      )}
 
       <main className="flex-1">{children}</main>
 

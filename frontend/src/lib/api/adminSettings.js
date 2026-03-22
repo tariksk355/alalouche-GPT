@@ -56,3 +56,19 @@ export async function uploadAdminBrandingLogo(file) {
   });
   return data.data;
 }
+
+export async function getAdminStorefrontAnnouncementSettings() {
+  const data = await backendClient.request('/admin/settings/storefront-announcement', {
+    headers: authHeaders(),
+  });
+  return data.data.settings;
+}
+
+export async function updateAdminStorefrontAnnouncementSettings(payload) {
+  const data = await backendClient.request('/admin/settings/storefront-announcement', {
+    method: 'PATCH',
+    headers: authHeaders(),
+    body: JSON.stringify(payload),
+  });
+  return data.data.settings;
+}

@@ -10,7 +10,13 @@ import { clearStoredAdminSession, getStoredAdminSession } from "@/lib/customerAu
 import { getAdminKpis, hideAdminOrder, hideAdminReservation, listAdminOrders, listAdminReservations, restoreAdminOrder, restoreAdminReservation, updateAdminOrderStatus, updateAdminReservationStatus } from "@/lib/api/adminOps";
 import { createAdminMenuItem, deleteAdminMenuItem, listAdminMenuCatalog, updateAdminMenuItem, uploadAdminMenuImage } from "@/lib/api/adminMenuCatalog";
 import { createAdminCustomer, deleteAdminCustomer, listAdminCustomers, updateAdminCustomer } from "@/lib/api/adminCustomers";
-import { getAdminBrandingSettings, updateAdminBrandingSettings, uploadAdminBrandingLogo } from "@/lib/api/adminSettings";
+import {
+  getAdminBrandingSettings,
+  getAdminStorefrontAnnouncementSettings,
+  updateAdminBrandingSettings,
+  updateAdminStorefrontAnnouncementSettings,
+  uploadAdminBrandingLogo,
+} from "@/lib/api/adminSettings";
 import { useTenant } from "@/lib/TenantContext";
 import html2canvas from "html2canvas";
 
@@ -1185,6 +1191,10 @@ function AdminSettings() {
   const [brandingError, setBrandingError] = useState("");
   const [brandingLoading, setBrandingLoading] = useState(false);
   const [brandingUploadFeedback, setBrandingUploadFeedback] = useState({ type: "", message: "" });
+  const [announcementSettings, setAnnouncementSettings] = useState(null);
+  const [announcementSuccess, setAnnouncementSuccess] = useState("");
+  const [announcementError, setAnnouncementError] = useState("");
+  const [announcementLoading, setAnnouncementLoading] = useState(false);
 
   useEffect(() => {
     loadSettings();
@@ -1192,13 +1202,19 @@ function AdminSettings() {
 
   const loadSettings = async () => {
     setBrandingError("");
+    setAnnouncementError("");
     try {
-      const brandingData = await getAdminBrandingSettings();
+      const [brandingData, announcementData] = await Promise.all([
+        getAdminBrandingSettings(),
+        getAdminStorefrontAnnouncementSettings(),
+      ]);
       setBrandingSettings(brandingData);
+      setAnnouncementSettings(announcementData);
     } catch (e) {
       const message = e.message || "Impossible de charger les réglages.";
       setBrandingError(message);
       setBrandingSettings({ logoUrl: "", primaryColor: "#b5122a", secondaryColor: "#111827", accentColor: "#b5122a", tagline: "Restaurant" });
+      setAnnouncementSettings({ active: false, message: "" });
     }
   };
 
@@ -1241,7 +1257,25 @@ function AdminSettings() {
     }
   };
 
-  if (!brandingSettings) return <AdminLoadingState />;
+  const handleSaveAnnouncement = async () => {
+    setAnnouncementLoading(true);
+    setAnnouncementError("");
+    try {
+      const updated = await updateAdminStorefrontAnnouncementSettings({
+        active: announcementSettings.active,
+        message: announcementSettings.message || "",
+      });
+      setAnnouncementSettings(updated);
+      setAnnouncementSuccess("Annonce storefront sauvegardée.");
+      setTimeout(() => setAnnouncementSuccess(""), 3000);
+    } catch (e) {
+      setAnnouncementError(e.message || "Impossible de sauvegarder l’annonce storefront.");
+    } finally {
+      setAnnouncementLoading(false);
+    }
+  };
+
+  if (!brandingSettings || !announcementSettings) return <AdminLoadingState />;
 
   return (
     <div className="max-w-3xl space-y-6">
@@ -1303,6 +1337,46 @@ function AdminSettings() {
           className="w-full py-3 bg-[#b5122a] text-white font-semibold rounded-lg hover:bg-[#8f0e21] disabled:opacity-60 transition-colors"
         >
           {brandingLoading ? "Sauvegarde..." : "Sauvegarder le logo"}
+        </button>
+      </div>
+
+      <div className="bg-white rounded-xl border border-gray-200 p-6 space-y-4 shadow-sm">
+        <div>
+          <h3 className="font-semibold text-lg text-gray-900">Annonce storefront</h3>
+          <p className="text-sm text-gray-500 mt-1">Publiez un court message opérationnel visible en haut du storefront public. Lorsque l’annonce est inactive ou vide, rien n’est affiché côté client.</p>
+        </div>
+        {announcementSuccess && <AdminNotice>{announcementSuccess}</AdminNotice>}
+        {announcementError && <AdminNotice type="error">{announcementError}</AdminNotice>}
+        <label className="flex items-center justify-between gap-4 rounded-lg border border-gray-200 bg-gray-50 px-4 py-3">
+          <div>
+            <div className="font-medium text-gray-900">Annonce active</div>
+            <div className="text-sm text-gray-500">Activez ou désactivez rapidement le bandeau public.</div>
+          </div>
+          <input
+            type="checkbox"
+            checked={announcementSettings.active === true}
+            onChange={(e) => setAnnouncementSettings((current) => ({ ...current, active: e.target.checked }))}
+            className="h-5 w-5 rounded border-gray-300 text-[#b5122a] focus:ring-[#b5122a]"
+          />
+        </label>
+        <div>
+          <label className="block text-sm text-gray-500 mb-2">Message</label>
+          <textarea
+            rows={4}
+            maxLength={280}
+            value={announcementSettings.message || ""}
+            onChange={(e) => setAnnouncementSettings((current) => ({ ...current, message: e.target.value }))}
+            className="w-full bg-gray-50 border border-gray-200 text-gray-900 px-4 py-3 rounded-lg focus:outline-none focus:border-gray-400 resize-none"
+            placeholder="Exemple : Fermé exceptionnellement le lundi 1er janvier. Merci de votre compréhension."
+          />
+          <p className="text-xs text-gray-500 mt-2">{(announcementSettings.message || "").length}/280 caractères</p>
+        </div>
+        <button
+          onClick={handleSaveAnnouncement}
+          disabled={announcementLoading}
+          className="w-full py-3 bg-[#b5122a] text-white font-semibold rounded-lg hover:bg-[#8f0e21] disabled:opacity-60 transition-colors"
+        >
+          {announcementLoading ? "Sauvegarde..." : "Sauvegarder l’annonce"}
         </button>
       </div>
 

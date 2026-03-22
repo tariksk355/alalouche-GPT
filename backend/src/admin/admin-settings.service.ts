@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { UpdateAdminPrinterSettingsDto } from './dto/update-admin-printer-settings.dto';
 import { UpdateAdminBrandingSettingsDto } from './dto/update-admin-branding-settings.dto';
+import { UpdateAdminStorefrontAnnouncementDto } from './dto/update-admin-storefront-announcement.dto';
 
 export interface PrinterSettings {
   auto_print: boolean;
@@ -20,12 +21,22 @@ export interface BrandingSettings {
   tagline: string | null;
 }
 
+export interface StorefrontAnnouncementSettings {
+  active: boolean;
+  message: string | null;
+}
+
 const DEFAULT_PRINTER_SETTINGS: PrinterSettings = {
   auto_print: true,
   paper_width: '58mm',
   copies: 1,
   default_prep_time: 30,
   require_prep_time: true,
+};
+
+const DEFAULT_STOREFRONT_ANNOUNCEMENT_SETTINGS: StorefrontAnnouncementSettings = {
+  active: false,
+  message: null,
 };
 
 @Injectable()
@@ -108,6 +119,51 @@ export class AdminSettingsService {
     return next;
   }
 
+  async getStorefrontAnnouncementSettings(restaurantId: string): Promise<StorefrontAnnouncementSettings> {
+    const restaurant = await this.prisma.restaurant.findUnique({ where: { id: restaurantId } });
+    if (!restaurant) {
+      throw new NotFoundException({ error: 'RESTAURANT_NOT_FOUND', message: 'Restaurant not found.' });
+    }
+
+    const orderingSettings = (restaurant.orderingSettings as Prisma.JsonObject | null) || {};
+    const announcement = (orderingSettings.storefrontAnnouncement as Record<string, unknown> | null) || {};
+
+    return this.normalizeStorefrontAnnouncementSettings(announcement);
+  }
+
+  async updateStorefrontAnnouncementSettings(
+    restaurantId: string,
+    dto: UpdateAdminStorefrontAnnouncementDto,
+  ): Promise<StorefrontAnnouncementSettings> {
+    const restaurant = await this.prisma.restaurant.findUnique({ where: { id: restaurantId } });
+    if (!restaurant) {
+      throw new NotFoundException({ error: 'RESTAURANT_NOT_FOUND', message: 'Restaurant not found.' });
+    }
+
+    const orderingSettings = (restaurant.orderingSettings as Prisma.JsonObject | null) || {};
+    const existingAnnouncement = (orderingSettings.storefrontAnnouncement as Record<string, unknown> | null) || {};
+
+    const next = this.normalizeStorefrontAnnouncementSettings({
+      ...existingAnnouncement,
+      ...(dto.active !== undefined ? { active: dto.active } : {}),
+      ...(dto.message !== undefined ? { message: dto.message } : {}),
+    });
+
+    const nextOrderingSettings: Prisma.InputJsonObject = {
+      ...orderingSettings,
+      storefrontAnnouncement: { ...next } as Prisma.InputJsonObject,
+    };
+
+    await this.prisma.restaurant.update({
+      where: { id: restaurantId },
+      data: {
+        orderingSettings: nextOrderingSettings,
+      },
+    });
+
+    return next;
+  }
+
   private normalizeOptionalString(value: unknown): string | null {
     if (typeof value !== 'string') return null;
     const trimmed = value.trim();
@@ -141,6 +197,16 @@ export class AdminSettingsService {
       secondaryColor: this.normalizeColor(branding.secondaryColor, defaults.secondaryColor),
       accentColor: this.normalizeColor(branding.accentColor, defaults.accentColor),
       tagline: this.normalizeOptionalString(branding.tagline) || defaults.tagline,
+    };
+  }
+
+  private normalizeStorefrontAnnouncementSettings(raw: Record<string, unknown>): StorefrontAnnouncementSettings {
+    const message = this.normalizeOptionalString(raw.message);
+    const active = raw.active === true && Boolean(message);
+
+    return {
+      active: active || DEFAULT_STOREFRONT_ANNOUNCEMENT_SETTINGS.active,
+      message: message || DEFAULT_STOREFRONT_ANNOUNCEMENT_SETTINGS.message,
     };
   }
 
