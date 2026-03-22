@@ -10,7 +10,7 @@ import { clearStoredAdminSession, getStoredAdminSession } from "@/lib/customerAu
 import { getAdminKpis, hideAdminOrder, hideAdminReservation, listAdminOrders, listAdminReservations, restoreAdminOrder, restoreAdminReservation, updateAdminOrderStatus, updateAdminReservationStatus } from "@/lib/api/adminOps";
 import { createAdminMenuItem, deleteAdminMenuItem, listAdminMenuCatalog, updateAdminMenuItem, uploadAdminMenuImage } from "@/lib/api/adminMenuCatalog";
 import { createAdminCustomer, deleteAdminCustomer, listAdminCustomers, updateAdminCustomer } from "@/lib/api/adminCustomers";
-import { getAdminBrandingSettings, getAdminPrinterSettings, updateAdminBrandingSettings, updateAdminPrinterSettings, uploadAdminBrandingLogo } from "@/lib/api/adminSettings";
+import { getAdminBrandingSettings, updateAdminBrandingSettings, uploadAdminBrandingLogo } from "@/lib/api/adminSettings";
 import { useTenant } from "@/lib/TenantContext";
 import html2canvas from "html2canvas";
 
@@ -1180,13 +1180,9 @@ function AdminCustomers() {
 
 // ─── Settings Panel ───────────────────────────────────────────────────────────
 function AdminSettings() {
-  const [printerSettings, setPrinterSettings] = useState(null);
   const [brandingSettings, setBrandingSettings] = useState(null);
-  const [printerSuccess, setPrinterSuccess] = useState("");
   const [brandingSuccess, setBrandingSuccess] = useState("");
-  const [printerError, setPrinterError] = useState("");
   const [brandingError, setBrandingError] = useState("");
-  const [printerLoading, setPrinterLoading] = useState(false);
   const [brandingLoading, setBrandingLoading] = useState(false);
   const [brandingUploadFeedback, setBrandingUploadFeedback] = useState({ type: "", message: "" });
 
@@ -1195,36 +1191,14 @@ function AdminSettings() {
   }, []);
 
   const loadSettings = async () => {
-    setPrinterError("");
     setBrandingError("");
     try {
-      const [printerData, brandingData] = await Promise.all([
-        getAdminPrinterSettings(),
-        getAdminBrandingSettings(),
-      ]);
-      setPrinterSettings(printerData);
+      const brandingData = await getAdminBrandingSettings();
       setBrandingSettings(brandingData);
     } catch (e) {
       const message = e.message || "Impossible de charger les réglages.";
-      setPrinterError(message);
       setBrandingError(message);
-      setPrinterSettings({ auto_print: true, paper_width: "58mm", copies: 1, default_prep_time: 30, require_prep_time: true });
       setBrandingSettings({ logoUrl: "", primaryColor: "#b5122a", secondaryColor: "#111827", accentColor: "#b5122a", tagline: "Restaurant" });
-    }
-  };
-
-  const handleSavePrinter = async () => {
-    setPrinterLoading(true);
-    setPrinterError("");
-    try {
-      const updated = await updateAdminPrinterSettings(printerSettings);
-      setPrinterSettings(updated);
-      setPrinterSuccess("Réglages imprimante sauvegardés !");
-      setTimeout(() => setPrinterSuccess(""), 3000);
-    } catch (e) {
-      setPrinterError(e.message || "Impossible de sauvegarder les réglages imprimante.");
-    } finally {
-      setPrinterLoading(false);
     }
   };
 
@@ -1267,7 +1241,7 @@ function AdminSettings() {
     }
   };
 
-  if (!printerSettings || !brandingSettings) return <AdminLoadingState />;
+  if (!brandingSettings) return <AdminLoadingState />;
 
   return (
     <div className="max-w-3xl space-y-6">
@@ -1332,38 +1306,6 @@ function AdminSettings() {
         </button>
       </div>
 
-      <div className="bg-white rounded-xl border border-gray-200 p-6 space-y-6 shadow-sm">
-        {printerSuccess && <AdminNotice>{printerSuccess}</AdminNotice>}
-        {printerError && <AdminNotice type="error">{printerError}</AdminNotice>}
-        <div>
-          <h3 className="font-semibold text-lg mb-4 text-gray-900">Imprimante</h3>
-          <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <label className="text-gray-700">Impression automatique</label>
-              <button onClick={() => setPrinterSettings(s => ({ ...s, auto_print: !s.auto_print }))}
-                className={`w-12 h-6 rounded-full transition-colors ${printerSettings.auto_print ? "bg-[#b5122a]" : "bg-gray-300"} relative`}>
-                <span className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-transform ${printerSettings.auto_print ? "translate-x-7" : "translate-x-1"}`} />
-              </button>
-            </div>
-          </div>
-        </div>
-        <div>
-          <h3 className="font-semibold text-lg mb-4 text-gray-900">Commandes</h3>
-          <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <label className="text-gray-700">Sélection de délai obligatoire</label>
-              <button onClick={() => setPrinterSettings(s => ({ ...s, require_prep_time: !s.require_prep_time }))}
-                className={`w-12 h-6 rounded-full transition-colors ${printerSettings.require_prep_time ? "bg-[#b5122a]" : "bg-gray-300"} relative`}>
-                <span className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-transform ${printerSettings.require_prep_time ? "translate-x-7" : "translate-x-1"}`} />
-              </button>
-            </div>
-          </div>
-        </div>
-        <button onClick={handleSavePrinter} disabled={printerLoading}
-          className="w-full py-3 bg-[#b5122a] text-white font-semibold rounded-lg hover:bg-[#8f0e21] disabled:opacity-60 transition-colors">
-          {printerLoading ? "Sauvegarde..." : "Sauvegarder les réglages imprimante"}
-        </button>
-      </div>
     </div>
   );
 }
