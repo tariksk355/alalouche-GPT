@@ -100,7 +100,7 @@ In production, 5xx messages are sanitized to avoid leaking internals.
 - Admin bulk marketing emails use Resend via `MARKETING_EMAIL_PROVIDER` (`none` or `resend`).
 - For backward compatibility during transition, marketing falls back to `EMAIL_PROVIDER` / `EMAIL_FROM` only when `MARKETING_EMAIL_PROVIDER` is unset.
 - Transactional customer emails for order/reservation creation + status notifications use `TRANSACTIONAL_EMAIL_PROVIDER` (`none` or `smtp`).
-- Customer signup email verification also uses the same transactional SMTP pipeline.
+- Customer signup email verification and forgot-password reset emails also use the same transactional SMTP pipeline.
 - Transactional flow does **not** read `EMAIL_PROVIDER`; once split, SMTP config is the only active provider path for transactional sends.
 
 

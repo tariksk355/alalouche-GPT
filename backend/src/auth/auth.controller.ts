@@ -7,6 +7,8 @@ import { AuthService } from './auth.service';
 import { AdminLoginDto } from './dto/admin-login.dto';
 import { CustomerLoginDto } from './dto/customer-login.dto';
 import { CustomerSignupDto } from './dto/customer-signup.dto';
+import { RequestPasswordResetDto } from './dto/request-password-reset.dto';
+import { ResetPasswordDto } from './dto/reset-password.dto';
 import { UpdateCustomerProfileDto } from './dto/update-customer-profile.dto';
 
 @Controller()
@@ -38,6 +40,20 @@ export class AuthController {
   async customerLogin(@TenantCtx() tenant: TenantContext, @Body() dto: CustomerLoginDto) {
     const session = await this.authService.customerLogin(tenant.restaurantId, dto);
     return ok(session);
+  }
+
+  @Post('auth/forgot-password')
+  @UseGuards(TenantContextGuard)
+  async requestCustomerPasswordReset(@TenantCtx() tenant: TenantContext, @Body() dto: RequestPasswordResetDto) {
+    const result = await this.authService.requestCustomerPasswordReset(tenant.restaurantId, dto.email);
+    return ok(result);
+  }
+
+  @Post('auth/reset-password')
+  @UseGuards(TenantContextGuard)
+  async resetCustomerPassword(@TenantCtx() tenant: TenantContext, @Body() dto: ResetPasswordDto) {
+    const result = await this.authService.resetCustomerPassword(tenant.restaurantId, dto.token, dto.password);
+    return ok(result);
   }
 
   @Get('auth/verify-email')

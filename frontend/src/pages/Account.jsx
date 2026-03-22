@@ -7,7 +7,17 @@ import { Input } from '@/components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { StorefrontNotice } from '@/components/storefront/feedback';
 import { useAuth } from '@/lib/AuthContext';
-import { clearStoredCustomerSession, deleteCustomerMe, getStoredCustomerSession, loginCustomer, signupCustomer, updateCustomerMe, verifyCustomerEmail } from '@/lib/customerAuth';
+import {
+  clearStoredCustomerSession,
+  deleteCustomerMe,
+  getStoredCustomerSession,
+  loginCustomer,
+  requestCustomerPasswordReset,
+  resetCustomerPassword,
+  signupCustomer,
+  updateCustomerMe,
+  verifyCustomerEmail,
+} from '@/lib/customerAuth';
 
 export default function Account() {
   const navigate = useNavigate();
@@ -16,8 +26,16 @@ export default function Account() {
 
   const [loginForm, setLoginForm] = useState({ email: '', password: '' });
   const [signupForm, setSignupForm] = useState({ fullName: '', email: '', phone: '', password: '', subscribedEmail: false });
+  const [forgotPasswordForm, setForgotPasswordForm] = useState({ email: '' });
+  const [resetPasswordForm, setResetPasswordForm] = useState({ password: '', confirmPassword: '' });
+  const [showForgotPassword, setShowForgotPassword] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [forgotPasswordLoading, setForgotPasswordLoading] = useState(false);
+  const [forgotPasswordNotice, setForgotPasswordNotice] = useState('');
+  const [resetPasswordLoading, setResetPasswordLoading] = useState(false);
+  const [resetPasswordNotice, setResetPasswordNotice] = useState('');
+  const [resetPasswordError, setResetPasswordError] = useState('');
   const [profileForm, setProfileForm] = useState({ fullName: '', phone: '' });
   const [savingProfile, setSavingProfile] = useState(false);
   const [profileSuccess, setProfileSuccess] = useState('');
@@ -26,7 +44,9 @@ export default function Account() {
   const [verifyingEmail, setVerifyingEmail] = useState(false);
   const [deletingAccount, setDeletingAccount] = useState(false);
   const verificationToken = searchParams.get('verifyEmailToken');
+  const resetPasswordToken = searchParams.get('resetPasswordToken');
   const hasVerificationToken = Boolean(verificationToken);
+  const hasResetPasswordToken = Boolean(resetPasswordToken);
   const emailVerified = user?.emailVerified === true;
   const emailVerifiedAtLabel = useMemo(() => {
     if (!user?.emailVerifiedAt) return null;
@@ -107,6 +127,94 @@ export default function Account() {
       setLoading(false);
     }
   };
+
+  const handleForgotPassword = async (e) => {
+    e.preventDefault();
+    setForgotPasswordLoading(true);
+    setForgotPasswordNotice('');
+    setError('');
+
+    try {
+      const result = await requestCustomerPasswordReset(forgotPasswordForm);
+      setForgotPasswordNotice(result.message || 'Si un compte existe avec cette adresse, un email de réinitialisation a été envoyé.');
+    } catch (err) {
+      setError(err.message || 'Impossible de lancer la réinitialisation.');
+    } finally {
+      setForgotPasswordLoading(false);
+    }
+  };
+
+  const handleResetPassword = async (e) => {
+    e.preventDefault();
+    setResetPasswordError('');
+    setResetPasswordNotice('');
+
+    if (!resetPasswordToken) {
+      setResetPasswordError('Lien de réinitialisation invalide.');
+      return;
+    }
+
+    if (resetPasswordForm.password !== resetPasswordForm.confirmPassword) {
+      setResetPasswordError('Les mots de passe ne correspondent pas.');
+      return;
+    }
+
+    setResetPasswordLoading(true);
+    try {
+      const result = await resetCustomerPassword({
+        token: resetPasswordToken,
+        password: resetPasswordForm.password,
+      });
+      setResetPasswordNotice(result.message || 'Votre mot de passe a été réinitialisé.');
+      setResetPasswordForm({ password: '', confirmPassword: '' });
+      const nextParams = new URLSearchParams(searchParams);
+      nextParams.delete('resetPasswordToken');
+      setSearchParams(nextParams, { replace: true });
+    } catch (err) {
+      setResetPasswordError(err.message || 'Impossible de réinitialiser le mot de passe.');
+    } finally {
+      setResetPasswordLoading(false);
+    }
+  };
+
+  if (hasResetPasswordToken) {
+    return (
+      <div className="min-h-screen bg-gray-50 p-4">
+        <div className="max-w-xl mx-auto pt-10">
+          <Card className="p-6 space-y-4">
+            <h1 className="text-2xl font-semibold">Réinitialiser mon mot de passe</h1>
+            <p className="text-sm text-gray-500">Choisissez un nouveau mot de passe pour votre compte client.</p>
+            {resetPasswordNotice && <StorefrontNotice type="success">{resetPasswordNotice}</StorefrontNotice>}
+            {resetPasswordError && <StorefrontNotice type="error">{resetPasswordError}</StorefrontNotice>}
+            <form onSubmit={handleResetPassword} className="space-y-3">
+              <Input
+                placeholder="Nouveau mot de passe (6 caractères min)"
+                type="password"
+                required
+                minLength={6}
+                value={resetPasswordForm.password}
+                onChange={(e) => setResetPasswordForm((prev) => ({ ...prev, password: e.target.value }))}
+              />
+              <Input
+                placeholder="Confirmer le nouveau mot de passe"
+                type="password"
+                required
+                minLength={6}
+                value={resetPasswordForm.confirmPassword}
+                onChange={(e) => setResetPasswordForm((prev) => ({ ...prev, confirmPassword: e.target.value }))}
+              />
+              <Button type="submit" disabled={resetPasswordLoading} className="w-full">
+                {resetPasswordLoading ? 'Réinitialisation en cours...' : 'Enregistrer le nouveau mot de passe'}
+              </Button>
+            </form>
+            <Button type="button" variant="outline" onClick={() => navigate(createPageUrl('Account'))}>
+              Retour à la connexion
+            </Button>
+          </Card>
+        </div>
+      </div>
+    );
+  }
 
   if (isAuthenticated && user) {
     const effectiveProfile = {
@@ -245,6 +353,8 @@ export default function Account() {
           {verifyingEmail && <StorefrontNotice className="mb-4">Vérification de votre adresse email en cours...</StorefrontNotice>}
           {verificationNotice && <StorefrontNotice type="success" className="mb-4">{verificationNotice}</StorefrontNotice>}
           {verificationError && <StorefrontNotice type="error" className="mb-4">{verificationError}</StorefrontNotice>}
+          {forgotPasswordNotice && <StorefrontNotice type="success" className="mb-4">{forgotPasswordNotice}</StorefrontNotice>}
+          {resetPasswordNotice && <StorefrontNotice type="success" className="mb-4">{resetPasswordNotice}</StorefrontNotice>}
           {hasVerificationToken && !verifyingEmail && !verificationError && !verificationNotice && (
             <StorefrontNotice className="mb-4">Traitement du lien de vérification…</StorefrontNotice>
           )}
@@ -257,25 +367,49 @@ export default function Account() {
             </TabsList>
 
             <TabsContent value="login">
-              <form onSubmit={handleLogin} className="space-y-3">
-                <Input
-                  placeholder="Email"
-                  type="email"
-                  required
-                  value={loginForm.email}
-                  onChange={(e) => setLoginForm({ ...loginForm, email: e.target.value })}
-                />
-                <Input
-                  placeholder="Mot de passe"
-                  type="password"
-                  required
-                  value={loginForm.password}
-                  onChange={(e) => setLoginForm({ ...loginForm, password: e.target.value })}
-                />
-                <Button type="submit" disabled={loading} className="w-full">
-                  {loading ? 'Connexion en cours...' : 'Se connecter'}
-                </Button>
-              </form>
+              {showForgotPassword ? (
+                <form onSubmit={handleForgotPassword} className="space-y-3">
+                  <p className="text-sm text-gray-600">Saisissez votre adresse email. Si un compte existe, nous vous enverrons un lien de réinitialisation.</p>
+                  <Input
+                    placeholder="Email"
+                    type="email"
+                    required
+                    value={forgotPasswordForm.email}
+                    onChange={(e) => setForgotPasswordForm({ email: e.target.value })}
+                  />
+                  <Button type="submit" disabled={forgotPasswordLoading} className="w-full">
+                    {forgotPasswordLoading ? 'Envoi en cours...' : 'Envoyer le lien de réinitialisation'}
+                  </Button>
+                  <Button type="button" variant="outline" onClick={() => setShowForgotPassword(false)} className="w-full">
+                    Retour à la connexion
+                  </Button>
+                </form>
+              ) : (
+                <form onSubmit={handleLogin} className="space-y-3">
+                  <Input
+                    placeholder="Email"
+                    type="email"
+                    required
+                    value={loginForm.email}
+                    onChange={(e) => setLoginForm({ ...loginForm, email: e.target.value })}
+                  />
+                  <Input
+                    placeholder="Mot de passe"
+                    type="password"
+                    required
+                    value={loginForm.password}
+                    onChange={(e) => setLoginForm({ ...loginForm, password: e.target.value })}
+                  />
+                  <div className="flex justify-end">
+                    <button type="button" onClick={() => { setShowForgotPassword(true); setForgotPasswordNotice(''); setError(''); }} className="text-sm font-medium text-[#b5122a] hover:text-[#8f0e21] transition-colors">
+                      Mot de passe oublié ?
+                    </button>
+                  </div>
+                  <Button type="submit" disabled={loading} className="w-full">
+                    {loading ? 'Connexion en cours...' : 'Se connecter'}
+                  </Button>
+                </form>
+              )}
             </TabsContent>
 
             <TabsContent value="signup">
@@ -319,7 +453,7 @@ export default function Account() {
                   </div>
                 </label>
                 <Button type="submit" disabled={loading} className="w-full">
-                  {loading ? 'Création du compte...' : "Créer mon compte"}
+                  {loading ? 'Création du compte...' : 'Créer mon compte'}
                 </Button>
               </form>
             </TabsContent>

@@ -90,6 +90,9 @@ model Customer {
   emailVerificationTokenHash String?
   emailVerificationSentAt    DateTime?
   emailVerificationExpiresAt DateTime?
+  passwordResetTokenHash     String?
+  passwordResetSentAt        DateTime?
+  passwordResetExpiresAt     DateTime?
   deletedAt                  DateTime?
   passwordHash               String
   orders                     Order[]

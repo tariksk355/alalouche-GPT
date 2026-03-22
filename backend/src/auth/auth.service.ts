@@ -12,6 +12,7 @@ import { AccessTokenPayload, TokenService } from './token.service';
 @Injectable()
 export class AuthService {
   private readonly verificationTokenExpiresInMs = 1000 * 60 * 60 * 24;
+  private readonly passwordResetTokenExpiresInMs = 1000 * 60 * 60 * 2;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -56,7 +57,7 @@ export class AuthService {
       throw new ConflictException({ error: 'EMAIL_ALREADY_USED', message: 'Email already registered.' });
     }
 
-    const verificationToken = this.generateVerificationToken();
+    const verificationToken = this.generateToken();
     const verificationExpiresAt = new Date(Date.now() + this.verificationTokenExpiresInMs);
     const customer = await this.prisma.customer.create({
       data: {
@@ -65,7 +66,7 @@ export class AuthService {
         email: normalizedEmail,
         phone: dto.phone || null,
         subscribedEmail: dto.subscribedEmail === true,
-        emailVerificationTokenHash: this.hashVerificationToken(verificationToken),
+        emailVerificationTokenHash: this.hashToken(verificationToken),
         emailVerificationSentAt: new Date(),
         emailVerificationExpiresAt: verificationExpiresAt,
         passwordHash: hashPassword(dto.password),
@@ -149,7 +150,7 @@ export class AuthService {
   }
 
   async verifyCustomerEmail(restaurantId: string, token: string) {
-    const tokenHash = this.hashVerificationToken(token);
+    const tokenHash = this.hashToken(token);
     const customer = await this.prisma.customer.findFirst({
       where: {
         restaurantId,
@@ -191,6 +192,87 @@ export class AuthService {
     };
   }
 
+  async requestCustomerPasswordReset(restaurantId: string, email: string) {
+    const normalizedEmail = email.toLowerCase();
+    const [restaurant, customer] = await Promise.all([
+      this.prisma.restaurant.findUnique({
+        where: { id: restaurantId },
+        select: { primaryDomain: true },
+      }),
+      this.prisma.customer.findFirst({
+        where: {
+          restaurantId,
+          email: normalizedEmail,
+          deletedAt: null,
+        },
+      }),
+    ]);
+
+    if (!customer) {
+      return {
+        message: 'Si un compte existe avec cette adresse, un email de réinitialisation a été envoyé.',
+      };
+    }
+
+    const resetToken = this.generateToken();
+    const resetExpiresAt = new Date(Date.now() + this.passwordResetTokenExpiresInMs);
+
+    await this.prisma.customer.update({
+      where: { id: customer.id },
+      data: {
+        passwordResetTokenHash: this.hashToken(resetToken),
+        passwordResetSentAt: new Date(),
+        passwordResetExpiresAt: resetExpiresAt,
+      },
+    });
+
+    await this.notificationService.sendCustomerPasswordResetEmail({
+      restaurantId,
+      customerEmail: customer.email,
+      customerName: customer.fullName,
+      resetUrl: this.buildCustomerAccountUrl('resetPasswordToken', resetToken, restaurant?.primaryDomain || null),
+      expiresAt: resetExpiresAt,
+    });
+
+    return {
+      message: 'Si un compte existe avec cette adresse, un email de réinitialisation a été envoyé.',
+    };
+  }
+
+  async resetCustomerPassword(restaurantId: string, token: string, password: string) {
+    const tokenHash = this.hashToken(token);
+    const customer = await this.prisma.customer.findFirst({
+      where: {
+        restaurantId,
+        deletedAt: null,
+        passwordResetTokenHash: tokenHash,
+      },
+    });
+
+    if (!customer) {
+      throw new UnauthorizedException({ error: 'INVALID_PASSWORD_RESET_TOKEN', message: 'Lien de réinitialisation invalide.' });
+    }
+
+    if (!customer.passwordResetExpiresAt || customer.passwordResetExpiresAt.getTime() < Date.now()) {
+      throw new UnauthorizedException({ error: 'PASSWORD_RESET_TOKEN_EXPIRED', message: 'Lien de réinitialisation expiré.' });
+    }
+
+    await this.prisma.customer.update({
+      where: { id: customer.id },
+      data: {
+        passwordHash: hashPassword(password),
+        passwordResetTokenHash: null,
+        passwordResetSentAt: null,
+        passwordResetExpiresAt: null,
+      },
+    });
+
+    return {
+      reset: true,
+      message: 'Votre mot de passe a été réinitialisé.',
+    };
+  }
+
   async deleteCustomerAccount(token: string) {
     const payload = this.verifyAccessToken(token, 'customer');
     const customer = await this.requireActiveCustomer(payload.sub, payload.restaurantId);
@@ -207,6 +289,9 @@ export class AuthService {
         emailVerificationTokenHash: null,
         emailVerificationSentAt: null,
         emailVerificationExpiresAt: null,
+        passwordResetTokenHash: null,
+        passwordResetSentAt: null,
+        passwordResetExpiresAt: null,
         deletedAt: new Date(),
         passwordHash: hashPassword(randomBytes(32).toString('hex')),
       },
@@ -276,23 +361,27 @@ export class AuthService {
     return `deleted+${customer.restaurantId}.${customer.id}.${Date.now()}@deleted.local`;
   }
 
-  private generateVerificationToken() {
+  private generateToken() {
     return randomBytes(32).toString('hex');
   }
 
-  private hashVerificationToken(token: string) {
+  private hashToken(token: string) {
     return createHash('sha256').update(token).digest('hex');
   }
 
   private buildCustomerVerificationUrl(token: string, primaryDomain: string | null) {
+    return this.buildCustomerAccountUrl('verifyEmailToken', token, primaryDomain);
+  }
+
+  private buildCustomerAccountUrl(queryParamName: string, token: string, primaryDomain: string | null) {
     const configuredBaseUrl = (process.env.CUSTOMER_APP_BASE_URL || '').trim().replace(/\/$/, '');
     const primaryDomainBaseUrl = primaryDomain?.trim() ? `https://${primaryDomain.trim().replace(/\/$/, '')}` : '';
     const baseUrl = configuredBaseUrl || primaryDomainBaseUrl;
 
     if (!baseUrl) {
-      return `/Account?verifyEmailToken=${encodeURIComponent(token)}`;
+      return `/Account?${encodeURIComponent(queryParamName)}=${encodeURIComponent(token)}`;
     }
 
-    return `${baseUrl}/Account?verifyEmailToken=${encodeURIComponent(token)}`;
+    return `${baseUrl}/Account?${encodeURIComponent(queryParamName)}=${encodeURIComponent(token)}`;
   }
 }

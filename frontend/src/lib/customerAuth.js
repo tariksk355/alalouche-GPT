@@ -103,6 +103,22 @@ export async function verifyCustomerEmail(token) {
   return data.data;
 }
 
+export async function requestCustomerPasswordReset(payload) {
+  const data = await backendClient.request('/auth/forgot-password', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+  return data.data;
+}
+
+export async function resetCustomerPassword(payload) {
+  const data = await backendClient.request('/auth/reset-password', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+  return data.data;
+}
+
 export async function deleteCustomerMe(token) {
   const data = await backendClient.request('/auth/me', {
     method: 'DELETE',
