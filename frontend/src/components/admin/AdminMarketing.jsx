@@ -570,7 +570,7 @@ export default function AdminMarketing() {
             </div>
 
             <AdminNotice type="info">
-              Cette action envoie immédiatement la campagne aux clients ayant explicitement accepté les emails marketing. Les non-abonnés restent visibles ici, mais ne sont pas préselectionnés ni envoyés.
+              Cette action envoie immédiatement la campagne aux clients ayant explicitement accepté les emails marketing. Les non-abonnés restent visibles ici, mais ne sont pas préselectionnés ni envoyés. Les comptes supprimés ou désactivés sont automatiquement masqués de cette audience.
             </AdminNotice>
 
             <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 space-y-3">
@@ -708,7 +708,7 @@ export default function AdminMarketing() {
             <div className="flex items-center justify-between gap-3">
               <div>
                 <p className="text-gray-900 font-semibold">Audience marketing</p>
-                <p className="text-xs text-gray-500">{targetedCount} destinataire{targetedCount > 1 ? "s" : ""} abonné{targetedCount > 1 ? "s" : ""} ciblé{targetedCount > 1 ? "s" : ""} après exclusions, sur {totalAudienceCount} client{totalAudienceCount > 1 ? "s" : ""} visible{totalAudienceCount > 1 ? "s" : ""}.</p>
+                <p className="text-xs text-gray-500">{targetedCount} destinataire{targetedCount > 1 ? "s" : ""} abonné{targetedCount > 1 ? "s" : ""} ciblé{targetedCount > 1 ? "s" : ""} après exclusions, sur {totalAudienceCount} client{totalAudienceCount > 1 ? "s" : ""} visible{totalAudienceCount > 1 ? "s" : ""}. Les comptes supprimés sont masqués.</p>
               </div>
               {excludedRecipientIds.length > 0 && (
                 <button type="button" onClick={() => setExcludedRecipientIds([])} className="text-xs text-gray-500 hover:text-gray-700">

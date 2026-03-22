@@ -16,6 +16,7 @@ export class AdminMarketingService {
     return this.prisma.customer.findMany({
       where: {
         restaurantId,
+        deletedAt: null,
         subscribedEmail: subscribed,
       },
       orderBy: { createdAt: 'desc' },
@@ -34,6 +35,7 @@ export class AdminMarketingService {
     return this.prisma.customer.count({
       where: {
         restaurantId,
+        deletedAt: null,
         subscribedEmail: subscribed,
       },
     });
@@ -118,6 +120,7 @@ export class AdminMarketingService {
     const subscribedTotal = await this.prisma.customer.count({
       where: {
         restaurantId,
+        deletedAt: null,
         subscribedEmail: true,
       },
     });
@@ -125,6 +128,7 @@ export class AdminMarketingService {
     const recipients = await this.prisma.customer.findMany({
       where: {
         restaurantId,
+        deletedAt: null,
         subscribedEmail: true,
         ...(excludedCustomerIds.length > 0 ? { id: { notIn: excludedCustomerIds } } : {}),
       },
