@@ -1350,17 +1350,6 @@ function AdminSettings() {
         <div>
           <h3 className="font-semibold text-lg mb-4 text-gray-900">Commandes</h3>
           <div className="space-y-4">
-            <div>
-              <label className="block text-sm text-gray-500 mb-2">Temps de préparation par défaut</label>
-              <div className="flex gap-3 flex-wrap">
-                {[15, 30, 45, 60].map(t => (
-                  <button key={t} onClick={() => setPrinterSettings(s => ({ ...s, default_prep_time: t }))}
-                    className={`px-4 py-2 rounded-lg border transition-colors ${printerSettings.default_prep_time === t ? "border-[#b5122a] text-[#b5122a] bg-red-50" : "border-gray-200 text-gray-500 hover:border-gray-400"}`}>
-                    {t} min
-                  </button>
-                ))}
-              </div>
-            </div>
             <div className="flex items-center justify-between">
               <label className="text-gray-700">Sélection de délai obligatoire</label>
               <button onClick={() => setPrinterSettings(s => ({ ...s, require_prep_time: !s.require_prep_time }))}

@@ -59,6 +59,7 @@ const state = {
     orderEnabled: true,
     reservationEnabled: true,
     volume: 0.2,
+    defaultPrepTime: 30,
     theme: 'dark',
   },
   isSettingsPanelOpen: false,
@@ -158,6 +159,7 @@ const RECEIVER_I18N = {
     settings_orders: 'Orders',
     settings_reservations: 'Reservations',
     settings_volume: 'Volume: {value}%',
+    settings_default_prep_time: 'Default prep time',
     settings_language: 'Language',
     settings_theme: 'Theme',
     theme_dark: 'Dark',
@@ -255,6 +257,7 @@ const RECEIVER_I18N = {
     settings_orders: 'Commandes',
     settings_reservations: 'Réservations',
     settings_volume: 'Volume: {value}%',
+    settings_default_prep_time: 'Temps de préparation par défaut',
     settings_language: 'Langue',
     settings_theme: 'Thème',
     theme_dark: 'Sombre',
@@ -352,6 +355,7 @@ const RECEIVER_I18N = {
     settings_orders: 'Bestellungen',
     settings_reservations: 'Reservierungen',
     settings_volume: 'Lautstärke: {value}%',
+    settings_default_prep_time: 'Standard-Vorbereitungszeit',
     settings_language: 'Sprache',
     settings_theme: 'Design',
     theme_dark: 'Dunkel',
@@ -572,11 +576,13 @@ function dismissProcessedReservation(reservationId) {
 
 function normalizeAlertSettings(value) {
   const candidate = value && typeof value === 'object' ? value : {};
+  const defaultPrepTime = [15, 30, 45, 60].includes(Number(candidate.defaultPrepTime)) ? Number(candidate.defaultPrepTime) : 30;
   return {
     soundEnabled: candidate.soundEnabled !== false,
     orderEnabled: candidate.orderEnabled !== false,
     reservationEnabled: candidate.reservationEnabled !== false,
     volume: Math.min(1, Math.max(0, Number.isFinite(Number(candidate.volume)) ? Number(candidate.volume) : 0.2)),
+    defaultPrepTime,
     language: normalizeReceiverLanguage(candidate.language),
     theme: normalizeReceiverTheme(candidate.theme),
   };
@@ -1416,7 +1422,7 @@ function prepMinutesForOrder(order) {
   const selected = state.prepMinutesByOrderId[order.id];
   if ([15, 30, 45, 60].includes(Number(selected))) return Number(selected);
   if ([15, 30, 45, 60].includes(Number(order.prepMinutes))) return Number(order.prepMinutes);
-  return 30;
+  return state.alertSettings.defaultPrepTime || 30;
 }
 
 function renderPairingCard() {
@@ -1700,6 +1706,20 @@ function render() {
               <span>${t('settings_volume', { value: Math.round(state.alertSettings.volume * 100) })}</span>
               <input id="alert-volume-input" type="range" min="0" max="100" step="5" data-action="set-alert-volume" value="${Math.round(state.alertSettings.volume * 100)}" />
             </label>
+            <div class="alert-theme-row">
+              <span>${t('settings_default_prep_time')}</span>
+              <div class="chip-row alert-theme-chip-row" role="group" aria-label="${t('settings_default_prep_time')}">
+                ${[15, 30, 45, 60].map((minutes) => `
+                  <button
+                    class="prep-chip alert-theme-chip ${state.alertSettings.defaultPrepTime === minutes ? 'active' : ''}"
+                    type="button"
+                    data-action="set-default-prep-time"
+                    data-minutes="${minutes}"
+                    aria-pressed="${state.alertSettings.defaultPrepTime === minutes ? 'true' : 'false'}"
+                  >${minutes} min</button>
+                `).join('')}
+              </div>
+            </div>
             <div class="alert-language-row">
               <span>${t('settings_language')}</span>
               <div class="chip-row alert-language-chip-row" role="group" aria-label="${t('settings_language')}">
@@ -1893,7 +1913,7 @@ async function refreshOperations() {
     const nextPrep = {};
     for (const order of state.orders) {
       const existing = state.prepMinutesByOrderId[order.id];
-      nextPrep[order.id] = [15, 30, 45, 60].includes(Number(existing)) ? Number(existing) : ([15, 30, 45, 60].includes(Number(order.prepMinutes)) ? Number(order.prepMinutes) : 30);
+      nextPrep[order.id] = [15, 30, 45, 60].includes(Number(existing)) ? Number(existing) : ([15, 30, 45, 60].includes(Number(order.prepMinutes)) ? Number(order.prepMinutes) : state.alertSettings.defaultPrepTime || 30);
     }
     state.prepMinutesByOrderId = nextPrep;
     state.error = '';
@@ -2302,6 +2322,25 @@ app.addEventListener('click', async (event) => {
     persistAlertSettings();
     debugLog('alert_settings_updated', state.alertSettings);
     render();
+    return;
+  }
+
+  if (target.dataset.action === 'set-default-prep-time') {
+    const minutes = Number(target.dataset.minutes || 0);
+    if ([15, 30, 45, 60].includes(minutes)) {
+      const previousDefaultPrepTime = state.alertSettings.defaultPrepTime || 30;
+      state.alertSettings.defaultPrepTime = minutes;
+      state.orders.forEach((order) => {
+        if (!order?.id) return;
+        if ([15, 30, 45, 60].includes(Number(order.prepMinutes))) return;
+        if (Number(state.prepMinutesByOrderId[order.id]) === previousDefaultPrepTime) {
+          state.prepMinutesByOrderId[order.id] = minutes;
+        }
+      });
+      persistAlertSettings();
+      debugLog('alert_settings_updated', state.alertSettings);
+      render();
+    }
     return;
   }
 

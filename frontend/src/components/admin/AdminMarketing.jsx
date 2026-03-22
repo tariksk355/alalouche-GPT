@@ -120,9 +120,11 @@ function buildPromotionSnippet(promotion, part = "block") {
 
 function PromotionFormModal({ open, mode, initialValue, busy, onClose, onSubmit }) {
   const [form, setForm] = useState(PROMOTION_DEFAULTS);
+  const [submitError, setSubmitError] = useState('');
 
   useEffect(() => {
     if (!open) return;
+    setSubmitError('');
     if (!initialValue) {
       setForm({
         ...PROMOTION_DEFAULTS,
@@ -148,6 +150,19 @@ function PromotionFormModal({ open, mode, initialValue, busy, onClose, onSubmit 
 
   const handleSubmit = async (event) => {
     event.preventDefault();
+
+    if (!form.name.trim() || !form.code.trim()) {
+      setSubmitError('Veuillez renseigner le nom interne et le code promo.');
+      return;
+    }
+
+    const discountValue = Number(form.discountValue);
+    if (form.discountValue === '' || Number.isNaN(discountValue) || discountValue < 0) {
+      setSubmitError('Veuillez saisir une valeur de remise valide.');
+      return;
+    }
+
+    setSubmitError('');
     await onSubmit(normalizePromotionPayload(form));
   };
 
@@ -162,7 +177,8 @@ function PromotionFormModal({ open, mode, initialValue, busy, onClose, onSubmit 
           <button type="button" onClick={onClose} className="text-sm text-gray-500 hover:text-gray-700">Fermer</button>
         </div>
 
-        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+        <form noValidate onSubmit={handleSubmit} className="p-6 space-y-4">
+          {submitError && <AdminNotice type="error">{submitError}</AdminNotice>}
           <div className="grid gap-4 md:grid-cols-2">
             <div className="md:col-span-2">
               <label className="block text-sm text-gray-500 mb-1">Nom interne *</label>
@@ -212,7 +228,7 @@ function PromotionFormModal({ open, mode, initialValue, busy, onClose, onSubmit 
               <input
                 required
                 min="0"
-                step="0.01"
+                step="1"
                 type="number"
                 value={form.discountValue}
                 onChange={(event) => setForm((current) => ({ ...current, discountValue: event.target.value }))}
