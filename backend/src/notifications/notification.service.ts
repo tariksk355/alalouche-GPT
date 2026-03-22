@@ -21,6 +21,14 @@ export interface MarketingBulkEmailResult {
   note: string;
 }
 
+export interface CustomerVerificationEmailCommand {
+  restaurantId: string;
+  customerEmail: string;
+  customerName: string;
+  verificationUrl: string;
+  expiresAt: Date;
+}
+
 export interface NotificationEvent {
   type: NotificationEventType;
   restaurantId: string;
@@ -569,6 +577,91 @@ export class NotificationService {
     };
   }
 
+  async sendCustomerVerificationEmail(command: CustomerVerificationEmailCommand): Promise<void> {
+    const provider = this.getTransactionalProvider();
+    if (provider === 'none') {
+      this.logger.warn(
+        `Transactional email disabled; skipping customer verification email. restaurantId=${command.restaurantId} recipient=${command.customerEmail}`,
+      );
+      return;
+    }
+
+    if (provider === 'unsupported') {
+      this.logger.error(
+        `Unsupported TRANSACTIONAL_EMAIL_PROVIDER value: ${process.env.TRANSACTIONAL_EMAIL_PROVIDER || 'undefined'}. Use TRANSACTIONAL_EMAIL_PROVIDER=smtp.`,
+      );
+      return;
+    }
+
+    const recipient = this.normalizeRecipientEmail(command.customerEmail);
+    if (!recipient) {
+      this.logger.warn(
+        `Skipping customer verification email with missing/invalid target. restaurantId=${command.restaurantId}`,
+      );
+      return;
+    }
+
+    const smtpConfig = this.getSmtpConfig();
+    if (!smtpConfig) return;
+
+    const restaurant = await this.prisma.restaurant.findUnique({
+      where: { id: command.restaurantId },
+      select: {
+        id: true,
+        name: true,
+        branding: true,
+        contactInfo: true,
+        timezone: true,
+        locale: true,
+        currency: true,
+      },
+    });
+
+    const context = this.getRestaurantEmailContext(
+      restaurant || {
+        id: command.restaurantId,
+        name: 'Notre restaurant',
+        branding: null,
+        contactInfo: null,
+        timezone: 'Europe/Zurich',
+        locale: 'fr-CH',
+        currency: 'CHF',
+      },
+    );
+
+    const expiresAt = new Intl.DateTimeFormat(context.locale || 'fr-CH', {
+      dateStyle: 'medium',
+      timeStyle: 'short',
+      timeZone: context.timezone || 'Europe/Zurich',
+    }).format(command.expiresAt);
+
+    const message = this.buildCustomerVerificationMessage({
+      context,
+      customerName: command.customerName,
+      verificationUrl: command.verificationUrl,
+      expiresAt,
+    });
+
+    const result = await this.sendViaSmtp({
+      config: smtpConfig,
+      to: recipient,
+      subject: message.subject,
+      text: message.text,
+      html: message.html,
+    });
+
+    if (!result.ok) {
+      this.logger.error(
+        `SMTP customer verification email failed. restaurantId=${command.restaurantId} recipient=${recipient} error=${result.error}`,
+      );
+      return;
+    }
+
+    this.logger.log(
+      `SMTP customer verification email sent. restaurantId=${command.restaurantId} recipient=${recipient}`,
+    );
+  }
+
   private async buildMarketingEmail(command: MarketingBulkEmailCommand): Promise<MarketingEmailMessage> {
     const restaurant = await this.prisma.restaurant.findUnique({
       where: { id: command.restaurantId },
@@ -681,6 +774,128 @@ export class NotificationService {
     </table>
   </body>
 </html>`,
+    };
+  }
+
+  private buildCustomerVerificationMessage(params: {
+    context: RestaurantEmailContext;
+    customerName: string;
+    verificationUrl: string;
+    expiresAt: string;
+  }): TransactionalEmailMessage {
+    const greetingName = params.customerName?.trim() || 'cher client';
+    const detailRows = [
+      { label: 'Compte', value: greetingName },
+      { label: 'Lien valable jusqu’au', value: params.expiresAt },
+    ];
+
+    return {
+      subject: `Vérifiez votre adresse email - ${params.context.name}`,
+      text: [
+        `Bonjour ${greetingName},`,
+        '',
+        `Merci d’avoir créé votre compte chez ${params.context.name}.`,
+        'Veuillez confirmer que cette adresse email vous appartient en ouvrant le lien ci-dessous :',
+        params.verificationUrl,
+        '',
+        `Ce lien reste valable jusqu’au ${params.expiresAt}.`,
+        '',
+        'Si vous n’êtes pas à l’origine de cette inscription, vous pouvez ignorer ce message.',
+      ].join('\n'),
+      html: `<!DOCTYPE html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Vérifiez votre adresse email</title>
+  </head>
+  <body style="margin:0;padding:0;background:#f3f4f6;font-family:Arial,Helvetica,sans-serif;color:#111111;">
+    <div style="display:none;max-height:0;overflow:hidden;opacity:0;">Confirmez votre adresse email pour activer votre compte client.</div>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f3f4f6;padding:28px 12px;">
+      <tr>
+        <td align="center">
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:640px;background:#ffffff;border-radius:20px;overflow:hidden;border:1px solid #e5e7eb;">
+            <tr>
+              <td style="background:${this.escapeHtml(params.context.primaryColor)};height:6px;font-size:0;line-height:0;">&nbsp;</td>
+            </tr>
+            <tr>
+              <td style="background:#ffffff;padding:28px 32px 24px;text-align:center;border-bottom:1px solid #e5e7eb;">
+                ${
+                  params.context.logoUrl
+                    ? `<div style="margin:0 auto 18px;display:inline-block;background:#ffffff;border:1px solid #e5e7eb;border-radius:16px;padding:16px 20px;">
+                        <img src="${this.escapeHtml(params.context.logoUrl)}" alt="${this.escapeHtml(params.context.name)} logo" width="180" style="max-width:180px;max-height:88px;width:auto;height:auto;display:block;margin:0 auto;border:0;outline:none;text-decoration:none;-ms-interpolation-mode:bicubic;" />
+                      </div>`
+                    : ''
+                }
+                <div style="color:#111111;font-size:30px;font-weight:700;line-height:1.2;">${this.escapeHtml(params.context.name)}</div>
+                <div style="margin-top:8px;color:#6b7280;font-size:13px;letter-spacing:0.08em;text-transform:uppercase;">Confirmation client</div>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:32px;">
+                <div style="display:inline-block;background:#f3f4f6;color:#111111;padding:7px 12px;border-radius:999px;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.04em;">
+                  Vérification email
+                </div>
+                <h1 style="margin:18px 0 12px;font-size:30px;line-height:1.2;color:#111111;">Confirmez votre adresse email</h1>
+                <p style="margin:0 0 26px;color:#4b5563;font-size:15px;line-height:1.8;">
+                  Bonjour ${this.escapeHtml(greetingName)}, merci d’avoir créé votre compte. Confirmez votre adresse email pour sécuriser votre accès client.
+                </p>
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #e5e7eb;border-radius:16px;padding:0 20px;background:#ffffff;">
+                  <tr>
+                    <td style="padding:10px 22px 6px;">
+                      <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+                        ${detailRows
+                          .map(
+                            (row) => `
+                          <tr>
+                            <td style="padding:12px 0;border-bottom:1px solid #e5e7eb;color:#6b7280;font-size:13px;font-weight:600;width:38%;">
+                              ${this.escapeHtml(row.label)}
+                            </td>
+                            <td style="padding:12px 0;border-bottom:1px solid #e5e7eb;color:#111827;font-size:14px;text-align:right;">
+                              ${this.escapeHtml(row.value)}
+                            </td>
+                          </tr>`,
+                          )
+                          .join('')}
+                      </table>
+                    </td>
+                  </tr>
+                </table>
+                <div style="margin:24px 0 0;text-align:center;">
+                  <a href="${this.escapeHtml(params.verificationUrl)}" style="display:inline-block;background:#111111;color:#ffffff;text-decoration:none;padding:14px 22px;border-radius:12px;font-weight:700;font-size:14px;">
+                    Vérifier mon adresse email
+                  </a>
+                </div>
+                <p style="margin:24px 0 0;color:#4b5563;font-size:14px;line-height:1.8;">
+                  Si le bouton ne fonctionne pas, copiez ce lien dans votre navigateur :<br />
+                  <span style="word-break:break-all;">${this.escapeHtml(params.verificationUrl)}</span>
+                </p>
+                <p style="margin:18px 0 0;color:#4b5563;font-size:14px;line-height:1.8;">
+                  Ce lien reste valable jusqu’au ${this.escapeHtml(params.expiresAt)}. Si vous n’êtes pas à l’origine de cette inscription, ignorez simplement cet email.
+                </p>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:22px 32px;background:#111111;border-top:1px solid #111111;text-align:center;">
+                <div style="color:#ffffff;font-size:14px;font-weight:700;margin-bottom:6px;">${this.escapeHtml(params.context.name)}</div>
+                <div style="color:#d1d5db;font-size:13px;line-height:1.7;">
+                  ${[params.context.contactPhone, params.context.contactEmail, params.context.contactAddress]
+                    .filter(Boolean)
+                    .map((value) => this.escapeHtml(String(value)))
+                    .join(' · ') || 'Merci de votre confiance.'}
+                </div>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>`,
+      debug: {
+        logoUrl: params.context.logoUrl,
+        logoSourcePath: params.context.logoSourcePath,
+      },
     };
   }
 

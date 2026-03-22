@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useEffect, useMemo, useState } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -7,10 +7,11 @@ import { Input } from '@/components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { StorefrontNotice } from '@/components/storefront/feedback';
 import { useAuth } from '@/lib/AuthContext';
-import { getStoredCustomerSession, loginCustomer, signupCustomer, updateCustomerMe } from '@/lib/customerAuth';
+import { clearStoredCustomerSession, deleteCustomerMe, getStoredCustomerSession, loginCustomer, signupCustomer, updateCustomerMe, verifyCustomerEmail } from '@/lib/customerAuth';
 
 export default function Account() {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { user, isAuthenticated, refreshSession, logout } = useAuth();
 
   const [loginForm, setLoginForm] = useState({ email: '', password: '' });
@@ -20,6 +21,61 @@ export default function Account() {
   const [profileForm, setProfileForm] = useState({ fullName: '', phone: '' });
   const [savingProfile, setSavingProfile] = useState(false);
   const [profileSuccess, setProfileSuccess] = useState('');
+  const [verificationNotice, setVerificationNotice] = useState('');
+  const [verificationError, setVerificationError] = useState('');
+  const [verifyingEmail, setVerifyingEmail] = useState(false);
+  const [deletingAccount, setDeletingAccount] = useState(false);
+  const verificationToken = searchParams.get('verifyEmailToken');
+  const hasVerificationToken = Boolean(verificationToken);
+  const emailVerified = user?.emailVerified === true;
+  const emailVerifiedAtLabel = useMemo(() => {
+    if (!user?.emailVerifiedAt) return null;
+    const date = new Date(user.emailVerifiedAt);
+    if (Number.isNaN(date.getTime())) return null;
+    return new Intl.DateTimeFormat('fr-CH', { dateStyle: 'medium', timeStyle: 'short' }).format(date);
+  }, [user?.emailVerifiedAt]);
+
+  useEffect(() => {
+    if (!verificationToken) return;
+
+    let cancelled = false;
+
+    async function runVerification() {
+      setVerifyingEmail(true);
+      setVerificationError('');
+      setVerificationNotice('');
+
+      try {
+        const result = await verifyCustomerEmail(verificationToken);
+        if (cancelled) return;
+
+        await refreshSession();
+        setVerificationNotice(
+          result.alreadyVerified
+            ? 'Votre adresse email était déjà vérifiée.'
+            : 'Votre adresse email a bien été vérifiée.',
+        );
+
+        const nextParams = new URLSearchParams(searchParams);
+        nextParams.delete('verifyEmailToken');
+        setSearchParams(nextParams, { replace: true });
+      } catch (err) {
+        if (!cancelled) {
+          setVerificationError(err.message || 'Impossible de vérifier cette adresse email.');
+        }
+      } finally {
+        if (!cancelled) {
+          setVerifyingEmail(false);
+        }
+      }
+    }
+
+    runVerification();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [refreshSession, searchParams, setSearchParams, verificationToken]);
 
   const handleLogin = async (e) => {
     e.preventDefault();
@@ -43,7 +99,8 @@ export default function Account() {
     try {
       await signupCustomer(signupForm);
       await refreshSession();
-      navigate(createPageUrl('Home'));
+      setVerificationNotice('Compte créé. Vérifiez maintenant votre email via le lien envoyé avant votre prochaine connexion.');
+      navigate(createPageUrl('Account'));
     } catch (err) {
       setError(err.message || 'Inscription impossible.');
     } finally {
@@ -81,12 +138,42 @@ export default function Account() {
       }
     };
 
+    const handleDeleteAccount = async () => {
+      if (deletingAccount) return;
+      const session = getStoredCustomerSession();
+      if (!session?.token) {
+        setError('Connexion expirée.');
+        return;
+      }
+
+      const confirmed = window.confirm('Confirmez-vous la suppression de votre compte ? Cette action désactive votre accès et anonymise vos données de profil.');
+      if (!confirmed) return;
+
+      setDeletingAccount(true);
+      setError('');
+      setProfileSuccess('');
+
+      try {
+        await deleteCustomerMe(session.token);
+        clearStoredCustomerSession();
+        logout();
+        navigate(createPageUrl('Account'));
+        setVerificationNotice('Votre compte a été supprimé. Vos commandes existantes restent conservées pour l’historique opérationnel.');
+      } catch (err) {
+        setError(err.message || 'Suppression du compte impossible.');
+      } finally {
+        setDeletingAccount(false);
+      }
+    };
+
     return (
       <div className="min-h-screen bg-gray-50 p-4">
         <div className="max-w-xl mx-auto pt-10">
           <Card className="p-6 space-y-4">
             <h1 className="text-2xl font-semibold">Mon compte</h1>
             <p className="text-sm text-gray-600">Connecté en tant que {user.fullName}</p>
+            {verificationNotice && <StorefrontNotice type="success">{verificationNotice}</StorefrontNotice>}
+            {verificationError && <StorefrontNotice type="error">{verificationError}</StorefrontNotice>}
             {profileSuccess && <StorefrontNotice type="success">{profileSuccess}</StorefrontNotice>}
             {error && <StorefrontNotice type="error">{error}</StorefrontNotice>}
             <div className="space-y-2 text-sm">
@@ -96,7 +183,16 @@ export default function Account() {
               <p>
                 <strong>Téléphone:</strong> {user.phone || 'Non renseigné'}
               </p>
+              <p>
+                <strong>Email vérifié:</strong> {emailVerified ? `Oui${emailVerifiedAtLabel ? ` · ${emailVerifiedAtLabel}` : ''}` : 'Non'}
+              </p>
             </div>
+
+            {!emailVerified && (
+              <StorefrontNotice type="info">
+                Votre adresse email n’est pas encore vérifiée. Utilisez le lien reçu par email pour confirmer votre compte.
+              </StorefrontNotice>
+            )}
 
             <form onSubmit={handleProfileSave} className="space-y-3 border-t border-gray-200 pt-4">
               <p className="text-sm font-medium">Mettre à jour mes informations</p>
@@ -122,6 +218,18 @@ export default function Account() {
                 Déconnexion
               </Button>
             </div>
+
+            <div className="border-t border-red-100 pt-4 space-y-3">
+              <div>
+                <p className="text-sm font-semibold text-red-700">Supprimer mon compte</p>
+                <p className="text-sm text-gray-600">
+                  Cette action désactive votre accès client et anonymise vos données de profil. Les commandes existantes sont conservées pour ne pas casser l’historique opérationnel.
+                </p>
+              </div>
+              <Button type="button" variant="outline" onClick={handleDeleteAccount} disabled={deletingAccount} className="border-red-200 text-red-700 hover:bg-red-50 hover:text-red-800">
+                {deletingAccount ? 'Suppression en cours...' : 'Supprimer mon compte'}
+              </Button>
+            </div>
           </Card>
         </div>
       </div>
@@ -134,6 +242,12 @@ export default function Account() {
         <Card className="p-6">
           <h1 className="text-2xl font-semibold mb-4">Connexion / Inscription</h1>
           <p className="text-sm text-gray-500 mb-4">Connectez-vous pour suivre vos commandes et gagner du temps lors des prochains achats.</p>
+          {verifyingEmail && <StorefrontNotice className="mb-4">Vérification de votre adresse email en cours...</StorefrontNotice>}
+          {verificationNotice && <StorefrontNotice type="success" className="mb-4">{verificationNotice}</StorefrontNotice>}
+          {verificationError && <StorefrontNotice type="error" className="mb-4">{verificationError}</StorefrontNotice>}
+          {hasVerificationToken && !verifyingEmail && !verificationError && !verificationNotice && (
+            <StorefrontNotice className="mb-4">Traitement du lien de vérification…</StorefrontNotice>
+          )}
           {error && <StorefrontNotice type="error" className="mb-4">{error}</StorefrontNotice>}
 
           <Tabs defaultValue="login">

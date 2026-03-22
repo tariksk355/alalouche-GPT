@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Headers, Patch, Post, UnauthorizedException, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Headers, Patch, Post, Query, UnauthorizedException, UseGuards } from '@nestjs/common';
 import { ok } from '../common/api-response';
 import { TenantContextGuard } from '../tenant/tenant-context.guard';
 import { TenantCtx } from '../tenant/tenant.decorator';
@@ -40,6 +40,17 @@ export class AuthController {
     return ok(session);
   }
 
+  @Get('auth/verify-email')
+  @UseGuards(TenantContextGuard)
+  async verifyCustomerEmail(@TenantCtx() tenant: TenantContext, @Query('token') token?: string) {
+    if (!token?.trim()) {
+      throw new UnauthorizedException({ error: 'INVALID_VERIFICATION_TOKEN', message: 'Lien de vérification invalide.' });
+    }
+
+    const result = await this.authService.verifyCustomerEmail(tenant.restaurantId, token.trim());
+    return ok(result);
+  }
+
   @Get('auth/me')
   async customerMe(@Headers('authorization') authorization?: string) {
     const token = this.extractBearer(authorization);
@@ -52,6 +63,13 @@ export class AuthController {
     const token = this.extractBearer(authorization);
     const customer = await this.authService.updateCustomerProfile(token, dto);
     return ok({ customer });
+  }
+
+  @Delete('auth/me')
+  async deleteCustomerMe(@Headers('authorization') authorization?: string) {
+    const token = this.extractBearer(authorization);
+    const result = await this.authService.deleteCustomerAccount(token);
+    return ok(result);
   }
 
   private extractBearer(authorization?: string): string {

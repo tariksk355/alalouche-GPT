@@ -45,6 +45,7 @@ Public config bootstrap endpoint:
 - `TRANSACTIONAL_EMAIL_PROVIDER` (`none` or `smtp`)
 - `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM`
 - `SMTP_REPLY_TO` (optional)
+- `CUSTOMER_APP_BASE_URL` (recommended public storefront origin for signup email-verification links when the restaurant has no `primaryDomain`)
 
 For admin menu image upload (`POST /admin/menu-catalog/images/upload`), also configure:
 - `S3_BUCKET`
@@ -99,6 +100,7 @@ In production, 5xx messages are sanitized to avoid leaking internals.
 - Admin bulk marketing emails use Resend via `MARKETING_EMAIL_PROVIDER` (`none` or `resend`).
 - For backward compatibility during transition, marketing falls back to `EMAIL_PROVIDER` / `EMAIL_FROM` only when `MARKETING_EMAIL_PROVIDER` is unset.
 - Transactional customer emails for order/reservation creation + status notifications use `TRANSACTIONAL_EMAIL_PROVIDER` (`none` or `smtp`).
+- Customer signup email verification also uses the same transactional SMTP pipeline.
 - Transactional flow does **not** read `EMAIL_PROVIDER`; once split, SMTP config is the only active provider path for transactional sends.
 
 

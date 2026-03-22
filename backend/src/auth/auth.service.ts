@@ -1,4 +1,6 @@
 import { ConflictException, Injectable, UnauthorizedException } from '@nestjs/common';
+import { createHash, randomBytes } from 'node:crypto';
+import { NotificationService } from '../notifications/notification.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { AdminLoginDto } from './dto/admin-login.dto';
 import { CustomerLoginDto } from './dto/customer-login.dto';
@@ -9,9 +11,12 @@ import { AccessTokenPayload, TokenService } from './token.service';
 
 @Injectable()
 export class AuthService {
+  private readonly verificationTokenExpiresInMs = 1000 * 60 * 60 * 24;
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly tokenService: TokenService,
+    private readonly notificationService: NotificationService,
   ) {}
 
   async adminLogin(dto: AdminLoginDto) {
@@ -39,25 +44,43 @@ export class AuthService {
   }
 
   async customerSignup(restaurantId: string, dto: CustomerSignupDto) {
+    const restaurant = await this.prisma.restaurant.findUnique({
+      where: { id: restaurantId },
+      select: { primaryDomain: true },
+    });
+    const normalizedEmail = dto.email.toLowerCase();
     const existing = await this.prisma.customer.findUnique({
-      where: { restaurantId_email: { restaurantId, email: dto.email.toLowerCase() } },
+      where: { restaurantId_email: { restaurantId, email: normalizedEmail } },
     });
     if (existing) {
       throw new ConflictException({ error: 'EMAIL_ALREADY_USED', message: 'Email already registered.' });
     }
 
+    const verificationToken = this.generateVerificationToken();
+    const verificationExpiresAt = new Date(Date.now() + this.verificationTokenExpiresInMs);
     const customer = await this.prisma.customer.create({
       data: {
         restaurantId,
         fullName: dto.fullName,
-        email: dto.email.toLowerCase(),
+        email: normalizedEmail,
         phone: dto.phone || null,
         subscribedEmail: dto.subscribedEmail === true,
+        emailVerificationTokenHash: this.hashVerificationToken(verificationToken),
+        emailVerificationSentAt: new Date(),
+        emailVerificationExpiresAt: verificationExpiresAt,
         passwordHash: hashPassword(dto.password),
       },
     });
 
-    return this.issueCustomerSession(customer.id, customer.restaurantId, customer.email, customer.fullName, customer.phone);
+    await this.notificationService.sendCustomerVerificationEmail({
+      restaurantId,
+      customerEmail: customer.email,
+      customerName: customer.fullName,
+      verificationUrl: this.buildCustomerVerificationUrl(verificationToken, restaurant?.primaryDomain || null),
+      expiresAt: verificationExpiresAt,
+    });
+
+    return this.issueCustomerSession(customer);
   }
 
   async customerLogin(restaurantId: string, dto: CustomerLoginDto) {
@@ -65,11 +88,11 @@ export class AuthService {
       where: { restaurantId_email: { restaurantId, email: dto.email.toLowerCase() } },
     });
 
-    if (!customer || !verifyPassword(dto.password, customer.passwordHash)) {
+    if (!customer || customer.deletedAt || !verifyPassword(dto.password, customer.passwordHash)) {
       throw new UnauthorizedException({ error: 'INVALID_CREDENTIALS', message: 'Invalid email or password.' });
     }
 
-    return this.issueCustomerSession(customer.id, customer.restaurantId, customer.email, customer.fullName, customer.phone);
+    return this.issueCustomerSession(customer);
   }
 
   async getSessionUser(token: string, expectedRole: 'admin' | 'customer') {
@@ -87,17 +110,8 @@ export class AuthService {
       };
     }
 
-    const customer = await this.prisma.customer.findUnique({ where: { id: payload.sub } });
-    if (!customer) throw new UnauthorizedException({ error: 'INVALID_TOKEN', message: 'Customer no longer exists.' });
-
-    return {
-      role: 'customer',
-      id: customer.id,
-      fullName: customer.fullName,
-      email: customer.email,
-      phone: customer.phone,
-      restaurantId: customer.restaurantId,
-    };
+    const customer = await this.requireActiveCustomer(payload.sub, payload.restaurantId);
+    return this.toCustomerProfile(customer);
   }
 
   verifyAccessToken(token: string, expectedRole: 'admin' | 'customer'): AccessTokenPayload {
@@ -121,17 +135,7 @@ export class AuthService {
 
   async updateCustomerProfile(token: string, dto: UpdateCustomerProfileDto) {
     const payload = this.verifyAccessToken(token, 'customer');
-
-    const customer = await this.prisma.customer.findFirst({
-      where: {
-        id: payload.sub,
-        restaurantId: payload.restaurantId,
-      },
-    });
-
-    if (!customer) {
-      throw new UnauthorizedException({ error: 'INVALID_TOKEN', message: 'Customer no longer exists.' });
-    }
+    const customer = await this.requireActiveCustomer(payload.sub, payload.restaurantId);
 
     const updated = await this.prisma.customer.update({
       where: { id: customer.id },
@@ -141,33 +145,154 @@ export class AuthService {
       },
     });
 
+    return this.toCustomerProfile(updated);
+  }
+
+  async verifyCustomerEmail(restaurantId: string, token: string) {
+    const tokenHash = this.hashVerificationToken(token);
+    const customer = await this.prisma.customer.findFirst({
+      where: {
+        restaurantId,
+        deletedAt: null,
+        emailVerificationTokenHash: tokenHash,
+      },
+    });
+
+    if (!customer) {
+      throw new UnauthorizedException({ error: 'INVALID_VERIFICATION_TOKEN', message: 'Lien de vérification invalide.' });
+    }
+
+    if (customer.emailVerifiedAt) {
+      return {
+        verified: true,
+        alreadyVerified: true,
+        customer: this.toCustomerProfile(customer),
+      };
+    }
+
+    if (!customer.emailVerificationExpiresAt || customer.emailVerificationExpiresAt.getTime() < Date.now()) {
+      throw new UnauthorizedException({ error: 'VERIFICATION_TOKEN_EXPIRED', message: 'Lien de vérification expiré.' });
+    }
+
+    const updated = await this.prisma.customer.update({
+      where: { id: customer.id },
+      data: {
+        emailVerifiedAt: new Date(),
+        emailVerificationTokenHash: null,
+        emailVerificationSentAt: null,
+        emailVerificationExpiresAt: null,
+      },
+    });
+
     return {
-      role: 'customer',
-      id: updated.id,
-      fullName: updated.fullName,
-      email: updated.email,
-      phone: updated.phone,
-      restaurantId: updated.restaurantId,
+      verified: true,
+      alreadyVerified: false,
+      customer: this.toCustomerProfile(updated),
     };
   }
 
-  private issueCustomerSession(id: string, restaurantId: string, email: string, fullName: string, phone: string | null) {
+  async deleteCustomerAccount(token: string) {
+    const payload = this.verifyAccessToken(token, 'customer');
+    const customer = await this.requireActiveCustomer(payload.sub, payload.restaurantId);
+    const anonymizedEmail = this.buildDeletedCustomerEmail(customer);
+
+    await this.prisma.customer.update({
+      where: { id: customer.id },
+      data: {
+        fullName: 'Compte supprimé',
+        email: anonymizedEmail,
+        phone: null,
+        subscribedEmail: false,
+        emailVerifiedAt: null,
+        emailVerificationTokenHash: null,
+        emailVerificationSentAt: null,
+        emailVerificationExpiresAt: null,
+        deletedAt: new Date(),
+        passwordHash: hashPassword(randomBytes(32).toString('hex')),
+      },
+    });
+
+    return { deleted: true };
+  }
+
+  private issueCustomerSession(customer: {
+    id: string;
+    restaurantId: string;
+    email: string;
+    fullName: string;
+    phone: string | null;
+    emailVerifiedAt: Date | null;
+    deletedAt?: Date | null;
+  }) {
     const token = this.tokenService.sign({
-      sub: id,
+      sub: customer.id,
       role: 'customer',
-      restaurantId,
-      email,
+      restaurantId: customer.restaurantId,
+      email: customer.email,
     });
 
     return {
       token,
-      customer: {
-        id,
-        fullName,
-        email,
-        phone,
+      customer: this.toCustomerProfile(customer),
+    };
+  }
+
+  private toCustomerProfile(customer: {
+    id: string;
+    fullName: string;
+    email: string;
+    phone: string | null;
+    restaurantId: string;
+    emailVerifiedAt: Date | null;
+  }) {
+    return {
+      role: 'customer' as const,
+      id: customer.id,
+      fullName: customer.fullName,
+      email: customer.email,
+      phone: customer.phone,
+      restaurantId: customer.restaurantId,
+      emailVerified: Boolean(customer.emailVerifiedAt),
+      emailVerifiedAt: customer.emailVerifiedAt,
+    };
+  }
+
+  private async requireActiveCustomer(customerId: string, restaurantId: string) {
+    const customer = await this.prisma.customer.findFirst({
+      where: {
+        id: customerId,
         restaurantId,
       },
-    };
+    });
+
+    if (!customer || customer.deletedAt) {
+      throw new UnauthorizedException({ error: 'INVALID_TOKEN', message: 'Customer no longer exists.' });
+    }
+
+    return customer;
+  }
+
+  private buildDeletedCustomerEmail(customer: { id: string; restaurantId: string }) {
+    return `deleted+${customer.restaurantId}.${customer.id}.${Date.now()}@deleted.local`;
+  }
+
+  private generateVerificationToken() {
+    return randomBytes(32).toString('hex');
+  }
+
+  private hashVerificationToken(token: string) {
+    return createHash('sha256').update(token).digest('hex');
+  }
+
+  private buildCustomerVerificationUrl(token: string, primaryDomain: string | null) {
+    const configuredBaseUrl = (process.env.CUSTOMER_APP_BASE_URL || '').trim().replace(/\/$/, '');
+    const primaryDomainBaseUrl = primaryDomain?.trim() ? `https://${primaryDomain.trim().replace(/\/$/, '')}` : '';
+    const baseUrl = configuredBaseUrl || primaryDomainBaseUrl;
+
+    if (!baseUrl) {
+      return `/Account?verifyEmailToken=${encodeURIComponent(token)}`;
+    }
+
+    return `${baseUrl}/Account?verifyEmailToken=${encodeURIComponent(token)}`;
   }
 }

@@ -97,3 +97,18 @@ export async function updateCustomerMe(token, payload) {
   });
   return data.data.customer;
 }
+
+export async function verifyCustomerEmail(token) {
+  const data = await backendClient.request(`/auth/verify-email?token=${encodeURIComponent(token)}`);
+  return data.data;
+}
+
+export async function deleteCustomerMe(token) {
+  const data = await backendClient.request('/auth/me', {
+    method: 'DELETE',
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
+  return data.data;
+}
