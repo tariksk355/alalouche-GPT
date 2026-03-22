@@ -18,6 +18,20 @@ export class DevicePairingService {
     return Array.from({ length: 6 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
   }
 
+  private async revokeDeviceRecord(device: { id: string; pairingRequestId?: string | null }) {
+    await this.prisma.device.update({
+      where: { id: device.id },
+      data: { status: 'device_revoked' },
+    });
+
+    if (device.pairingRequestId) {
+      await this.prisma.devicePairingRequest.update({
+        where: { id: device.pairingRequestId },
+        data: { status: 'device_revoked' },
+      });
+    }
+  }
+
   async createPairingCode(dto: CreatePairingCodeDto, admin: PairingAdminContext) {
     const code = this.generateShortCode();
     const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
@@ -94,6 +108,21 @@ export class DevicePairingService {
       throw new BadRequestException({ error: 'PAIRING_REQUEST_INVALID_STATE', message: 'Only pending requests can be confirmed.' });
     }
 
+    if (request.installId) {
+      const existingActiveDevices = await this.prisma.device.findMany({
+        where: {
+          restaurantId: request.restaurantId,
+          installId: request.installId,
+          status: 'device_active',
+        },
+        select: { id: true, pairingRequestId: true },
+      });
+
+      for (const existingDevice of existingActiveDevices) {
+        await this.revokeDeviceRecord(existingDevice);
+      }
+    }
+
     const rawToken = randomBytes(48).toString('base64url');
     const tokenHash = createHash('sha256').update(rawToken).digest('hex');
 
@@ -137,18 +166,25 @@ export class DevicePairingService {
       throw new NotFoundException({ error: 'DEVICE_NOT_FOUND', message: 'Device not found.' });
     }
 
-    await this.prisma.device.update({
-      where: { id: device.id },
-      data: { status: 'device_revoked' },
-    });
+    await this.revokeDeviceRecord(device);
 
-    if (device.pairingRequestId) {
-      await this.prisma.devicePairingRequest.update({
-        where: { id: device.pairingRequestId },
-        data: { status: 'device_revoked' },
-      });
+    return { id: device.id, status: 'device_revoked' };
+  }
+
+  async revokeCurrentDevice(deviceId: string) {
+    const device = await this.prisma.device.findUnique({
+      where: { id: deviceId },
+      select: { id: true, status: true, pairingRequestId: true },
+    });
+    if (!device) {
+      throw new NotFoundException({ error: 'DEVICE_NOT_FOUND', message: 'Device not found.' });
     }
 
+    if (device.status !== 'device_active') {
+      return { id: device.id, status: device.status };
+    }
+
+    await this.revokeDeviceRecord(device);
     return { id: device.id, status: 'device_revoked' };
   }
 

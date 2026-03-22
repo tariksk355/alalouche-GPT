@@ -2,6 +2,7 @@ import {
   getDeviceMe,
   getReceiverOrders,
   getReceiverReservations,
+  revokeCurrentDevice,
   updateOrderStatus,
   updateReservationStatus,
 } from '../api/receiverApi.js';
@@ -56,6 +57,30 @@ export async function loadOperationalData() {
     }
 
     return { state: 'server_error', orders: [], reservations: [], error: error.message || 'Erreur serveur.', reason: error.code || null };
+  }
+}
+
+export async function selfUnpairDevice() {
+  const token = tokenStore.get();
+  if (!token) {
+    return { ok: true, alreadyUnpaired: true };
+  }
+
+  try {
+    await revokeCurrentDevice(token);
+    tokenStore.clear();
+    return { ok: true, alreadyUnpaired: false };
+  } catch (error) {
+    if (isAuthError(error)) {
+      tokenStore.clear();
+      return { ok: true, alreadyUnpaired: true };
+    }
+
+    return {
+      ok: false,
+      code: error.code || 'DEVICE_SELF_REVOKE_FAILED',
+      message: error.message || "Impossible de désassocier l'appareil.",
+    };
   }
 }
 

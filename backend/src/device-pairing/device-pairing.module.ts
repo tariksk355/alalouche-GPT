@@ -7,5 +7,6 @@ import { DevicePairingService } from './device-pairing.service';
   imports: [AuthModule],
   controllers: [DevicePairingController],
   providers: [DevicePairingService],
+  exports: [DevicePairingService],
 })
 export class DevicePairingModule {}

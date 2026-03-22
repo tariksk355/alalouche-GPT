@@ -33,6 +33,15 @@ export async function getDeviceMe(token) {
   return data;
 }
 
+export async function revokeCurrentDevice(token) {
+  const data = await requestJson('/devices/revoke-self', {
+    method: 'POST',
+    headers: bearer(token),
+  });
+  debugLog('device_self_revoked', { deviceId: data?.device?.id || null, status: data?.device?.status || null });
+  return data?.device || null;
+}
+
 export async function getReceiverOrders(token) {
   const data = await requestJson('/receiver/orders', { headers: bearer(token) });
   const orders = data?.orders || [];

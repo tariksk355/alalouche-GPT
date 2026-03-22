@@ -1,6 +1,21 @@
 import { createPairingRequest, verifyDevice } from '../api/receiverApi.js';
 import { tokenStore } from '../storage/tokenStore.js';
 
+const DEVICE_INSTALL_ID_STORAGE_KEY = 'sunmi_receiver_install_id_v1';
+
+function getPersistentInstallId() {
+  try {
+    const existing = localStorage.getItem(DEVICE_INSTALL_ID_STORAGE_KEY);
+    if (existing) return existing;
+
+    const generated = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    localStorage.setItem(DEVICE_INSTALL_ID_STORAGE_KEY, generated);
+    return generated;
+  } catch {
+    return globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  }
+}
+
 export async function submitPairingCode(pairingCode) {
   const normalized = (pairingCode || '').trim().toUpperCase();
   if (!normalized) {
@@ -14,7 +29,7 @@ export async function submitPairingCode(pairingCode) {
       deviceModel: 'Unknown',
       platform: 'android',
       appVersion: 'v1',
-      installId: globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      installId: getPersistentInstallId(),
     });
 
     return { ok: true, pairingRequestId: data?.pairingRequestId || null };

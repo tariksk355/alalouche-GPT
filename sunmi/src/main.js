@@ -7,6 +7,7 @@ import {
   changeOrderStatus,
   changeReservationStatus,
   loadOperationalData,
+  selfUnpairDevice,
   validateDeviceSession,
 } from './services/receiverService.js';
 import { checkPairingStatus, submitPairingCode } from './services/pairingService.js';
@@ -2218,8 +2219,21 @@ app.addEventListener('click', async (event) => {
     return;
   }
 
-  if (target.id === 'reset-token-btn' || target.id === 'unpair-btn') {
+  if (target.id === 'reset-token-btn') {
     tokenStore.clear();
+    enterNotPairedState({ error: '' });
+    render();
+    return;
+  }
+
+  if (target.id === 'unpair-btn') {
+    const result = await selfUnpairDevice();
+    if (!result.ok) {
+      state.error = result.message || "Impossible de désassocier l'appareil.";
+      render();
+      return;
+    }
+
     enterNotPairedState({ error: '' });
     render();
     return;
