@@ -511,6 +511,14 @@ export default function AdminMarketing() {
         promotionId: promotionMode === "existing" && selectedPromotionId ? selectedPromotionId : undefined,
       });
 
+      if (result.status === "disabled") {
+        throw new Error("L’envoi marketing est désactivé ou mal configuré côté serveur. Vérifiez la configuration Resend marketing.");
+      }
+
+      if (result.recipientsMatched > 0 && result.recipientsDispatched === 0) {
+        throw new Error("Aucun destinataire marketing n’a été accepté par le provider. Vérifiez les logs Resend côté serveur.");
+      }
+
       if (result.recipientsMatched === 0) {
         setSuccess("Aucun client abonné à l'email marketing.");
       } else {

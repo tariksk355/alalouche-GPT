@@ -110,16 +110,26 @@ export class NotificationService {
   constructor(private readonly prisma: PrismaService) {}
 
   private getMarketingProvider(): 'none' | 'resend' | 'unsupported' {
-    const provider = (
-      process.env.MARKETING_EMAIL_PROVIDER ||
-      process.env.EMAIL_PROVIDER ||
-      'none'
-    )
-      .trim()
-      .toLowerCase();
+    const explicitProvider = process.env.MARKETING_EMAIL_PROVIDER?.trim().toLowerCase();
+    if (explicitProvider) {
+      if (explicitProvider === 'none' || explicitProvider === 'resend') return explicitProvider;
+      return 'unsupported';
+    }
 
-    if (provider === 'none' || provider === 'resend') return provider;
-    return 'unsupported';
+    const legacyProvider = process.env.EMAIL_PROVIDER?.trim().toLowerCase();
+    if (legacyProvider && legacyProvider !== 'none') {
+      if (legacyProvider === 'resend') return legacyProvider;
+      return 'unsupported';
+    }
+
+    const hasResendConfig = Boolean(process.env.RESEND_API_KEY?.trim())
+      && Boolean(process.env.MARKETING_EMAIL_FROM?.trim() || process.env.EMAIL_FROM?.trim());
+    if (hasResendConfig) {
+      this.logger.log('MARKETING_EMAIL_PROVIDER not set; inferring marketing provider "resend" from available Resend configuration.');
+      return 'resend';
+    }
+
+    return 'none';
   }
 
   private getTransactionalProvider(): 'none' | 'smtp' | 'unsupported' {
