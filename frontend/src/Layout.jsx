@@ -5,7 +5,7 @@ import { useAuth } from '@/lib/AuthContext';
 import { useTenant } from '@/lib/TenantContext';
 import PrivacyPolicyModal from '@/components/PrivacyPolicyModal';
 import { getCart, cartCount } from '@/components/cartStore';
-import { Mail, MapPin, Phone, ShoppingCart } from 'lucide-react';
+import { Info, Mail, MapPin, Phone, ShoppingCart } from 'lucide-react';
 
 const DEFAULT_HEADER_LOGO =
   'https://qtrypzzcjebvfcihiynt.supabase.co/storage/v1/object/public/base44-prod/public/user_6988e8d4fc295c9d940c5901/05562fbc0_Alalouche-logo.png';
@@ -29,6 +29,18 @@ const sanitizeBrandName = (value) => {
   const normalized = value?.trim();
   if (!normalized) return 'Restaurant';
   return normalized.replace(/\s*(?:\(|-|–)?\s*local\)?\s*$/i, '').trim() || normalized;
+};
+
+const hexToRgba = (hex, alpha) => {
+  if (typeof hex !== 'string') return `rgba(181, 18, 42, ${alpha})`;
+  const normalized = hex.replace('#', '').trim();
+  if (!/^[0-9a-fA-F]{6}$/.test(normalized)) return `rgba(181, 18, 42, ${alpha})`;
+
+  const red = parseInt(normalized.slice(0, 2), 16);
+  const green = parseInt(normalized.slice(2, 4), 16);
+  const blue = parseInt(normalized.slice(4, 6), 16);
+
+  return `rgba(${red}, ${green}, ${blue}, ${alpha})`;
 };
 
 export default function Layout({ children, currentPageName }) {
@@ -271,11 +283,38 @@ export default function Layout({ children, currentPageName }) {
       </nav>
 
       {showStorefrontAnnouncement && (
-        <div className="border-b border-amber-200 bg-amber-50">
+        <div
+          className="border-b"
+          style={{
+            borderColor: hexToRgba(primaryColor, 0.12),
+            background: `linear-gradient(180deg, ${hexToRgba(primaryColor, 0.06)} 0%, rgba(255, 255, 255, 0.98) 100%)`,
+          }}
+        >
           <div className="max-w-6xl mx-auto px-4 py-3">
-            <div className="rounded-lg border border-amber-200 bg-white/70 px-4 py-3 text-sm text-amber-900 shadow-sm">
-              <span className="font-semibold">Annonce :</span>{' '}
-              <span>{storefrontAnnouncementMessage}</span>
+            <div
+              className="rounded-2xl border bg-white/90 px-4 py-3 shadow-sm backdrop-blur-sm sm:px-5"
+              style={{ borderColor: hexToRgba(primaryColor, 0.16) }}
+            >
+              <div className="flex items-start gap-3">
+                <div
+                  className="mt-0.5 flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full border bg-white"
+                  style={{ borderColor: hexToRgba(primaryColor, 0.16), color: primaryColor }}
+                  aria-hidden="true"
+                >
+                  <Info className="h-4 w-4" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p
+                    className="text-[11px] font-semibold uppercase tracking-[0.18em]"
+                    style={{ color: hexToRgba(primaryColor, 0.82) }}
+                  >
+                    Information
+                  </p>
+                  <p className="mt-1 break-words whitespace-pre-wrap text-sm leading-6 text-gray-700 sm:text-[15px]">
+                    {storefrontAnnouncementMessage}
+                  </p>
+                </div>
+              </div>
             </div>
           </div>
         </div>

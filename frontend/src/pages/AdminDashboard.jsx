@@ -30,6 +30,7 @@ const NAV_ITEMS = [
   { id: "reservations", label: "Réservations", icon: "📅" },
   { id: "customers", label: "Clients", icon: "👥" },
   { id: "marketing", label: "Marketing", icon: "📢" },
+  { id: "announcement", label: "Annonce", icon: "📣" },
   { id: "analytics", label: "Analytiques", icon: "📊" },
   { id: "settings", label: "Réglages", icon: "⚙️" },
 ];
@@ -51,6 +52,169 @@ function AdminEmptyState({ label }) {
   return <div className="text-center text-gray-400 py-12 border border-dashed border-gray-200 rounded-xl bg-white">{label}</div>;
 }
 
+function AdminAnnouncementPreview({ message, active }) {
+  const trimmedMessage = typeof message === "string" ? message.trim() : "";
+
+  if (!trimmedMessage) {
+    return (
+      <div className="rounded-2xl border border-dashed border-gray-200 bg-gray-50 px-4 py-5 text-sm text-gray-500">
+        Ajoutez un message pour voir l’aperçu du bandeau public.
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-2xl border border-[#ead7d0] bg-gradient-to-r from-[#fff8f5] via-white to-[#fff8f5] px-4 py-4 shadow-sm">
+      <div className="flex items-start gap-3">
+        <div className="mt-0.5 flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full border border-[#e7c8bd] bg-white text-base">
+          📣
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-[#9a5b49]">Storefront</p>
+            <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${active ? "bg-green-50 text-green-700 border border-green-200" : "bg-gray-100 text-gray-500 border border-gray-200"}`}>
+              {active ? "Actif" : "Inactif"}
+            </span>
+          </div>
+          <p className="mt-1 whitespace-pre-wrap break-words text-sm leading-6 text-gray-700">{trimmedMessage}</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AdminAnnouncement() {
+  const [announcementSettings, setAnnouncementSettings] = useState(null);
+  const [announcementSuccess, setAnnouncementSuccess] = useState("");
+  const [announcementError, setAnnouncementError] = useState("");
+  const [announcementLoading, setAnnouncementLoading] = useState(false);
+
+  useEffect(() => {
+    loadAnnouncement();
+  }, []);
+
+  const loadAnnouncement = async () => {
+    setAnnouncementError("");
+    try {
+      const data = await getAdminStorefrontAnnouncementSettings();
+      setAnnouncementSettings(data);
+    } catch (e) {
+      setAnnouncementError(e.message || "Impossible de charger l’annonce storefront.");
+      setAnnouncementSettings({ active: false, message: "" });
+    }
+  };
+
+  const handleSaveAnnouncement = async () => {
+    setAnnouncementLoading(true);
+    setAnnouncementError("");
+    try {
+      const updated = await updateAdminStorefrontAnnouncementSettings({
+        active: announcementSettings.active,
+        message: announcementSettings.message || "",
+      });
+      setAnnouncementSettings(updated);
+      setAnnouncementSuccess("Annonce storefront sauvegardée.");
+      setTimeout(() => setAnnouncementSuccess(""), 3000);
+    } catch (e) {
+      setAnnouncementError(e.message || "Impossible de sauvegarder l’annonce storefront.");
+    } finally {
+      setAnnouncementLoading(false);
+    }
+  };
+
+  if (!announcementSettings) return <AdminLoadingState />;
+
+  const trimmedMessage = (announcementSettings.message || "").trim();
+
+  return (
+    <div className="max-w-3xl space-y-6">
+      <div className="bg-white rounded-xl border border-gray-200 p-6 space-y-6 shadow-sm">
+        <div className="space-y-2">
+          <div>
+            <span className="inline-flex items-center rounded-full bg-[#f7ebe7] px-3 py-1 text-xs font-medium text-[#9a5b49]">
+              Storefront public
+            </span>
+          </div>
+          <div>
+            <h3 className="font-semibold text-lg text-gray-900">Annonce storefront</h3>
+            <p className="text-sm text-gray-500 mt-1">
+              Publiez un message temporaire visible sur le storefront public. Lorsque l’annonce est inactive ou vide, rien n’est affiché côté client.
+            </p>
+          </div>
+        </div>
+
+        {announcementSuccess && <AdminNotice>{announcementSuccess}</AdminNotice>}
+        {announcementError && <AdminNotice type="error">{announcementError}</AdminNotice>}
+
+        <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_220px]">
+          <div className="space-y-4">
+            <div>
+              <span className="block text-sm font-medium text-gray-700 mb-3">Visibilité</span>
+              <div className="grid grid-cols-2 gap-3">
+                <button
+                  type="button"
+                  onClick={() => setAnnouncementSettings((current) => ({ ...current, active: true }))}
+                  className={`rounded-xl border px-4 py-3 text-left transition-colors ${announcementSettings.active === true ? "border-[#b5122a] bg-[#fff5f7] text-[#8f0e21]" : "border-gray-200 bg-gray-50 text-gray-600 hover:border-gray-300 hover:text-gray-900"}`}
+                >
+                  <div className="font-medium">Active</div>
+                  <div className="mt-1 text-xs">Le bandeau est visible sur le storefront.</div>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAnnouncementSettings((current) => ({ ...current, active: false }))}
+                  className={`rounded-xl border px-4 py-3 text-left transition-colors ${announcementSettings.active === false ? "border-gray-900 bg-gray-100 text-gray-900" : "border-gray-200 bg-gray-50 text-gray-600 hover:border-gray-300 hover:text-gray-900"}`}
+                >
+                  <div className="font-medium">Inactive</div>
+                  <div className="mt-1 text-xs">Aucune annonce n’est affichée au public.</div>
+                </button>
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Message affiché au public</label>
+              <textarea
+                rows={5}
+                maxLength={280}
+                value={announcementSettings.message || ""}
+                onChange={(e) => setAnnouncementSettings((current) => ({ ...current, message: e.target.value }))}
+                className="w-full bg-gray-50 border border-gray-200 text-gray-900 px-4 py-3 rounded-xl focus:outline-none focus:border-gray-400 resize-none"
+                placeholder="Exemple : Fermé exceptionnellement le lundi 1er janvier. Merci de votre compréhension."
+              />
+              <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs text-gray-500">
+                <p>Ce texte apparaît en haut du storefront public. Gardez-le court, clair et facile à lire sur mobile.</p>
+                <span>{(announcementSettings.message || "").length}/280 caractères</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-gray-200 bg-gray-50 p-4">
+            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-gray-500">Aperçu</p>
+            <div className="mt-3">
+              <AdminAnnouncementPreview message={trimmedMessage} active={announcementSettings.active === true} />
+            </div>
+          </div>
+        </div>
+
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-sm text-gray-500">
+            {announcementSettings.active === true
+              ? trimmedMessage
+                ? "L’annonce sera affichée au public après sauvegarde."
+                : "Ajoutez un message pour publier une annonce active."
+              : "Le storefront n’affichera aucun bandeau tant que l’annonce reste inactive."}
+          </p>
+          <button
+            onClick={handleSaveAnnouncement}
+            disabled={announcementLoading}
+            className="w-full sm:w-auto px-6 py-3 bg-[#b5122a] text-white font-semibold rounded-lg hover:bg-[#8f0e21] disabled:opacity-60 transition-colors"
+          >
+            {announcementLoading ? "Sauvegarde..." : "Sauvegarder l’annonce"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export default function AdminDashboard() {
   recordAdminLoginDiagnostic("dashboard_rendered");
@@ -188,6 +352,7 @@ export default function AdminDashboard() {
           {activeTab === "reservations" && <AdminReservations />}
           {activeTab === "customers" && <AdminCustomers />}
           {activeTab === "marketing" && <AdminMarketing />}
+          {activeTab === "announcement" && <AdminAnnouncement />}
           {activeTab === "analytics" && <AdminAnalytics />}
           {activeTab === "settings" && <AdminSettings />}
         </main>
@@ -1191,10 +1356,6 @@ function AdminSettings() {
   const [brandingError, setBrandingError] = useState("");
   const [brandingLoading, setBrandingLoading] = useState(false);
   const [brandingUploadFeedback, setBrandingUploadFeedback] = useState({ type: "", message: "" });
-  const [announcementSettings, setAnnouncementSettings] = useState(null);
-  const [announcementSuccess, setAnnouncementSuccess] = useState("");
-  const [announcementError, setAnnouncementError] = useState("");
-  const [announcementLoading, setAnnouncementLoading] = useState(false);
 
   useEffect(() => {
     loadSettings();
@@ -1202,19 +1363,13 @@ function AdminSettings() {
 
   const loadSettings = async () => {
     setBrandingError("");
-    setAnnouncementError("");
     try {
-      const [brandingData, announcementData] = await Promise.all([
-        getAdminBrandingSettings(),
-        getAdminStorefrontAnnouncementSettings(),
-      ]);
+      const brandingData = await getAdminBrandingSettings();
       setBrandingSettings(brandingData);
-      setAnnouncementSettings(announcementData);
     } catch (e) {
       const message = e.message || "Impossible de charger les réglages.";
       setBrandingError(message);
       setBrandingSettings({ logoUrl: "", primaryColor: "#b5122a", secondaryColor: "#111827", accentColor: "#b5122a", tagline: "Restaurant" });
-      setAnnouncementSettings({ active: false, message: "" });
     }
   };
 
@@ -1257,25 +1412,7 @@ function AdminSettings() {
     }
   };
 
-  const handleSaveAnnouncement = async () => {
-    setAnnouncementLoading(true);
-    setAnnouncementError("");
-    try {
-      const updated = await updateAdminStorefrontAnnouncementSettings({
-        active: announcementSettings.active,
-        message: announcementSettings.message || "",
-      });
-      setAnnouncementSettings(updated);
-      setAnnouncementSuccess("Annonce storefront sauvegardée.");
-      setTimeout(() => setAnnouncementSuccess(""), 3000);
-    } catch (e) {
-      setAnnouncementError(e.message || "Impossible de sauvegarder l’annonce storefront.");
-    } finally {
-      setAnnouncementLoading(false);
-    }
-  };
-
-  if (!brandingSettings || !announcementSettings) return <AdminLoadingState />;
+  if (!brandingSettings) return <AdminLoadingState />;
 
   return (
     <div className="max-w-3xl space-y-6">
@@ -1337,46 +1474,6 @@ function AdminSettings() {
           className="w-full py-3 bg-[#b5122a] text-white font-semibold rounded-lg hover:bg-[#8f0e21] disabled:opacity-60 transition-colors"
         >
           {brandingLoading ? "Sauvegarde..." : "Sauvegarder le logo"}
-        </button>
-      </div>
-
-      <div className="bg-white rounded-xl border border-gray-200 p-6 space-y-4 shadow-sm">
-        <div>
-          <h3 className="font-semibold text-lg text-gray-900">Annonce storefront</h3>
-          <p className="text-sm text-gray-500 mt-1">Publiez un court message opérationnel visible en haut du storefront public. Lorsque l’annonce est inactive ou vide, rien n’est affiché côté client.</p>
-        </div>
-        {announcementSuccess && <AdminNotice>{announcementSuccess}</AdminNotice>}
-        {announcementError && <AdminNotice type="error">{announcementError}</AdminNotice>}
-        <label className="flex items-center justify-between gap-4 rounded-lg border border-gray-200 bg-gray-50 px-4 py-3">
-          <div>
-            <div className="font-medium text-gray-900">Annonce active</div>
-            <div className="text-sm text-gray-500">Activez ou désactivez rapidement le bandeau public.</div>
-          </div>
-          <input
-            type="checkbox"
-            checked={announcementSettings.active === true}
-            onChange={(e) => setAnnouncementSettings((current) => ({ ...current, active: e.target.checked }))}
-            className="h-5 w-5 rounded border-gray-300 text-[#b5122a] focus:ring-[#b5122a]"
-          />
-        </label>
-        <div>
-          <label className="block text-sm text-gray-500 mb-2">Message</label>
-          <textarea
-            rows={4}
-            maxLength={280}
-            value={announcementSettings.message || ""}
-            onChange={(e) => setAnnouncementSettings((current) => ({ ...current, message: e.target.value }))}
-            className="w-full bg-gray-50 border border-gray-200 text-gray-900 px-4 py-3 rounded-lg focus:outline-none focus:border-gray-400 resize-none"
-            placeholder="Exemple : Fermé exceptionnellement le lundi 1er janvier. Merci de votre compréhension."
-          />
-          <p className="text-xs text-gray-500 mt-2">{(announcementSettings.message || "").length}/280 caractères</p>
-        </div>
-        <button
-          onClick={handleSaveAnnouncement}
-          disabled={announcementLoading}
-          className="w-full py-3 bg-[#b5122a] text-white font-semibold rounded-lg hover:bg-[#8f0e21] disabled:opacity-60 transition-colors"
-        >
-          {announcementLoading ? "Sauvegarde..." : "Sauvegarder l’annonce"}
         </button>
       </div>
 
