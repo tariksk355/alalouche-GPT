@@ -14,7 +14,7 @@ export default function Account() {
   const { user, isAuthenticated, refreshSession, logout } = useAuth();
 
   const [loginForm, setLoginForm] = useState({ email: '', password: '' });
-  const [signupForm, setSignupForm] = useState({ fullName: '', email: '', phone: '', password: '' });
+  const [signupForm, setSignupForm] = useState({ fullName: '', email: '', phone: '', password: '', subscribedEmail: false });
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [profileForm, setProfileForm] = useState({ fullName: '', phone: '' });
@@ -192,6 +192,18 @@ export default function Account() {
                   value={signupForm.password}
                   onChange={(e) => setSignupForm({ ...signupForm, password: e.target.value })}
                 />
+                <label className="flex items-start gap-3 rounded-lg border border-gray-200 bg-gray-50 px-4 py-3">
+                  <input
+                    type="checkbox"
+                    checked={signupForm.subscribedEmail}
+                    onChange={(e) => setSignupForm({ ...signupForm, subscribedEmail: e.target.checked })}
+                    className="mt-1 h-4 w-4 rounded border-gray-300 text-[#b5122a] focus:ring-[#b5122a]"
+                  />
+                  <div className="text-sm">
+                    <div className="font-medium text-gray-900">Je souhaite recevoir les offres et actualités par email</div>
+                    <div className="text-gray-500">Optionnel. Vous pouvez laisser cette case décochée et créer votre compte normalement.</div>
+                  </div>
+                </label>
                 <Button type="submit" disabled={loading} className="w-full">
                   {loading ? 'Création du compte...' : "Créer mon compte"}
                 </Button>

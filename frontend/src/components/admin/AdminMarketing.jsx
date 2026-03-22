@@ -318,6 +318,7 @@ export default function AdminMarketing() {
   const [success, setSuccess] = useState("");
   const [error, setError] = useState("");
   const [customerCount, setCustomerCount] = useState(0);
+  const [totalAudienceCount, setTotalAudienceCount] = useState(0);
   const [recipients, setRecipients] = useState([]);
   const [loadingRecipients, setLoadingRecipients] = useState(false);
   const [excludedRecipientIds, setExcludedRecipientIds] = useState([]);
@@ -335,13 +336,23 @@ export default function AdminMarketing() {
     setLoadingRecipients(true);
     setError("");
     try {
-      const [count, subscribedRecipients] = await Promise.all([
-        getAdminMarketingRecipientCount(),
-        listAdminMarketingRecipients(),
+      const [subscribedCount, subscribedRecipients, unsubscribedRecipients] = await Promise.all([
+        getAdminMarketingRecipientCount(true),
+        listAdminMarketingRecipients(true),
+        listAdminMarketingRecipients(false),
       ]);
-      setCustomerCount(count);
-      setRecipients(subscribedRecipients);
-      setExcludedRecipientIds((prev) => prev.filter((id) => subscribedRecipients.some((recipient) => recipient.id === id)));
+      const mergedRecipients = [...subscribedRecipients, ...unsubscribedRecipients]
+        .sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+      const unsubscribedIds = unsubscribedRecipients.map((recipient) => recipient.id);
+      const subscribedIds = new Set(subscribedRecipients.map((recipient) => recipient.id));
+
+      setCustomerCount(subscribedCount);
+      setTotalAudienceCount(mergedRecipients.length);
+      setRecipients(mergedRecipients);
+      setExcludedRecipientIds((prev) => {
+        const preservedManualExclusions = prev.filter((id) => subscribedIds.has(id));
+        return Array.from(new Set([...unsubscribedIds, ...preservedManualExclusions]));
+      });
     } catch (requestError) {
       setError(requestError.message || "Impossible de charger les destinataires marketing.");
     } finally {
@@ -390,9 +401,20 @@ export default function AdminMarketing() {
     [promotions, selectedPromotionId],
   );
 
-  const targetedCount = Math.max(recipients.length - excludedRecipientIds.length, 0);
+  const eligibleRecipients = useMemo(
+    () => recipients.filter((recipient) => recipient.subscribedEmail === true),
+    [recipients],
+  );
+
+  const targetedCount = useMemo(
+    () => eligibleRecipients.filter((recipient) => !excludedRecipientIds.includes(recipient.id)).length,
+    [eligibleRecipients, excludedRecipientIds],
+  );
 
   const toggleExcludedRecipient = (customerId) => {
+    const recipient = recipients.find((entry) => entry.id === customerId);
+    if (!recipient?.subscribedEmail) return;
+
     setExcludedRecipientIds((prev) => (
       prev.includes(customerId)
         ? prev.filter((id) => id !== customerId)
@@ -540,7 +562,7 @@ export default function AdminMarketing() {
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
                 <p className="text-gray-900 font-semibold">Campagne email</p>
-                <p className="text-gray-500 text-sm">{customerCount} clients abonnés aux emails</p>
+                <p className="text-gray-500 text-sm">{totalAudienceCount} clients dans l’audience · {customerCount} abonnés éligibles</p>
               </div>
               <div className="text-xs text-gray-500 bg-gray-50 border border-gray-200 rounded-full px-3 py-1">
                 Envoi via Resend
@@ -548,7 +570,7 @@ export default function AdminMarketing() {
             </div>
 
             <AdminNotice type="info">
-              Cette action envoie immédiatement la campagne aux clients abonnés. Vous pouvez exclure certains destinataires avant l’envoi.
+              Cette action envoie immédiatement la campagne aux clients ayant explicitement accepté les emails marketing. Les non-abonnés restent visibles ici, mais ne sont pas préselectionnés ni envoyés.
             </AdminNotice>
 
             <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 space-y-3">
@@ -678,15 +700,15 @@ export default function AdminMarketing() {
             </div>
 
             <button type="submit" disabled={loading || targetedCount === 0} className="w-full py-3 bg-[#b5122a] text-white font-semibold rounded-lg hover:bg-[#8f0e21] disabled:opacity-60 transition-colors">
-              {loading ? "Envoi en cours..." : targetedCount === customerCount ? "Envoyer à tous les abonnés" : `Envoyer à ${targetedCount} abonné${targetedCount > 1 ? "s" : ""}`}
+              {loading ? "Envoi en cours..." : targetedCount === customerCount ? "Envoyer à tous les abonnés éligibles" : `Envoyer à ${targetedCount} abonné${targetedCount > 1 ? "s" : ""}`}
             </button>
           </form>
 
           <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm space-y-4">
             <div className="flex items-center justify-between gap-3">
               <div>
-                <p className="text-gray-900 font-semibold">Destinataires abonnés</p>
-                <p className="text-xs text-gray-500">{targetedCount} destinataire{targetedCount > 1 ? "s" : ""} ciblé{targetedCount > 1 ? "s" : ""} après exclusions.</p>
+                <p className="text-gray-900 font-semibold">Audience marketing</p>
+                <p className="text-xs text-gray-500">{targetedCount} destinataire{targetedCount > 1 ? "s" : ""} abonné{targetedCount > 1 ? "s" : ""} ciblé{targetedCount > 1 ? "s" : ""} après exclusions, sur {totalAudienceCount} client{totalAudienceCount > 1 ? "s" : ""} visible{totalAudienceCount > 1 ? "s" : ""}.</p>
               </div>
               {excludedRecipientIds.length > 0 && (
                 <button type="button" onClick={() => setExcludedRecipientIds([])} className="text-xs text-gray-500 hover:text-gray-700">
@@ -696,18 +718,20 @@ export default function AdminMarketing() {
             </div>
 
             {loadingRecipients ? (
-              <AdminLoadingState label="Chargement des abonnés..." />
+              <AdminLoadingState label="Chargement de l’audience marketing..." />
             ) : recipients.length === 0 ? (
-              <AdminEmptyState label="Aucun client abonné à l'email marketing." />
+              <AdminEmptyState label="Aucun client dans l’audience marketing." />
             ) : (
               <div className="space-y-2 max-h-[34rem] overflow-auto">
                 {recipients.map((recipient) => {
                   const isExcluded = excludedRecipientIds.includes(recipient.id);
+                  const isSubscribed = recipient.subscribedEmail === true;
                   return (
-                    <label key={recipient.id} className={`flex items-start gap-3 rounded-lg border px-3 py-3 cursor-pointer ${isExcluded ? "border-red-200 bg-red-50" : "border-gray-200 bg-white"}`}>
+                    <label key={recipient.id} className={`flex items-start gap-3 rounded-lg border px-3 py-3 ${isSubscribed ? 'cursor-pointer' : 'cursor-not-allowed opacity-80'} ${isExcluded ? "border-red-200 bg-red-50" : "border-gray-200 bg-white"}`}>
                       <input
                         type="checkbox"
                         checked={isExcluded}
+                        disabled={!isSubscribed}
                         onChange={() => toggleExcludedRecipient(recipient.id)}
                         className="mt-1 h-4 w-4 rounded border-gray-300 text-[#b5122a] focus:ring-[#b5122a]"
                       />
@@ -715,8 +739,8 @@ export default function AdminMarketing() {
                         <div className="text-sm font-medium text-gray-900">{recipient.fullName}</div>
                         <div className="text-xs text-gray-500 break-all">{recipient.email}</div>
                       </div>
-                      <span className={`ml-auto text-xs font-medium ${isExcluded ? "text-red-600" : "text-green-600"}`}>
-                        {isExcluded ? "Exclu" : "Inclus"}
+                      <span className={`ml-auto text-xs font-medium ${!isSubscribed ? "text-gray-500" : isExcluded ? "text-red-600" : "text-green-600"}`}>
+                        {!isSubscribed ? "Non abonné" : isExcluded ? "Exclu" : "Inclus"}
                       </span>
                     </label>
                   );

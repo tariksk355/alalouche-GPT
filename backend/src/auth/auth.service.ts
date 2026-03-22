@@ -52,7 +52,7 @@ export class AuthService {
         fullName: dto.fullName,
         email: dto.email.toLowerCase(),
         phone: dto.phone || null,
-        subscribedEmail: false,
+        subscribedEmail: dto.subscribedEmail === true,
         passwordHash: hashPassword(dto.password),
       },
     });
