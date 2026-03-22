@@ -2,6 +2,10 @@ const { PrismaClient } = require('@prisma/client');
 const crypto = require('node:crypto');
 
 const prisma = new PrismaClient();
+const LEGACY_DEV_ADMINS = [
+  { username: 'admin', displayName: 'Admin Local', password: 'admin1234' },
+  { username: 'admin_demo_bistro', displayName: 'Admin Demo Bistro', password: 'admin1234' },
+];
 
 function hashPassword(password) {
   const salt = crypto.randomBytes(16).toString('hex');
@@ -44,6 +48,33 @@ async function ensureAdminUser({ restaurantId, username, displayName, password }
   });
 }
 
+async function deleteLegacyDevAdmins() {
+  const usernames = LEGACY_DEV_ADMINS.map((candidate) => candidate.username);
+  const existingAdmins = await prisma.adminUser.findMany({
+    where: { username: { in: usernames } },
+    select: { id: true, username: true, displayName: true, passwordHash: true },
+  });
+
+  const legacyIdsToDelete = existingAdmins
+    .filter((admin) => {
+      const candidate = LEGACY_DEV_ADMINS.find((entry) => entry.username === admin.username);
+      return candidate
+        && admin.displayName === candidate.displayName
+        && verifyPassword(candidate.password, admin.passwordHash);
+    })
+    .map((admin) => admin.id);
+
+  if (legacyIdsToDelete.length === 0) {
+    return 0;
+  }
+
+  const result = await prisma.adminUser.deleteMany({
+    where: { id: { in: legacyIdsToDelete } },
+  });
+
+  return result.count;
+}
+
 function normalizeNodeEnv() {
   const raw = (process.env.NODE_ENV || 'development').trim().toLowerCase();
   return raw || 'development';
@@ -53,6 +84,24 @@ function normalizeOptionalString(value) {
   if (typeof value !== 'string') return null;
   const trimmed = value.trim();
   return trimmed || null;
+}
+
+function isLegacyDevAdminSeedingAllowed(nodeEnv) {
+  return nodeEnv === 'development' && process.env.ALLOW_LEGACY_DEV_ADMIN === 'true';
+}
+
+function verifyPassword(password, storedHash) {
+  const [salt, hash] = typeof storedHash === 'string' ? storedHash.split(':') : [];
+  if (!salt || !hash) return false;
+
+  const candidate = crypto.scryptSync(password, salt, 64);
+  const expected = Buffer.from(hash, 'hex');
+
+  if (candidate.length !== expected.length) {
+    return false;
+  }
+
+  return crypto.timingSafeEqual(candidate, expected);
 }
 
 function defaultBranding(name) {
@@ -159,6 +208,7 @@ async function upsertRestaurant({ id, slug, name, primaryDomain, email, phone, p
 async function main() {
   const nodeEnv = normalizeNodeEnv();
   const isProduction = nodeEnv === 'production';
+  const allowLegacyDevAdmins = isLegacyDevAdminSeedingAllowed(nodeEnv);
   const primaryRestaurantId = (process.env.DEFAULT_RESTAURANT_ID || '').trim() || 'alalouche';
   const provisionedPrimaryRestaurantContactEmail = normalizeOptionalString(process.env.RESTAURANT_CONTACT_EMAIL);
   const withSampleOrders = process.env.SEED_SAMPLE_ORDERS === 'true';
@@ -189,6 +239,7 @@ async function main() {
   const initialAdminPassword = normalizeOptionalString(process.env.INITIAL_ADMIN_PASSWORD);
   const initialAdminDisplayName = normalizeOptionalString(process.env.INITIAL_ADMIN_DISPLAY_NAME) || 'Initial Admin';
   const seededAdminUsernames = [];
+  const removedLegacyAdminCount = await deleteLegacyDevAdmins();
 
   if (isProduction) {
     if (initialAdminUsername || initialAdminPassword || process.env.INITIAL_ADMIN_DISPLAY_NAME) {
@@ -208,7 +259,7 @@ async function main() {
       });
       seededAdminUsernames.push(initialAdminUsername);
     }
-  } else {
+  } else if (allowLegacyDevAdmins) {
     await ensureAdminUser({
       restaurantId: primaryRestaurant.id,
       username: 'admin',
@@ -338,10 +389,12 @@ async function main() {
   console.log('[seed] restaurants:', primaryRestaurant.id, secondaryRestaurant ? secondaryRestaurant.id : '(primary only)');
   console.log('[seed] primary restaurant contact email:', normalizeOptionalString(primaryContactInfo.email) || 'not set');
   console.log('[seed] admin bootstrap:', seededAdminUsernames.length > 0 ? `ensured (${seededAdminUsernames.join(', ')})` : 'skipped');
+  console.log('[seed] legacy dev admin cleanup:', removedLegacyAdminCount > 0 ? `removed ${removedLegacyAdminCount}` : 'no legacy dev admins removed');
 
   if (!isProduction) {
     console.log('[seed] sample orders:', withSampleOrders ? 'enabled' : 'disabled');
     console.log('[seed] demo tenant:', secondaryRestaurant ? 'included' : 'skipped');
+    console.log('[seed] legacy dev admin seeding:', allowLegacyDevAdmins ? 'enabled (explicit development override)' : 'disabled');
     console.log('[seed] demo customers:', secondaryRestaurant ? 'demo.customer@alalouche.local, demo.customer@demobistro.local / customer1234' : 'demo.customer@alalouche.local / customer1234');
   }
 }

@@ -1,4 +1,4 @@
-import { ConflictException, Injectable, UnauthorizedException } from '@nestjs/common';
+import { ConflictException, Injectable, Logger, OnModuleInit, UnauthorizedException } from '@nestjs/common';
 import { createHash, randomBytes } from 'node:crypto';
 import { NotificationService } from '../notifications/notification.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -10,7 +10,13 @@ import { hashPassword, verifyPassword } from './password';
 import { AccessTokenPayload, TokenService } from './token.service';
 
 @Injectable()
-export class AuthService {
+export class AuthService implements OnModuleInit {
+  private static readonly LEGACY_DEV_ADMIN_CREDENTIALS = [
+    { username: 'admin', displayName: 'Admin Local', password: 'admin1234' },
+    { username: 'admin_demo_bistro', displayName: 'Admin Demo Bistro', password: 'admin1234' },
+  ] as const;
+
+  private readonly logger = new Logger(AuthService.name);
   private readonly verificationTokenExpiresInMs = 1000 * 60 * 60 * 24;
   private readonly passwordResetTokenExpiresInMs = 1000 * 60 * 60 * 2;
 
@@ -20,8 +26,29 @@ export class AuthService {
     private readonly notificationService: NotificationService,
   ) {}
 
+  async onModuleInit() {
+    if (this.isLegacyDevAdminAllowed()) {
+      return;
+    }
+
+    const removedCount = await this.deleteLegacyDevAdmins();
+    if (removedCount > 0) {
+      this.logger.warn(`Removed ${removedCount} legacy development admin account(s) from the database.`);
+    }
+  }
+
   async adminLogin(dto: AdminLoginDto) {
+    if (this.isLegacyDevCredentialAttempt(dto.username, dto.password)) {
+      await this.deleteLegacyDevAdmins();
+      throw new UnauthorizedException({ error: 'INVALID_CREDENTIALS', message: 'Invalid admin credentials.' });
+    }
+
     const admin = await this.prisma.adminUser.findUnique({ where: { username: dto.username } });
+    if (admin && this.isLegacyDevAdminRecord(admin.username, admin.displayName, admin.passwordHash)) {
+      await this.prisma.adminUser.delete({ where: { id: admin.id } });
+      throw new UnauthorizedException({ error: 'INVALID_CREDENTIALS', message: 'Invalid admin credentials.' });
+    }
+
     if (!admin || !verifyPassword(dto.password, admin.passwordHash)) {
       throw new UnauthorizedException({ error: 'INVALID_CREDENTIALS', message: 'Invalid admin credentials.' });
     }
@@ -42,6 +69,48 @@ export class AuthService {
         restaurantId: admin.restaurantId,
       },
     };
+  }
+
+  private isLegacyDevAdminAllowed(): boolean {
+    return (process.env.NODE_ENV || 'development').trim().toLowerCase() === 'development'
+      && process.env.ALLOW_LEGACY_DEV_ADMIN === 'true';
+  }
+
+  private isLegacyDevCredentialAttempt(username: string, password: string): boolean {
+    return AuthService.LEGACY_DEV_ADMIN_CREDENTIALS.some((candidate) => (
+      candidate.username === username && candidate.password === password
+    ));
+  }
+
+  private isLegacyDevAdminRecord(username: string, displayName: string, passwordHash: string): boolean {
+    const candidate = AuthService.LEGACY_DEV_ADMIN_CREDENTIALS.find((entry) => entry.username === username);
+    return Boolean(
+      candidate
+      && displayName === candidate.displayName
+      && verifyPassword(candidate.password, passwordHash),
+    );
+  }
+
+  private async deleteLegacyDevAdmins(): Promise<number> {
+    const usernames = AuthService.LEGACY_DEV_ADMIN_CREDENTIALS.map((candidate) => candidate.username);
+    const admins = await this.prisma.adminUser.findMany({
+      where: { username: { in: usernames } },
+      select: { id: true, username: true, displayName: true, passwordHash: true },
+    });
+
+    const legacyIdsToDelete = admins
+      .filter((admin) => this.isLegacyDevAdminRecord(admin.username, admin.displayName, admin.passwordHash))
+      .map((admin) => admin.id);
+
+    if (legacyIdsToDelete.length === 0) {
+      return 0;
+    }
+
+    const result = await this.prisma.adminUser.deleteMany({
+      where: { id: { in: legacyIdsToDelete } },
+    });
+
+    return result.count;
   }
 
   async customerSignup(restaurantId: string, dto: CustomerSignupDto) {
