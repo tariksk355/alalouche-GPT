@@ -151,12 +151,16 @@ function defaultMenuCatalog() {
 async function upsertRestaurant({ id, slug, name, primaryDomain, email, phone, provisionedContactEmail = null }) {
   const existingRestaurant = await prisma.restaurant.findUnique({
     where: { id },
-    select: { contactInfo: true },
+    select: { contactInfo: true, primaryDomain: true },
   });
 
   const existingContact = existingRestaurant?.contactInfo && typeof existingRestaurant.contactInfo === 'object' && !Array.isArray(existingRestaurant.contactInfo)
     ? existingRestaurant.contactInfo
     : {};
+  const nextPrimaryDomain =
+    normalizeOptionalString(primaryDomain) ||
+    normalizeOptionalString(existingRestaurant?.primaryDomain) ||
+    null;
 
   const nextContactEmail =
     normalizeOptionalString(provisionedContactEmail) ||
@@ -175,7 +179,7 @@ async function upsertRestaurant({ id, slug, name, primaryDomain, email, phone, p
     update: {
       name,
       slug,
-      primaryDomain,
+      primaryDomain: nextPrimaryDomain,
       status: 'active',
       branding: defaultBranding(name),
       contactInfo,
@@ -190,7 +194,7 @@ async function upsertRestaurant({ id, slug, name, primaryDomain, email, phone, p
       id,
       name,
       slug,
-      primaryDomain,
+      primaryDomain: nextPrimaryDomain,
       status: 'active',
       branding: defaultBranding(name),
       contactInfo,
@@ -210,6 +214,8 @@ async function main() {
   const isProduction = nodeEnv === 'production';
   const allowLegacyDevAdmins = isLegacyDevAdminSeedingAllowed(nodeEnv);
   const primaryRestaurantId = (process.env.DEFAULT_RESTAURANT_ID || '').trim() || 'alalouche';
+  const provisionedPrimaryRestaurantDomain = normalizeOptionalString(process.env.RESTAURANT_PRIMARY_DOMAIN);
+  const provisionedSecondaryRestaurantDomain = normalizeOptionalString(process.env.DEMO_RESTAURANT_PRIMARY_DOMAIN);
   const provisionedPrimaryRestaurantContactEmail = normalizeOptionalString(process.env.RESTAURANT_CONTACT_EMAIL);
   const withSampleOrders = process.env.SEED_SAMPLE_ORDERS === 'true';
   const includeDemoTenant = !isProduction || process.env.SEED_INCLUDE_DEMO_TENANT === 'true';
@@ -218,7 +224,7 @@ async function main() {
     id: primaryRestaurantId,
     slug: 'alalouche',
     name: 'À la Louche',
-    primaryDomain: null,
+    primaryDomain: provisionedPrimaryRestaurantDomain,
     email: isProduction ? null : 'info@alalouche.local',
     phone: '0263034561',
     provisionedContactEmail: provisionedPrimaryRestaurantContactEmail,
@@ -229,7 +235,7 @@ async function main() {
         id: 'demo-second-restaurant',
         slug: 'demo-bistro',
         name: 'Demo Bistro',
-        primaryDomain: null,
+        primaryDomain: provisionedSecondaryRestaurantDomain,
         email: 'hello@demobistro.local',
         phone: '0215550101',
       })
@@ -387,6 +393,7 @@ async function main() {
     : {};
 
   console.log('[seed] restaurants:', primaryRestaurant.id, secondaryRestaurant ? secondaryRestaurant.id : '(primary only)');
+  console.log('[seed] primary restaurant domain:', normalizeOptionalString(primaryRestaurant.primaryDomain) || 'not set');
   console.log('[seed] primary restaurant contact email:', normalizeOptionalString(primaryContactInfo.email) || 'not set');
   console.log('[seed] admin bootstrap:', seededAdminUsernames.length > 0 ? `ensured (${seededAdminUsernames.join(', ')})` : 'skipped');
   console.log('[seed] legacy dev admin cleanup:', removedLegacyAdminCount > 0 ? `removed ${removedLegacyAdminCount}` : 'no legacy dev admins removed');
