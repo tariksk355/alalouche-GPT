@@ -1,6 +1,7 @@
 import 'reflect-metadata';
 import { Logger, ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
+import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { randomUUID } from 'node:crypto';
 import { Request, Response } from 'express';
 import { AppModule } from './app.module';
@@ -16,6 +17,11 @@ function normalizeNodeEnv(): 'production' | 'development' | 'test' {
   }
 
   return 'development';
+}
+
+function isSwaggerEnabled(nodeEnv: 'production' | 'development' | 'test') {
+  const enableSwagger = (process.env.ENABLE_SWAGGER || '').trim().toLowerCase() === 'true';
+  return nodeEnv !== 'production' || enableSwagger;
 }
 
 function parseCorsAllowedOrigins(nodeEnv: 'production' | 'development' | 'test'): true | string[] {
@@ -89,6 +95,7 @@ async function bootstrap() {
   const nodeEnv = normalizeNodeEnv();
   validateRuntimeConfig(nodeEnv);
   const corsOrigin = parseCorsAllowedOrigins(nodeEnv);
+  const enableSwagger = isSwaggerEnabled(nodeEnv);
 
   const logger = new Logger('Bootstrap');
   const app = await NestFactory.create(AppModule, { bufferLogs: true });
@@ -123,6 +130,18 @@ async function bootstrap() {
   });
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
   app.useGlobalFilters(new AllExceptionsFilter());
+
+  if (enableSwagger) {
+    const swaggerConfig = new DocumentBuilder()
+      .setTitle('À la Louche API')
+      .setDescription('Restaurant SaaS backend API')
+      .setVersion('1.0')
+      .addBearerAuth()
+      .build();
+    const swaggerDocument = SwaggerModule.createDocument(app, swaggerConfig);
+    SwaggerModule.setup('api-docs', app, swaggerDocument);
+  }
+
   const port = Number(process.env.PORT || 3000);
   if (!Number.isFinite(port) || port <= 0) {
     throw new Error(`Invalid PORT value: ${process.env.PORT}`);
