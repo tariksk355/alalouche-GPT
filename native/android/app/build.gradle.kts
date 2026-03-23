@@ -18,7 +18,7 @@ android {
     buildTypes {
         getByName("debug") {
             isMinifyEnabled = false
-            buildConfigField("String", "DEFAULT_WEB_APP_URL", "\"http://172.20.10.3:4174/\"")
+            buildConfigField("String", "DEFAULT_WEB_APP_URL", "\"https://alalouche-sunmi.vercel.app/\"")
         }
         getByName("release") {
             isMinifyEnabled = false
@@ -26,7 +26,7 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            buildConfigField("String", "DEFAULT_WEB_APP_URL", "\"https://example.invalid/\"")
+            buildConfigField("String", "DEFAULT_WEB_APP_URL", "\"https://alalouche-sunmi.vercel.app/\"")
         }
     }
 
