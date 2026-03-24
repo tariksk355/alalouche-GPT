@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { HttpException, Injectable } from '@nestjs/common';
 import { Request } from 'express';
 import { RedisService } from './redis.service';
 
@@ -33,7 +33,11 @@ export class RedisRateLimitService {
     }
 
     if (result.count > options.limit) {
-      this.redisService.throwTooManyRequests(options.message, result.ttlSeconds);
+      throw new HttpException({
+        error: 'RATE_LIMITED',
+        message: options.message,
+        retryAfterSeconds: result.ttlSeconds,
+      }, 429);
     }
   }
 
