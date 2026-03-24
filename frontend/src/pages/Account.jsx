@@ -36,7 +36,15 @@ export default function Account() {
   const [resetPasswordLoading, setResetPasswordLoading] = useState(false);
   const [resetPasswordNotice, setResetPasswordNotice] = useState('');
   const [resetPasswordError, setResetPasswordError] = useState('');
-  const [profileForm, setProfileForm] = useState({ fullName: '', phone: '' });
+  const [profileForm, setProfileForm] = useState({
+    fullName: '',
+    phone: '',
+    addressLine1: '',
+    addressLine2: '',
+    postalCode: '',
+    city: '',
+    deliveryInstructions: '',
+  });
   const [savingProfile, setSavingProfile] = useState(false);
   const [profileSuccess, setProfileSuccess] = useState('');
   const [verificationNotice, setVerificationNotice] = useState('');
@@ -220,6 +228,11 @@ export default function Account() {
     const effectiveProfile = {
       fullName: profileForm.fullName || user.fullName || '',
       phone: profileForm.phone || user.phone || '',
+      addressLine1: profileForm.addressLine1 || user.addressLine1 || '',
+      addressLine2: profileForm.addressLine2 || user.addressLine2 || '',
+      postalCode: profileForm.postalCode || user.postalCode || '',
+      city: profileForm.city || user.city || '',
+      deliveryInstructions: profileForm.deliveryInstructions || user.deliveryInstructions || '',
     };
 
     const handleProfileSave = async (e) => {
@@ -235,6 +248,11 @@ export default function Account() {
         await updateCustomerMe(session.token, {
           fullName: effectiveProfile.fullName,
           phone: effectiveProfile.phone,
+          addressLine1: effectiveProfile.addressLine1,
+          addressLine2: effectiveProfile.addressLine2,
+          postalCode: effectiveProfile.postalCode,
+          city: effectiveProfile.city,
+          deliveryInstructions: effectiveProfile.deliveryInstructions,
         });
         await refreshSession();
         setProfileSuccess('Profil mis à jour avec succès.');
@@ -314,6 +332,35 @@ export default function Account() {
                 placeholder="Téléphone"
                 value={effectiveProfile.phone}
                 onChange={(e) => setProfileForm((prev) => ({ ...prev, phone: e.target.value }))}
+              />
+
+              <p className="text-sm font-medium pt-2">Adresse de livraison sauvegardée</p>
+              <Input
+                placeholder="Adresse ligne 1"
+                value={effectiveProfile.addressLine1}
+                onChange={(e) => setProfileForm((prev) => ({ ...prev, addressLine1: e.target.value }))}
+              />
+              <Input
+                placeholder="Adresse ligne 2 (optionnel)"
+                value={effectiveProfile.addressLine2}
+                onChange={(e) => setProfileForm((prev) => ({ ...prev, addressLine2: e.target.value }))}
+              />
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <Input
+                  placeholder="Code postal"
+                  value={effectiveProfile.postalCode}
+                  onChange={(e) => setProfileForm((prev) => ({ ...prev, postalCode: e.target.value }))}
+                />
+                <Input
+                  placeholder="Ville"
+                  value={effectiveProfile.city}
+                  onChange={(e) => setProfileForm((prev) => ({ ...prev, city: e.target.value }))}
+                />
+              </div>
+              <Input
+                placeholder="Instructions de livraison (optionnel)"
+                value={effectiveProfile.deliveryInstructions}
+                onChange={(e) => setProfileForm((prev) => ({ ...prev, deliveryInstructions: e.target.value }))}
               />
               <Button type="submit" disabled={savingProfile}>
                 {savingProfile ? 'Enregistrement...' : 'Enregistrer'}

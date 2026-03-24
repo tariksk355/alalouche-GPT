@@ -85,6 +85,11 @@ model Customer {
   fullName                   String
   email                      String
   phone                      String?
+  addressLine1               String?
+  addressLine2               String?
+  postalCode                 String?
+  city                       String?
+  deliveryInstructions       String?
   subscribedEmail            Boolean    @default(false)
   emailVerifiedAt            DateTime?
   emailVerificationTokenHash String?
