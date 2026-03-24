@@ -3,6 +3,7 @@ import { randomUUID } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateAdminMenuItemDto } from './dto/create-admin-menu-item.dto';
 import { UpdateAdminMenuItemDto } from './dto/update-admin-menu-item.dto';
+import { PublicConfigService } from '../public-config/public-config.service';
 
 type MenuCatalogItem = {
   id: string;
@@ -18,7 +19,10 @@ type MenuCatalogItem = {
 
 @Injectable()
 export class AdminMenuCatalogService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly publicConfigService: PublicConfigService,
+  ) {}
 
   async listMenuCatalog(restaurantId: string): Promise<MenuCatalogItem[]> {
     const restaurant = await this.getRestaurant(restaurantId);
@@ -43,6 +47,7 @@ export class AdminMenuCatalogService {
     };
 
     await this.persistMenuCatalog(restaurantId, restaurant.orderingSettings, [...current, created]);
+    await this.publicConfigService.invalidateMenuCatalogCache(restaurantId);
     return created;
   }
 
@@ -69,6 +74,7 @@ export class AdminMenuCatalogService {
     const next = [...current];
     next[idx] = updated;
     await this.persistMenuCatalog(restaurantId, restaurant.orderingSettings, next);
+    await this.publicConfigService.invalidateMenuCatalogCache(restaurantId);
     return updated;
   }
 
@@ -81,6 +87,7 @@ export class AdminMenuCatalogService {
     }
 
     await this.persistMenuCatalog(restaurantId, restaurant.orderingSettings, next.map((item, index) => ({ ...item, sortOrder: index })));
+    await this.publicConfigService.invalidateMenuCatalogCache(restaurantId);
   }
 
   private async getRestaurant(restaurantId: string) {

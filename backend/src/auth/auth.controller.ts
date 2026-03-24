@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Headers, Patch, Post, Query, UnauthorizedException, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Headers, Patch, Post, Query, Req, UnauthorizedException, UseGuards } from '@nestjs/common';
 import { ok } from '../common/api-response';
 import { TenantContextGuard } from '../tenant/tenant-context.guard';
 import { TenantCtx } from '../tenant/tenant.decorator';
@@ -10,13 +10,27 @@ import { CustomerSignupDto } from './dto/customer-signup.dto';
 import { RequestPasswordResetDto } from './dto/request-password-reset.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { UpdateCustomerProfileDto } from './dto/update-customer-profile.dto';
+import { RedisRateLimitService } from '../redis/redis-rate-limit.service';
+import { Request } from 'express';
 
 @Controller()
 export class AuthController {
-  constructor(private readonly authService: AuthService) {}
+  constructor(
+    private readonly authService: AuthService,
+    private readonly redisRateLimitService: RedisRateLimitService,
+  ) {}
 
   @Post('admin/auth/login')
-  async adminLogin(@Body() dto: AdminLoginDto) {
+  async adminLogin(@Body() dto: AdminLoginDto, @Req() request: Request) {
+    await this.redisRateLimitService.enforce({
+      request,
+      scope: 'admin-login',
+      limit: 10,
+      windowSeconds: 300,
+      identifiers: [dto.username.toLowerCase()],
+      message: 'Trop de tentatives de connexion administrateur. Veuillez réessayer dans quelques minutes.',
+    });
+
     const session = await this.authService.adminLogin(dto);
     return ok(session);
   }
@@ -37,14 +51,34 @@ export class AuthController {
 
   @Post('auth/login')
   @UseGuards(TenantContextGuard)
-  async customerLogin(@TenantCtx() tenant: TenantContext, @Body() dto: CustomerLoginDto) {
+  async customerLogin(@TenantCtx() tenant: TenantContext, @Body() dto: CustomerLoginDto, @Req() request: Request) {
+    await this.redisRateLimitService.enforce({
+      request,
+      scope: 'customer-login',
+      restaurantId: tenant.restaurantId,
+      limit: 8,
+      windowSeconds: 300,
+      identifiers: [dto.email.toLowerCase()],
+      message: 'Trop de tentatives de connexion. Veuillez réessayer dans quelques minutes.',
+    });
+
     const session = await this.authService.customerLogin(tenant.restaurantId, dto);
     return ok(session);
   }
 
   @Post('auth/forgot-password')
   @UseGuards(TenantContextGuard)
-  async requestCustomerPasswordReset(@TenantCtx() tenant: TenantContext, @Body() dto: RequestPasswordResetDto) {
+  async requestCustomerPasswordReset(@TenantCtx() tenant: TenantContext, @Body() dto: RequestPasswordResetDto, @Req() request: Request) {
+    await this.redisRateLimitService.enforce({
+      request,
+      scope: 'forgot-password',
+      restaurantId: tenant.restaurantId,
+      limit: 5,
+      windowSeconds: 900,
+      identifiers: [dto.email.toLowerCase()],
+      message: 'Trop de demandes de réinitialisation. Veuillez patienter avant de recommencer.',
+    });
+
     const result = await this.authService.requestCustomerPasswordReset(tenant.restaurantId, dto.email);
     return ok(result);
   }

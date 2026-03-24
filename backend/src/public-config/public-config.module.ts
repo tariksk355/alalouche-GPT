@@ -9,5 +9,6 @@ import { AdminMediaStorageService } from '../admin/admin-media-storage.service';
   imports: [PrismaModule, TenantModule],
   controllers: [PublicConfigController],
   providers: [PublicConfigService, AdminMediaStorageService],
+  exports: [PublicConfigService],
 })
 export class PublicConfigModule {}

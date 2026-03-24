@@ -93,7 +93,7 @@ export class AuthService implements OnModuleInit {
 
   private async deleteLegacyDevAdmins(): Promise<number> {
     const usernames = AuthService.LEGACY_DEV_ADMIN_CREDENTIALS.map((candidate) => candidate.username);
-    const admins = await this.prisma.adminUser.findMany({
+    const admins: Array<{ id: string; username: string; displayName: string; passwordHash: string }> = await this.prisma.adminUser.findMany({
       where: { username: { in: usernames } },
       select: { id: true, username: true, displayName: true, passwordHash: true },
     });
