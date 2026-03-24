@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Headers, Param, Post, UnauthorizedException, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Headers, Param, Post, Req, UnauthorizedException, UseGuards } from '@nestjs/common';
 import { AuthService } from '../auth/auth.service';
 import { ok } from '../common/api-response';
 import { TenantContextGuard } from '../tenant/tenant-context.guard';
@@ -7,12 +7,15 @@ import { TenantContext } from '../tenant/tenant.types';
 import { CreateStorefrontOrderDto } from './dto/create-storefront-order.dto';
 import { PreviewStorefrontPromotionDto } from './dto/preview-storefront-promotion.dto';
 import { OrdersService } from './orders.service';
+import { RedisRateLimitService } from '../redis/redis-rate-limit.service';
+import { Request } from 'express';
 
 @Controller('orders')
 export class OrdersController {
   constructor(
     private readonly ordersService: OrdersService,
     private readonly authService: AuthService,
+    private readonly redisRateLimitService: RedisRateLimitService,
   ) {}
 
   @Post()
@@ -20,8 +23,19 @@ export class OrdersController {
   async create(
     @TenantCtx() tenant: TenantContext,
     @Body() dto: CreateStorefrontOrderDto,
+    @Req() request: Request,
     @Headers('authorization') authorization?: string,
   ) {
+    await this.redisRateLimitService.enforce({
+      request,
+      scope: 'order-create',
+      restaurantId: tenant.restaurantId,
+      limit: 8,
+      windowSeconds: 300,
+      identifiers: [dto.customerEmail?.toLowerCase() || null, dto.customerPhone],
+      message: 'Trop de commandes créées en peu de temps. Veuillez patienter avant de recommencer.',
+    });
+
     let customerId: string | null = null;
     let customerEmail: string | null = null;
 

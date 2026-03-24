@@ -9,12 +9,14 @@ import { NotificationModule } from './notifications/notification.module';
 import { OrdersModule } from './orders/orders.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { PublicConfigModule } from './public-config/public-config.module';
+import { RedisModule } from './redis/redis.module';
 import { ReceiverModule } from './receiver/receiver.module';
 import { ReservationsModule } from './reservations/reservations.module';
 
 @Module({
   imports: [
     PrismaModule,
+    RedisModule,
     HealthModule,
     AuthModule,
     DeviceAuthModule,
