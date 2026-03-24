@@ -10,9 +10,10 @@ import { AdminAnalyticsService } from './admin-analytics.service';
 import { AdminSettingsService } from './admin-settings.service';
 import { AdminMarketingService } from './admin-marketing.service';
 import { AdminMediaStorageService } from './admin-media-storage.service';
+import { PublicConfigModule } from '../public-config/public-config.module';
 
 @Module({
-  imports: [OrdersModule, AuthModule, PrismaModule, NotificationModule],
+  imports: [OrdersModule, AuthModule, PrismaModule, NotificationModule, PublicConfigModule],
   controllers: [AdminController],
   providers: [
     AdminMenuCatalogService,

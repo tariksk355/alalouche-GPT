@@ -143,8 +143,9 @@ A root-level `docker-compose.yml` is included for practical single-server orches
 - `frontend` (nginx static SPA)
 - `backend` (NestJS + Prisma migrations at startup by default)
 - `postgres` (single-server DB container with persistent volume)
+- `redis` (internal helper service for narrow caching and rate limiting only)
 
-Redis is intentionally omitted in this slice because the current architecture does not use Redis-backed caching/queues/sessions yet.
+Redis remains internal to the compose network and is used only as a helper layer. PostgreSQL remains the source of truth.
 
 ### Prepare env
 
@@ -171,6 +172,6 @@ curl -fsS http://127.0.0.1:${FRONTEND_PORT:-80}/health
 
 ```bash
 docker compose --env-file deploy/env/compose.env ps
-docker compose --env-file deploy/env/compose.env logs -f backend frontend postgres
+docker compose --env-file deploy/env/compose.env logs -f backend frontend postgres redis
 ```
 

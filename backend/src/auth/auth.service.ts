@@ -93,7 +93,7 @@ export class AuthService implements OnModuleInit {
 
   private async deleteLegacyDevAdmins(): Promise<number> {
     const usernames = AuthService.LEGACY_DEV_ADMIN_CREDENTIALS.map((candidate) => candidate.username);
-    const admins = await this.prisma.adminUser.findMany({
+    const admins: Array<{ id: string; username: string; displayName: string; passwordHash: string }> = await this.prisma.adminUser.findMany({
       where: { username: { in: usernames } },
       select: { id: true, username: true, displayName: true, passwordHash: true },
     });
@@ -212,6 +212,11 @@ export class AuthService implements OnModuleInit {
       data: {
         fullName: dto.fullName ?? customer.fullName,
         phone: dto.phone === undefined ? customer.phone : dto.phone || null,
+        addressLine1: dto.addressLine1 === undefined ? customer.addressLine1 : dto.addressLine1 || null,
+        addressLine2: dto.addressLine2 === undefined ? customer.addressLine2 : dto.addressLine2 || null,
+        postalCode: dto.postalCode === undefined ? customer.postalCode : dto.postalCode || null,
+        city: dto.city === undefined ? customer.city : dto.city || null,
+        deliveryInstructions: dto.deliveryInstructions === undefined ? customer.deliveryInstructions : dto.deliveryInstructions || null,
       },
     });
 
@@ -353,6 +358,11 @@ export class AuthService implements OnModuleInit {
         fullName: 'Compte supprimé',
         email: anonymizedEmail,
         phone: null,
+        addressLine1: null,
+        addressLine2: null,
+        postalCode: null,
+        city: null,
+        deliveryInstructions: null,
         subscribedEmail: false,
         emailVerifiedAt: null,
         emailVerificationTokenHash: null,
@@ -375,6 +385,11 @@ export class AuthService implements OnModuleInit {
     email: string;
     fullName: string;
     phone: string | null;
+    addressLine1: string | null;
+    addressLine2: string | null;
+    postalCode: string | null;
+    city: string | null;
+    deliveryInstructions: string | null;
     emailVerifiedAt: Date | null;
     deletedAt?: Date | null;
   }) {
@@ -396,6 +411,11 @@ export class AuthService implements OnModuleInit {
     fullName: string;
     email: string;
     phone: string | null;
+    addressLine1: string | null;
+    addressLine2: string | null;
+    postalCode: string | null;
+    city: string | null;
+    deliveryInstructions: string | null;
     restaurantId: string;
     emailVerifiedAt: Date | null;
   }) {
@@ -405,6 +425,11 @@ export class AuthService implements OnModuleInit {
       fullName: customer.fullName,
       email: customer.email,
       phone: customer.phone,
+      addressLine1: customer.addressLine1,
+      addressLine2: customer.addressLine2,
+      postalCode: customer.postalCode,
+      city: customer.city,
+      deliveryInstructions: customer.deliveryInstructions,
       restaurantId: customer.restaurantId,
       emailVerified: Boolean(customer.emailVerifiedAt),
       emailVerifiedAt: customer.emailVerifiedAt,

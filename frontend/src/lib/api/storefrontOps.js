@@ -12,6 +12,16 @@ function customerAuthHeaders() {
   };
 }
 
+function formatSavedDeliveryAddress(customer) {
+  const line1 = typeof customer?.addressLine1 === 'string' ? customer.addressLine1.trim() : '';
+  const line2 = typeof customer?.addressLine2 === 'string' ? customer.addressLine2.trim() : '';
+  const postalCode = typeof customer?.postalCode === 'string' ? customer.postalCode.trim() : '';
+  const city = typeof customer?.city === 'string' ? customer.city.trim() : '';
+
+  const locality = [postalCode, city].filter(Boolean).join(' ');
+  return [line1, line2, locality].filter(Boolean).join(', ');
+}
+
 function requireCustomerAuthHeaders() {
   const session = getStoredCustomerSession();
   if (!session?.token) {
@@ -87,7 +97,7 @@ export async function getStorefrontCustomerPrefill() {
       customer_name: customer.fullName || '',
       customer_email: customer.email || '',
       customer_phone: customer.phone || '',
-      customer_address: '',
+      customer_address: formatSavedDeliveryAddress(customer),
     };
   } catch {
     const fallbackCustomer = session.customer;
@@ -96,10 +106,11 @@ export async function getStorefrontCustomerPrefill() {
       customer_name: fallbackCustomer.fullName || '',
       customer_email: fallbackCustomer.email || '',
       customer_phone: fallbackCustomer.phone || '',
-      customer_address: '',
+      customer_address: formatSavedDeliveryAddress(fallbackCustomer),
     };
   }
 }
+
 
 export function getStoredCheckoutDefaults() {
   try {
