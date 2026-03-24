@@ -98,8 +98,6 @@ export class AdminController {
   private buildPublicMediaUrl(request: Request, key: string): string {
     const configuredOrigin = [
       process.env.MEDIA_PUBLIC_BASE_URL,
-      process.env.PUBLIC_BASE_URL,
-      process.env.APP_BASE_URL,
     ]
       .map((value) => value?.trim())
       .find(Boolean)

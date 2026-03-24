@@ -1,5 +1,4 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { UpdateAdminPrinterSettingsDto } from './dto/update-admin-printer-settings.dto';
 import { UpdateAdminBrandingSettingsDto } from './dto/update-admin-branding-settings.dto';
@@ -53,7 +52,7 @@ export class AdminSettingsService {
       throw new NotFoundException({ error: 'RESTAURANT_NOT_FOUND', message: 'Restaurant not found.' });
     }
 
-    const orderingSettings = (restaurant.orderingSettings as Prisma.JsonObject | null) || {};
+    const orderingSettings = (restaurant.orderingSettings as Record<string, unknown> | null) || {};
     const printerSettings = (orderingSettings.printerSettings as Record<string, unknown> | null) || {};
 
     return this.normalizePrinterSettings(printerSettings);
@@ -65,7 +64,7 @@ export class AdminSettingsService {
       throw new NotFoundException({ error: 'RESTAURANT_NOT_FOUND', message: 'Restaurant not found.' });
     }
 
-    const orderingSettings = (restaurant.orderingSettings as Prisma.JsonObject | null) || {};
+    const orderingSettings = (restaurant.orderingSettings as Record<string, unknown> | null) || {};
     const existingPrinterSettings = (orderingSettings.printerSettings as Record<string, unknown> | null) || {};
 
     const next = this.normalizePrinterSettings({
@@ -77,9 +76,9 @@ export class AdminSettingsService {
       ...(dto.require_prep_time !== undefined ? { require_prep_time: dto.require_prep_time } : {}),
     });
 
-    const nextOrderingSettings: Prisma.InputJsonObject = {
+    const nextOrderingSettings: Record<string, unknown> = {
       ...orderingSettings,
-      printerSettings: { ...next } as Prisma.InputJsonObject,
+      printerSettings: { ...next } as Record<string, unknown>,
     };
 
     await this.prisma.restaurant.update({
@@ -117,7 +116,7 @@ export class AdminSettingsService {
     await this.prisma.restaurant.update({
       where: { id: restaurantId },
       data: {
-        branding: next as unknown as Prisma.InputJsonObject,
+        branding: next as unknown as Record<string, unknown>,
       },
     });
 
@@ -131,7 +130,7 @@ export class AdminSettingsService {
       throw new NotFoundException({ error: 'RESTAURANT_NOT_FOUND', message: 'Restaurant not found.' });
     }
 
-    const orderingSettings = (restaurant.orderingSettings as Prisma.JsonObject | null) || {};
+    const orderingSettings = (restaurant.orderingSettings as Record<string, unknown> | null) || {};
     const announcement = (orderingSettings.storefrontAnnouncement as Record<string, unknown> | null) || {};
 
     return this.normalizeStorefrontAnnouncementSettings(announcement);
@@ -146,7 +145,7 @@ export class AdminSettingsService {
       throw new NotFoundException({ error: 'RESTAURANT_NOT_FOUND', message: 'Restaurant not found.' });
     }
 
-    const orderingSettings = (restaurant.orderingSettings as Prisma.JsonObject | null) || {};
+    const orderingSettings = (restaurant.orderingSettings as Record<string, unknown> | null) || {};
     const existingAnnouncement = (orderingSettings.storefrontAnnouncement as Record<string, unknown> | null) || {};
 
     const next = this.normalizeStorefrontAnnouncementSettings({
@@ -155,9 +154,9 @@ export class AdminSettingsService {
       ...(dto.message !== undefined ? { message: dto.message } : {}),
     });
 
-    const nextOrderingSettings: Prisma.InputJsonObject = {
+    const nextOrderingSettings: Record<string, unknown> = {
       ...orderingSettings,
-      storefrontAnnouncement: { ...next } as Prisma.InputJsonObject,
+      storefrontAnnouncement: { ...next } as Record<string, unknown>,
     };
 
     await this.prisma.restaurant.update({
