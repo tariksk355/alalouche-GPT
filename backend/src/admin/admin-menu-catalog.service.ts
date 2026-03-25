@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { randomUUID } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateAdminMenuItemDto } from './dto/create-admin-menu-item.dto';
@@ -207,7 +208,11 @@ export class AdminMenuCatalogService {
     await this.prisma.restaurant.update({
       where: { id: restaurantId },
       data: {
+<<<<<<< HEAD
         orderingSettings,
+=======
+        orderingSettings: orderingSettings as Prisma.InputJsonValue,
+>>>>>>> codex/allow-new-product-category-creation-in-admin-panel
       },
     });
   }
