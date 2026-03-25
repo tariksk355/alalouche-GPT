@@ -807,6 +807,8 @@ function AdminOrders() {
 function AdminMenu() {
   const [items, setItems] = useState([]);
   const [form, setForm] = useState({ name: "", description: "", price: "", category: "Sandwichs et menu", imageUrl: "", available: true, allergens: "" });
+  const [selectedCategory, setSelectedCategory] = useState("Sandwichs et menu");
+  const [newCategoryName, setNewCategoryName] = useState("");
   const [editing, setEditing] = useState(null);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -816,16 +818,20 @@ function AdminMenu() {
   const [error, setError] = useState("");
 
   const CATEGORIES = ["Sandwichs et menu", "Nos sauces chaudes", "Nos sauces froides", "Plats et Pide", "Boissons", "Bières & Alcools", "Vins", "Desserts"];
+  const NEW_CATEGORY_OPTION = "__new_category__";
   const categoryOptions = useMemo(() => {
     const dynamicCategories = items
       .map((item) => (typeof item.category === "string" ? item.category.trim() : ""))
       .filter(Boolean);
-    return Array.from(new Set([...CATEGORIES, ...dynamicCategories]));
-  }, [items]);
+    const currentFormCategory = typeof form.category === "string" ? form.category.trim() : "";
+    return Array.from(new Set([...CATEGORIES, ...dynamicCategories, currentFormCategory].filter(Boolean)));
+  }, [items, form.category]);
 
   const resetForm = () => {
     setEditing(null);
     setForm({ name: "", description: "", price: "", category: "Sandwichs et menu", imageUrl: "", available: true, allergens: "" });
+    setSelectedCategory("Sandwichs et menu");
+    setNewCategoryName("");
     setUploadFeedback({ type: "", message: "" });
   };
 
@@ -850,12 +856,18 @@ function AdminMenu() {
     e.preventDefault();
     setSaving(true);
     setError("");
+    const resolvedCategory = selectedCategory === NEW_CATEGORY_OPTION ? newCategoryName.trim() : selectedCategory;
+    if (!resolvedCategory) {
+      setSaving(false);
+      setError("Veuillez sélectionner une catégorie ou saisir une nouvelle catégorie.");
+      return;
+    }
 
     const payload = {
       name: form.name,
       description: form.description,
       price: parseFloat(form.price),
-      category: form.category,
+      category: resolvedCategory,
       imageUrl: form.imageUrl,
       available: form.available,
       allergens: form.allergens,
@@ -906,6 +918,8 @@ function AdminMenu() {
   const handleEdit = (item) => {
     setEditing(item);
     setUploadFeedback({ type: "", message: "" });
+    setSelectedCategory(item.category);
+    setNewCategoryName("");
     setForm({
       name: item.name,
       description: item.description || "",
@@ -963,18 +977,35 @@ function AdminMenu() {
             </div>
             <div>
               <label className="block text-sm text-gray-500 mb-1">Catégorie</label>
-              <input
-                list="admin-menu-category-options"
-                value={form.category}
-                onChange={e => setForm({ ...form, category: e.target.value })}
+              <select
+                value={selectedCategory}
+                onChange={(e) => {
+                  const nextCategory = e.target.value;
+                  setSelectedCategory(nextCategory);
+                  if (nextCategory !== NEW_CATEGORY_OPTION) {
+                    setNewCategoryName("");
+                    setForm((prev) => ({ ...prev, category: nextCategory }));
+                  }
+                }}
                 className="w-full bg-gray-50 border border-gray-200 text-gray-900 px-3 py-2 rounded-lg focus:outline-none focus:border-gray-400"
-                placeholder="Choisir ou saisir une catégorie"
-              />
-              <datalist id="admin-menu-category-options">
+              >
                 {categoryOptions.map((c) => (
-                  <option key={c} value={c} />
+                  <option key={c} value={c}>{c}</option>
                 ))}
-              </datalist>
+                <option value={NEW_CATEGORY_OPTION}>+ Nouvelle catégorie</option>
+              </select>
+              {selectedCategory === NEW_CATEGORY_OPTION && (
+                <input
+                  value={newCategoryName}
+                  onChange={(e) => {
+                    const nextCategoryName = e.target.value;
+                    setNewCategoryName(nextCategoryName);
+                    setForm((prev) => ({ ...prev, category: nextCategoryName }));
+                  }}
+                  className="mt-2 w-full bg-gray-50 border border-gray-200 text-gray-900 px-3 py-2 rounded-lg focus:outline-none focus:border-gray-400"
+                  placeholder="Saisir la nouvelle catégorie"
+                />
+              )}
             </div>
             <div className="col-span-2">
               <label className="block text-sm text-gray-500 mb-1">Description</label>
