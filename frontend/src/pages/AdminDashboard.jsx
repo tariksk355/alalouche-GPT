@@ -816,6 +816,12 @@ function AdminMenu() {
   const [error, setError] = useState("");
 
   const CATEGORIES = ["Sandwichs et menu", "Nos sauces chaudes", "Nos sauces froides", "Plats et Pide", "Boissons", "Bières & Alcools", "Vins", "Desserts"];
+  const categoryOptions = useMemo(() => {
+    const dynamicCategories = items
+      .map((item) => (typeof item.category === "string" ? item.category.trim() : ""))
+      .filter(Boolean);
+    return Array.from(new Set([...CATEGORIES, ...dynamicCategories]));
+  }, [items]);
 
   const resetForm = () => {
     setEditing(null);
@@ -957,10 +963,18 @@ function AdminMenu() {
             </div>
             <div>
               <label className="block text-sm text-gray-500 mb-1">Catégorie</label>
-              <select value={form.category} onChange={e => setForm({ ...form, category: e.target.value })}
-                className="w-full bg-gray-50 border border-gray-200 text-gray-900 px-3 py-2 rounded-lg focus:outline-none focus:border-gray-400">
-                {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
-              </select>
+              <input
+                list="admin-menu-category-options"
+                value={form.category}
+                onChange={e => setForm({ ...form, category: e.target.value })}
+                className="w-full bg-gray-50 border border-gray-200 text-gray-900 px-3 py-2 rounded-lg focus:outline-none focus:border-gray-400"
+                placeholder="Choisir ou saisir une catégorie"
+              />
+              <datalist id="admin-menu-category-options">
+                {categoryOptions.map((c) => (
+                  <option key={c} value={c} />
+                ))}
+              </datalist>
             </div>
             <div className="col-span-2">
               <label className="block text-sm text-gray-500 mb-1">Description</label>
