@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { createPageUrl } from "@/utils";
 import { addItem, getCart, cartCount as getCartCount } from "@/components/cartStore";
@@ -89,8 +89,30 @@ export default function Menu() {
     }).catch(() => setLoading(false));
   }, []);
 
+  const menuCategories = useMemo(() => {
+    const merged = [...CATEGORIES];
+    const known = new Set(CATEGORIES.map((category) => category.key));
+    const dynamicCategories = items
+      .map((item) => (typeof item.category === "string" ? item.category.trim() : ""))
+      .filter(Boolean);
+
+    dynamicCategories.forEach((categoryKey) => {
+      if (!known.has(categoryKey)) {
+        known.add(categoryKey);
+        merged.push({
+          key: categoryKey,
+          title: categoryKey,
+          subtitle: "Nos spécialités",
+          description: "Découvrez les articles disponibles dans cette catégorie.",
+        });
+      }
+    });
+
+    return merged;
+  }, [items]);
+
   const activeCategoryData = activeCategory
-    ? CATEGORIES.find(c => c.key === activeCategory)
+    ? menuCategories.find(c => c.key === activeCategory)
     : null;
 
   const categoryItems = activeCategory
@@ -194,12 +216,12 @@ export default function Menu() {
 
       {/* Category List */}
       <div className="max-w-2xl mx-auto px-4 py-6">
-        {CATEGORIES.map((cat, idx) => (
+        {menuCategories.map((cat, idx) => (
           <button
             key={cat.key}
             onClick={() => setActiveCategory(cat.key)}
             className={`w-full text-left py-5 flex justify-between items-center gap-4 transition-colors hover:bg-gray-50 px-2 -mx-2 rounded ${
-              idx < CATEGORIES.length - 1 ? "border-b border-gray-100" : ""
+              idx < menuCategories.length - 1 ? "border-b border-gray-100" : ""
             }`}
           >
             <div>
