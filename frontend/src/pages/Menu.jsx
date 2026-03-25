@@ -1,10 +1,11 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { createPageUrl } from "@/utils";
 import { addItem, getCart, cartCount as getCartCount } from "@/components/cartStore";
 import { listMenuCatalog } from "@/lib/api/storefrontOps";
+import { useTenant } from "@/lib/TenantContext";
 
-const CATEGORIES = [
+const CATEGORY_METADATA = [
   {
     key: "Sandwichs et menu",
     title: "Sandwichs et menu",
@@ -56,6 +57,7 @@ const CATEGORIES = [
 ];
 
 export default function Menu() {
+  const { tenant } = useTenant();
   const [items, setItems] = useState([]);
   const [activeCategory, setActiveCategory] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -89,8 +91,33 @@ export default function Menu() {
     }).catch(() => setLoading(false));
   }, []);
 
+  const menuCategories = useMemo(() => {
+    const dynamicCategories = items
+      .map((item) => (typeof item.category === "string" ? item.category.trim() : ""))
+      .filter(Boolean);
+    const configuredOrder = Array.isArray(tenant?.orderingSettings?.categoryOrder)
+      ? tenant.orderingSettings.categoryOrder
+          .map((value) => (typeof value === "string" ? value.trim() : ""))
+          .filter(Boolean)
+      : [];
+    const ordered = Array.from(new Set(configuredOrder));
+    const discovered = Array.from(new Set(dynamicCategories));
+    const keys = [...ordered, ...discovered.filter((category) => !ordered.includes(category))];
+    const metadataByKey = new Map(CATEGORY_METADATA.map((category) => [category.key, category]));
+
+    return keys.map((key) => {
+      const metadata = metadataByKey.get(key);
+      return metadata || {
+        key,
+        title: key,
+        subtitle: "Nos spécialités",
+        description: "Découvrez les articles disponibles dans cette catégorie.",
+      };
+    });
+  }, [items, tenant?.orderingSettings?.categoryOrder]);
+
   const activeCategoryData = activeCategory
-    ? CATEGORIES.find(c => c.key === activeCategory)
+    ? menuCategories.find(c => c.key === activeCategory)
     : null;
 
   const categoryItems = activeCategory
@@ -194,12 +221,12 @@ export default function Menu() {
 
       {/* Category List */}
       <div className="max-w-2xl mx-auto px-4 py-6">
-        {CATEGORIES.map((cat, idx) => (
+        {menuCategories.map((cat, idx) => (
           <button
             key={cat.key}
             onClick={() => setActiveCategory(cat.key)}
             className={`w-full text-left py-5 flex justify-between items-center gap-4 transition-colors hover:bg-gray-50 px-2 -mx-2 rounded ${
-              idx < CATEGORIES.length - 1 ? "border-b border-gray-100" : ""
+              idx < menuCategories.length - 1 ? "border-b border-gray-100" : ""
             }`}
           >
             <div>
