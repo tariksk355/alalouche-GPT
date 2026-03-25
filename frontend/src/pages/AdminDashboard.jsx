@@ -807,8 +807,8 @@ function AdminOrders() {
 function AdminMenu() {
   const [items, setItems] = useState([]);
   const [categoryOrder, setCategoryOrder] = useState([]);
-  const [form, setForm] = useState({ name: "", description: "", price: "", category: "Sandwichs et menu", imageUrl: "", available: true, allergens: "" });
-  const [selectedCategory, setSelectedCategory] = useState("Sandwichs et menu");
+  const [form, setForm] = useState({ name: "", description: "", price: "", category: "", imageUrl: "", available: true, allergens: "" });
+  const [selectedCategory, setSelectedCategory] = useState("__new_category__");
   const [newCategoryName, setNewCategoryName] = useState("");
   const [editing, setEditing] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -818,15 +818,14 @@ function AdminMenu() {
   const [success, setSuccess] = useState("");
   const [error, setError] = useState("");
 
-  const CATEGORIES = ["Sandwichs et menu", "Nos sauces chaudes", "Nos sauces froides", "Plats et Pide", "Boissons", "Bières & Alcools", "Vins", "Desserts"];
   const NEW_CATEGORY_OPTION = "__new_category__";
   const discoveredCategories = useMemo(() => {
     const dynamicCategories = items
       .map((item) => (typeof item.category === "string" ? item.category.trim() : ""))
       .filter(Boolean);
     const currentFormCategory = typeof form.category === "string" ? form.category.trim() : "";
-    return Array.from(new Set([...CATEGORIES, ...dynamicCategories, currentFormCategory].filter(Boolean)));
-  }, [items, form.category]);
+    return Array.from(new Set([...categoryOrder, ...dynamicCategories, currentFormCategory].filter(Boolean)));
+  }, [items, form.category, categoryOrder]);
   const categoryOptions = useMemo(() => {
     if (!Array.isArray(categoryOrder) || categoryOrder.length === 0) {
       return discoveredCategories;
@@ -838,8 +837,8 @@ function AdminMenu() {
 
   const resetForm = () => {
     setEditing(null);
-    setForm({ name: "", description: "", price: "", category: "Sandwichs et menu", imageUrl: "", available: true, allergens: "" });
-    setSelectedCategory("Sandwichs et menu");
+    setForm({ name: "", description: "", price: "", category: "", imageUrl: "", available: true, allergens: "" });
+    setSelectedCategory(categoryOptions[0] || NEW_CATEGORY_OPTION);
     setNewCategoryName("");
     setUploadFeedback({ type: "", message: "" });
   };
@@ -864,6 +863,13 @@ function AdminMenu() {
   useEffect(() => {
     loadItems();
   }, []);
+
+  useEffect(() => {
+    if (selectedCategory === NEW_CATEGORY_OPTION) return;
+    if (!selectedCategory || !categoryOptions.includes(selectedCategory)) {
+      setSelectedCategory(categoryOptions[0] || NEW_CATEGORY_OPTION);
+    }
+  }, [categoryOptions, selectedCategory]);
 
   const handleSave = async (e) => {
     e.preventDefault();
@@ -997,7 +1003,7 @@ function AdminMenu() {
     if (!confirmed) return;
 
     const replacement = prompt(
-      `Catégorie de remplacement pour ${affectedCount} article(s). Laissez vide pour vider la catégorie :`,
+      `Catégorie de remplacement pour ${affectedCount} article(s). Laissez vide pour déplacer vers "Autres" :`,
       "",
     );
     if (replacement === null) return;
@@ -1013,7 +1019,7 @@ function AdminMenu() {
       setItems(result.items || []);
       setCategoryOrder(Array.isArray(result.categoryOrder) ? result.categoryOrder : []);
       if (selectedCategory === category) {
-        setSelectedCategory("Sandwichs et menu");
+        setSelectedCategory((Array.isArray(result.categoryOrder) && result.categoryOrder[0]) || NEW_CATEGORY_OPTION);
       }
       setSuccess(`Catégorie supprimée. ${result.affectedCount || 0} article(s) mis à jour.`);
       setTimeout(() => setSuccess(""), 3000);
@@ -1054,6 +1060,9 @@ function AdminMenu() {
                 }}
                 className="w-full bg-gray-50 border border-gray-200 text-gray-900 px-3 py-2 rounded-lg focus:outline-none focus:border-gray-400"
               >
+                {categoryOptions.length === 0 && (
+                  <option value="" disabled>Aucune catégorie existante</option>
+                )}
                 {categoryOptions.map((c) => (
                   <option key={c} value={c}>{c}</option>
                 ))}

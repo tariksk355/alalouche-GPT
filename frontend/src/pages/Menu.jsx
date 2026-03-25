@@ -5,7 +5,7 @@ import { addItem, getCart, cartCount as getCartCount } from "@/components/cartSt
 import { listMenuCatalog } from "@/lib/api/storefrontOps";
 import { useTenant } from "@/lib/TenantContext";
 
-const CATEGORIES = [
+const CATEGORY_METADATA = [
   {
     key: "Sandwichs et menu",
     title: "Sandwichs et menu",
@@ -92,40 +92,28 @@ export default function Menu() {
   }, []);
 
   const menuCategories = useMemo(() => {
-    const merged = [...CATEGORIES];
-    const known = new Set(CATEGORIES.map((category) => category.key));
     const dynamicCategories = items
       .map((item) => (typeof item.category === "string" ? item.category.trim() : ""))
       .filter(Boolean);
-
-    dynamicCategories.forEach((categoryKey) => {
-      if (!known.has(categoryKey)) {
-        known.add(categoryKey);
-        merged.push({
-          key: categoryKey,
-          title: categoryKey,
-          subtitle: "Nos spécialités",
-          description: "Découvrez les articles disponibles dans cette catégorie.",
-        });
-      }
-    });
-
     const configuredOrder = Array.isArray(tenant?.orderingSettings?.categoryOrder)
       ? tenant.orderingSettings.categoryOrder
           .map((value) => (typeof value === "string" ? value.trim() : ""))
           .filter(Boolean)
       : [];
+    const ordered = Array.from(new Set(configuredOrder));
+    const discovered = Array.from(new Set(dynamicCategories));
+    const keys = [...ordered, ...discovered.filter((category) => !ordered.includes(category))];
+    const metadataByKey = new Map(CATEGORY_METADATA.map((category) => [category.key, category]));
 
-    if (configuredOrder.length === 0) {
-      return merged;
-    }
-
-    const byKey = new Map(merged.map((category) => [category.key, category]));
-    const ordered = configuredOrder
-      .map((key) => byKey.get(key))
-      .filter(Boolean);
-    const remaining = merged.filter((category) => !configuredOrder.includes(category.key));
-    return [...ordered, ...remaining];
+    return keys.map((key) => {
+      const metadata = metadataByKey.get(key);
+      return metadata || {
+        key,
+        title: key,
+        subtitle: "Nos spécialités",
+        description: "Découvrez les articles disponibles dans cette catégorie.",
+      };
+    });
   }, [items, tenant?.orderingSettings?.categoryOrder]);
 
   const activeCategoryData = activeCategory
