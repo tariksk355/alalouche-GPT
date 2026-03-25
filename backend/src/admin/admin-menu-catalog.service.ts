@@ -208,11 +208,7 @@ export class AdminMenuCatalogService {
     await this.prisma.restaurant.update({
       where: { id: restaurantId },
       data: {
-<<<<<<< HEAD
-        orderingSettings,
-=======
         orderingSettings: orderingSettings as Prisma.InputJsonValue,
->>>>>>> codex/allow-new-product-category-creation-in-admin-panel
       },
     });
   }
