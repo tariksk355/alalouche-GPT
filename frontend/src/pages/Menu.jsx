@@ -1,10 +1,11 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { createPageUrl } from "@/utils";
 import { addItem, getCart, cartCount as getCartCount } from "@/components/cartStore";
 import { listMenuCatalog } from "@/lib/api/storefrontOps";
+import { useTenant } from "@/lib/TenantContext";
 
-const CATEGORIES = [
+const CATEGORY_METADATA = [
   {
     key: "Sandwichs et menu",
     title: "Sandwichs et menu",
@@ -56,8 +57,10 @@ const CATEGORIES = [
 ];
 
 export default function Menu() {
+  const { tenant } = useTenant();
   const [items, setItems] = useState([]);
   const [activeCategory, setActiveCategory] = useState(null);
+  const [zoomedImage, setZoomedImage] = useState(null);
   const [loading, setLoading] = useState(true);
   const [cart, setCart] = useState(getCart());
   const [added, setAdded] = useState(null); // item id just added
@@ -71,6 +74,13 @@ export default function Menu() {
     setCart(updated);
     setAdded(item.id);
     setTimeout(() => setAdded(null), 1200);
+  };
+
+  const handleBackToMenu = () => {
+    setActiveCategory(null);
+    setTimeout(() => {
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }, 0);
   };
 
   useEffect(() => {
@@ -89,8 +99,54 @@ export default function Menu() {
     }).catch(() => setLoading(false));
   }, []);
 
+  useEffect(() => {
+    if (!zoomedImage) return;
+    const previousOverflow = document.body.style.overflow;
+    const previousHtmlOverflow = document.documentElement.style.overflow;
+    const handleEscape = (event) => {
+      if (event.key === "Escape") {
+        setZoomedImage(null);
+      }
+    };
+
+    document.body.style.overflow = "hidden";
+    document.documentElement.style.overflow = "hidden";
+    window.addEventListener("keydown", handleEscape);
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.documentElement.style.overflow = previousHtmlOverflow;
+      window.removeEventListener("keydown", handleEscape);
+    };
+  }, [zoomedImage]);
+
+  const menuCategories = useMemo(() => {
+    const dynamicCategories = items
+      .map((item) => (typeof item.category === "string" ? item.category.trim() : ""))
+      .filter(Boolean);
+    const configuredOrder = Array.isArray(tenant?.orderingSettings?.categoryOrder)
+      ? tenant.orderingSettings.categoryOrder
+          .map((value) => (typeof value === "string" ? value.trim() : ""))
+          .filter(Boolean)
+      : [];
+    const ordered = Array.from(new Set(configuredOrder));
+    const discovered = Array.from(new Set(dynamicCategories));
+    const keys = [...ordered, ...discovered.filter((category) => !ordered.includes(category))];
+    const metadataByKey = new Map(CATEGORY_METADATA.map((category) => [category.key, category]));
+
+    return keys.map((key) => {
+      const metadata = metadataByKey.get(key);
+      return metadata || {
+        key,
+        title: key,
+        subtitle: "Nos spécialités",
+        description: "Découvrez les articles disponibles dans cette catégorie.",
+      };
+    });
+  }, [items, tenant?.orderingSettings?.categoryOrder]);
+
   const activeCategoryData = activeCategory
-    ? CATEGORIES.find(c => c.key === activeCategory)
+    ? menuCategories.find(c => c.key === activeCategory)
     : null;
 
   const categoryItems = activeCategory
@@ -104,14 +160,6 @@ export default function Menu() {
       <div className="min-h-screen bg-white pb-24">
         {/* Category Header */}
         <div className="bg-white border-b border-gray-100 px-4 py-3">
-          <div className="flex items-center mb-4">
-            <button
-              onClick={() => setActiveCategory(null)}
-              className="text-[#b5122a] text-sm flex items-center gap-1"
-            >
-              ← Retour au menu
-            </button>
-          </div>
           <p className="text-[#b5122a] text-sm font-medium text-center">{activeCategoryData.subtitle}</p>
           <h1 className="text-3xl font-serif italic text-center text-gray-900 mt-1 mb-2">{activeCategoryData.title}</h1>
           <p className="text-gray-500 text-sm text-center leading-relaxed max-w-md mx-auto">{activeCategoryData.description}</p>
@@ -132,8 +180,19 @@ export default function Menu() {
                       <img
                         src={item.image_url}
                         alt={item.name}
-                        className="h-24 w-24 rounded-xl object-cover border border-gray-100 flex-shrink-0"
+                        className="h-24 w-24 rounded-xl object-cover border border-gray-100 flex-shrink-0 cursor-zoom-in"
                         loading="lazy"
+                        role="button"
+                        tabIndex={0}
+                        aria-haspopup="dialog"
+                        aria-label={`Agrandir l'image de ${item.name}`}
+                        onClick={() => setZoomedImage({ src: item.image_url, alt: item.name })}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter" || event.key === " ") {
+                            event.preventDefault();
+                            setZoomedImage({ src: item.image_url, alt: item.name });
+                          }
+                        }}
                       />
                     )}
                     <div className="flex-1">
@@ -163,6 +222,15 @@ export default function Menu() {
           )}
         </div>
 
+        <div className="max-w-2xl mx-auto px-4 pb-6">
+          <button
+            onClick={handleBackToMenu}
+            className="w-full sm:w-auto min-h-11 px-4 py-3 bg-[#b5122a] text-white rounded-lg font-medium text-sm hover:bg-[#8f0e21] transition-colors"
+          >
+            ← Retour au menu
+          </button>
+        </div>
+
         {/* Sticky Cart Footer */}
         {!isViewOnlyMenu && count > 0 && (
           <div className="fixed bottom-0 left-0 right-0 z-50 bg-[#b5122a] shadow-lg">
@@ -174,6 +242,31 @@ export default function Menu() {
               <span className="text-base font-semibold">Voir mon panier</span>
               <span className="font-semibold">CHF {cartTotal.toFixed(2)}</span>
             </button>
+          </div>
+        )}
+
+        {zoomedImage && (
+          <div
+            className="fixed inset-0 z-[120] bg-black/80 p-4 sm:p-8"
+            onClick={() => setZoomedImage(null)}
+          >
+            <button
+              type="button"
+              onClick={() => setZoomedImage(null)}
+              className="absolute top-4 right-4 sm:top-6 sm:right-6 bg-white/90 text-gray-900 w-10 h-10 rounded-full text-xl leading-none hover:bg-white"
+              aria-label="Fermer l'image"
+            >
+              ×
+            </button>
+            <div className="w-full h-full overflow-auto flex items-center justify-center">
+              <img
+                src={zoomedImage.src}
+                alt={zoomedImage.alt}
+                className="w-auto h-auto max-w-[92vw] max-h-[88vh] object-contain rounded-lg"
+                style={{ touchAction: "pinch-zoom" }}
+                onClick={(event) => event.stopPropagation()}
+              />
+            </div>
           </div>
         )}
       </div>
@@ -194,12 +287,12 @@ export default function Menu() {
 
       {/* Category List */}
       <div className="max-w-2xl mx-auto px-4 py-6">
-        {CATEGORIES.map((cat, idx) => (
+        {menuCategories.map((cat, idx) => (
           <button
             key={cat.key}
             onClick={() => setActiveCategory(cat.key)}
             className={`w-full text-left py-5 flex justify-between items-center gap-4 transition-colors hover:bg-gray-50 px-2 -mx-2 rounded ${
-              idx < CATEGORIES.length - 1 ? "border-b border-gray-100" : ""
+              idx < menuCategories.length - 1 ? "border-b border-gray-100" : ""
             }`}
           >
             <div>
@@ -210,6 +303,31 @@ export default function Menu() {
           </button>
         ))}
       </div>
+
+      {zoomedImage && (
+        <div
+          className="fixed inset-0 z-[120] bg-black/80 p-4 sm:p-8"
+          onClick={() => setZoomedImage(null)}
+        >
+          <button
+            type="button"
+            onClick={() => setZoomedImage(null)}
+            className="absolute top-4 right-4 sm:top-6 sm:right-6 bg-white/90 text-gray-900 w-10 h-10 rounded-full text-xl leading-none hover:bg-white"
+            aria-label="Fermer l'image"
+          >
+            ×
+          </button>
+          <div className="w-full h-full overflow-auto flex items-center justify-center">
+            <img
+              src={zoomedImage.src}
+              alt={zoomedImage.alt}
+              className="w-auto h-auto max-w-[92vw] max-h-[88vh] object-contain rounded-lg"
+              style={{ touchAction: "pinch-zoom" }}
+              onClick={(event) => event.stopPropagation()}
+            />
+          </div>
+        </div>
+      )}
 
     </div>
   );
