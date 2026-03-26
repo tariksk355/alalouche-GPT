@@ -254,7 +254,7 @@ export default function Menu() {
               <img
                 src={zoomedImage.src}
                 alt={zoomedImage.alt}
-                className="max-w-none w-auto h-auto max-h-none object-contain rounded-lg"
+                className="w-auto h-auto max-w-[92vw] max-h-[88vh] object-contain rounded-lg"
                 style={{ touchAction: "pinch-zoom" }}
                 onClick={(event) => event.stopPropagation()}
               />
@@ -313,7 +313,7 @@ export default function Menu() {
             <img
               src={zoomedImage.src}
               alt={zoomedImage.alt}
-              className="max-w-none w-auto h-auto max-h-none object-contain rounded-lg"
+              className="w-auto h-auto max-w-[92vw] max-h-[88vh] object-contain rounded-lg"
               style={{ touchAction: "pinch-zoom" }}
               onClick={(event) => event.stopPropagation()}
             />
