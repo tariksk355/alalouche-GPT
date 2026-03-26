@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { createPageUrl } from "@/utils";
 import { addItem, getCart, cartCount as getCartCount } from "@/components/cartStore";
@@ -64,6 +64,7 @@ export default function Menu() {
   const [loading, setLoading] = useState(true);
   const [cart, setCart] = useState(getCart());
   const [added, setAdded] = useState(null); // item id just added
+  const categoryListRef = useRef(null);
   const navigate = useNavigate();
   const isViewOnlyMenu = typeof window !== 'undefined'
     && new URLSearchParams(window.location.search).get('mode') === 'menu-only';
@@ -74,6 +75,13 @@ export default function Menu() {
     setCart(updated);
     setAdded(item.id);
     setTimeout(() => setAdded(null), 1200);
+  };
+
+  const handleBackToMenu = () => {
+    setActiveCategory(null);
+    requestAnimationFrame(() => {
+      categoryListRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
   };
 
   useEffect(() => {
@@ -217,8 +225,8 @@ export default function Menu() {
 
         <div className="max-w-2xl mx-auto px-4 pb-6">
           <button
-            onClick={() => setActiveCategory(null)}
-            className="text-[#b5122a] text-sm flex items-center gap-1"
+            onClick={handleBackToMenu}
+            className="w-full sm:w-auto min-h-11 px-4 py-3 bg-[#b5122a] text-white rounded-lg font-medium text-sm hover:bg-[#8f0e21] transition-colors"
           >
             ← Retour au menu
           </button>
@@ -279,7 +287,7 @@ export default function Menu() {
       </div>
 
       {/* Category List */}
-      <div className="max-w-2xl mx-auto px-4 py-6">
+      <div ref={categoryListRef} className="max-w-2xl mx-auto px-4 py-6">
         {menuCategories.map((cat, idx) => (
           <button
             key={cat.key}
