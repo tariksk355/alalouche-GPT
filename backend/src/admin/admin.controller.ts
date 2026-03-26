@@ -29,6 +29,8 @@ import { UpdateAdminCustomerDto } from './dto/update-admin-customer.dto';
 import { AdminMenuCatalogService } from './admin-menu-catalog.service';
 import { CreateAdminMenuItemDto } from './dto/create-admin-menu-item.dto';
 import { UpdateAdminMenuItemDto } from './dto/update-admin-menu-item.dto';
+import { UpdateAdminMenuCategoryOrderDto } from './dto/update-admin-menu-category-order.dto';
+import { DeleteAdminMenuCategoryDto } from './dto/delete-admin-menu-category.dto';
 import { AdminAnalyticsService } from './admin-analytics.service';
 import { AdminSettingsService } from './admin-settings.service';
 import { UpdateAdminPrinterSettingsDto } from './dto/update-admin-printer-settings.dto';
@@ -560,5 +562,45 @@ export class AdminController {
     const auth = this.requireAdmin(authorization, adminToken, legacyRestaurantId);
     await this.adminMenuCatalogService.deleteMenuItem(auth.restaurantId, id);
     return ok({ deleted: true });
+  }
+
+  @Get('menu-catalog/categories/order')
+  async getMenuCategoryOrder(
+    @Headers('authorization') authorization?: string,
+    @Headers('x-admin-token') adminToken?: string,
+    @Headers('x-restaurant-id') legacyRestaurantId?: string,
+  ) {
+    const auth = this.requireAdmin(authorization, adminToken, legacyRestaurantId);
+    const categoryOrder = await this.adminMenuCatalogService.getCategoryOrder(auth.restaurantId);
+    return ok({ categoryOrder });
+  }
+
+  @Patch('menu-catalog/categories/order')
+  async updateMenuCategoryOrder(
+    @Body() dto: UpdateAdminMenuCategoryOrderDto,
+    @Headers('authorization') authorization?: string,
+    @Headers('x-admin-token') adminToken?: string,
+    @Headers('x-restaurant-id') legacyRestaurantId?: string,
+  ) {
+    const auth = this.requireAdmin(authorization, adminToken, legacyRestaurantId);
+    const categoryOrder = await this.adminMenuCatalogService.updateCategoryOrder(auth.restaurantId, dto.categoryOrder || []);
+    return ok({ categoryOrder });
+  }
+
+  @Post('menu-catalog/categories/delete')
+  async deleteMenuCategory(
+    @Body() dto: DeleteAdminMenuCategoryDto,
+    @Headers('authorization') authorization?: string,
+    @Headers('x-admin-token') adminToken?: string,
+    @Headers('x-restaurant-id') legacyRestaurantId?: string,
+  ) {
+    const auth = this.requireAdmin(authorization, adminToken, legacyRestaurantId);
+    const result = await this.adminMenuCatalogService.deleteCategory(
+      auth.restaurantId,
+      dto.category,
+      dto.targetCategory,
+      dto.clearCategory === true,
+    );
+    return ok(result);
   }
 }
