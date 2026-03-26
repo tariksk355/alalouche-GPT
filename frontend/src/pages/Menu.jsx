@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { createPageUrl } from "@/utils";
 import { addItem, getCart, cartCount as getCartCount } from "@/components/cartStore";
@@ -64,7 +64,6 @@ export default function Menu() {
   const [loading, setLoading] = useState(true);
   const [cart, setCart] = useState(getCart());
   const [added, setAdded] = useState(null); // item id just added
-  const categoryListRef = useRef(null);
   const navigate = useNavigate();
   const isViewOnlyMenu = typeof window !== 'undefined'
     && new URLSearchParams(window.location.search).get('mode') === 'menu-only';
@@ -79,9 +78,9 @@ export default function Menu() {
 
   const handleBackToMenu = () => {
     setActiveCategory(null);
-    requestAnimationFrame(() => {
-      categoryListRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-    });
+    setTimeout(() => {
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }, 0);
   };
 
   useEffect(() => {
@@ -287,7 +286,7 @@ export default function Menu() {
       </div>
 
       {/* Category List */}
-      <div ref={categoryListRef} className="max-w-2xl mx-auto px-4 py-6">
+      <div className="max-w-2xl mx-auto px-4 py-6">
         {menuCategories.map((cat, idx) => (
           <button
             key={cat.key}
