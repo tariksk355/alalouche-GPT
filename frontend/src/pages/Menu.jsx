@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { createPageUrl } from "@/utils";
 import { addItem, getCart, cartCount as getCartCount } from "@/components/cartStore";
@@ -80,7 +80,7 @@ export default function Menu() {
   const handleBackToMenu = () => {
     setActiveCategory(null);
     requestAnimationFrame(() => {
-      categoryListRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      window.scrollTo({ top: 0, behavior: "smooth" });
     });
   };
 
@@ -287,7 +287,7 @@ export default function Menu() {
       </div>
 
       {/* Category List */}
-      <div ref={categoryListRef} className="max-w-2xl mx-auto px-4 py-6">
+      <div className="max-w-2xl mx-auto px-4 py-6">
         {menuCategories.map((cat, idx) => (
           <button
             key={cat.key}
