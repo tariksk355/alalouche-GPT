@@ -286,7 +286,7 @@ export class AdminMenuCatalogService {
           })
           .filter((option) => option.label);
 
-        const selectionType = row.selectionType === 'multiple' ? 'multiple' : 'single';
+        const selectionType: 'single' | 'multiple' = row.selectionType === 'multiple' ? 'multiple' : 'single';
         const minSelections = Number.isFinite(Number(row.minSelections)) ? Math.max(Number(row.minSelections), 0) : null;
         const maxSelections = Number.isFinite(Number(row.maxSelections)) ? Math.max(Number(row.maxSelections), 0) : null;
 
