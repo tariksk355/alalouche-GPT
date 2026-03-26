@@ -1248,6 +1248,18 @@ export class NotificationService {
     };
   }
 
+  private resolveRestaurantNotificationRecipient(context: RestaurantEmailContext): string | null {
+    const envOverride = typeof process.env.RESTAURANT_NOTIFICATION_EMAIL === 'string'
+      ? process.env.RESTAURANT_NOTIFICATION_EMAIL.trim()
+      : '';
+    const overrideRecipient = this.normalizeRecipientEmail(envOverride);
+    if (overrideRecipient) {
+      return overrideRecipient;
+    }
+
+    return this.normalizeRecipientEmail(context.contactEmail);
+  }
+
   private escapeHtml(value: string): string {
     return value
       .replace(/&/g, '&amp;')
@@ -2004,7 +2016,7 @@ export class NotificationService {
 
     if (this.shouldSendRestaurantNotification(event)) {
       const context = await this.getRestaurantEmailContextForEvent(event);
-      const restaurantRecipient = this.normalizeRecipientEmail(context.contactEmail);
+      const restaurantRecipient = this.resolveRestaurantNotificationRecipient(context);
 
       if (restaurantRecipient) {
         const restaurantMessage = await this.buildRestaurantEventEmail(event, context);
@@ -2017,7 +2029,7 @@ export class NotificationService {
         }
       } else {
         this.logger.warn(
-          `Skipping transactional restaurant email with missing/invalid restaurant contactInfo.email. type=${event.type} restaurantId=${event.restaurantId}`,
+          `Skipping transactional restaurant email with missing/invalid recipient (RESTAURANT_NOTIFICATION_EMAIL override or restaurant contactInfo.email). type=${event.type} restaurantId=${event.restaurantId}`,
         );
       }
     }

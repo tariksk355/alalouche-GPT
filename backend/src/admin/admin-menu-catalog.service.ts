@@ -108,6 +108,26 @@ export class AdminMenuCatalogService {
     return normalized;
   }
 
+  async getProductOrderByCategory(restaurantId: string): Promise<Record<string, string[]>> {
+    const restaurant = await this.getRestaurant(restaurantId);
+    return this.readProductOrderByCategory(restaurant.orderingSettings);
+  }
+
+  async updateProductOrderByCategory(
+    restaurantId: string,
+    productOrderByCategory: Record<string, unknown> = {},
+  ): Promise<Record<string, string[]>> {
+    const restaurant = await this.getRestaurant(restaurantId);
+    const normalized = this.normalizeProductOrderByCategory(productOrderByCategory);
+    const current = (restaurant.orderingSettings as Record<string, unknown> | null) || {};
+    await this.persistOrderingSettings(restaurantId, {
+      ...current,
+      productOrderByCategory: normalized,
+    });
+    await this.publicConfigService.invalidateMenuCatalogCache(restaurantId);
+    return normalized;
+  }
+
   async deleteCategory(
     restaurantId: string,
     category: string,
@@ -193,6 +213,33 @@ export class AdminMenuCatalogService {
           .filter(Boolean),
       ),
     );
+  }
+
+  private readProductOrderByCategory(orderingSettings: unknown): Record<string, string[]> {
+    const settings = (orderingSettings as Record<string, unknown> | null) || {};
+    const rawMap = settings.productOrderByCategory;
+    if (!rawMap || typeof rawMap !== 'object' || Array.isArray(rawMap)) {
+      return {};
+    }
+    return this.normalizeProductOrderByCategory(rawMap as Record<string, unknown>);
+  }
+
+  private normalizeProductOrderByCategory(rawMap: Record<string, unknown>): Record<string, string[]> {
+    return Object.entries(rawMap).reduce<Record<string, string[]>>((acc, [rawCategory, rawOrder]) => {
+      const category = typeof rawCategory === 'string' ? rawCategory.trim() : '';
+      if (!category || !Array.isArray(rawOrder)) {
+        return acc;
+      }
+      const normalizedOrder = Array.from(
+        new Set(
+          rawOrder
+            .map((value) => (typeof value === 'string' ? value.trim() : ''))
+            .filter(Boolean),
+        ),
+      );
+      acc[category] = normalizedOrder;
+      return acc;
+    }, {});
   }
 
   private async persistMenuCatalog(restaurantId: string, orderingSettings: unknown, items: MenuCatalogItem[]) {
