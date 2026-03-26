@@ -61,6 +61,9 @@ export default function Menu() {
   const [items, setItems] = useState([]);
   const [activeCategory, setActiveCategory] = useState(null);
   const [zoomedImage, setZoomedImage] = useState(null);
+  const [configuringItem, setConfiguringItem] = useState(null);
+  const [selectedOptionsByGroup, setSelectedOptionsByGroup] = useState({});
+  const [optionValidationError, setOptionValidationError] = useState("");
   const [loading, setLoading] = useState(true);
   const [cart, setCart] = useState(getCart());
   const [added, setAdded] = useState(null); // item id just added
@@ -68,12 +71,98 @@ export default function Menu() {
   const isViewOnlyMenu = typeof window !== 'undefined'
     && new URLSearchParams(window.location.search).get('mode') === 'menu-only';
 
+  const closeConfigurationModal = () => {
+    setConfiguringItem(null);
+    setSelectedOptionsByGroup({});
+    setOptionValidationError("");
+  };
+
+  const buildCartLineFromSelection = (item, selectedByGroup) => {
+    const optionGroups = Array.isArray(item.optionGroups) ? item.optionGroups : [];
+    const selectedOptions = optionGroups.flatMap((group) => {
+      const selectedIds = Array.isArray(selectedByGroup[group.id]) ? selectedByGroup[group.id] : [];
+      const optionById = new Map((Array.isArray(group.options) ? group.options : []).map((option) => [option.id, option]));
+      return selectedIds
+        .map((optionId) => optionById.get(optionId))
+        .filter(Boolean)
+        .map((option) => ({
+          groupId: group.id,
+          groupName: group.name,
+          optionId: option.id,
+          optionLabel: option.label,
+          priceDelta: Number(option.priceDelta || 0),
+        }));
+    });
+
+    const optionTotal = selectedOptions.reduce((sum, option) => sum + Number(option.priceDelta || 0), 0);
+    const lineKey = `${item.id}::${selectedOptions.map((option) => `${option.groupId}:${option.optionId}`).sort().join('|')}`;
+    return {
+      ...item,
+      basePrice: Number(item.price || 0),
+      price: Number(item.price || 0) + optionTotal,
+      selectedOptions,
+      lineKey,
+    };
+  };
+
+  const validateRequiredOptions = (item, selectedByGroup) => {
+    const optionGroups = Array.isArray(item.optionGroups) ? item.optionGroups : [];
+    for (const group of optionGroups) {
+      const selectedIds = Array.isArray(selectedByGroup[group.id]) ? selectedByGroup[group.id] : [];
+      if (group.required && selectedIds.length === 0) {
+        return `Veuillez choisir une option pour "${group.name}".`;
+      }
+      if (Number.isFinite(Number(group.minSelections)) && selectedIds.length < Number(group.minSelections)) {
+        return `Veuillez sélectionner au moins ${group.minSelections} option(s) pour "${group.name}".`;
+      }
+      if (Number.isFinite(Number(group.maxSelections)) && selectedIds.length > Number(group.maxSelections)) {
+        return `Veuillez sélectionner au maximum ${group.maxSelections} option(s) pour "${group.name}".`;
+      }
+    }
+    return "";
+  };
+
+  const handleConfirmConfiguredAdd = () => {
+    if (!configuringItem) return;
+    const validationError = validateRequiredOptions(configuringItem, selectedOptionsByGroup);
+    if (validationError) {
+      setOptionValidationError(validationError);
+      return;
+    }
+    const cartLine = buildCartLineFromSelection(configuringItem, selectedOptionsByGroup);
+    if (isViewOnlyMenu) return;
+    const updated = addItem(cartLine);
+    setCart(updated);
+    setAdded(configuringItem.id);
+    closeConfigurationModal();
+    setTimeout(() => setAdded(null), 1200);
+  };
+
   const handleAddToCart = (item) => {
     if (isViewOnlyMenu) return;
-    const updated = addItem(item);
-    setCart(updated);
-    setAdded(item.id);
-    setTimeout(() => setAdded(null), 1200);
+    const optionGroups = Array.isArray(item.optionGroups) ? item.optionGroups : [];
+    if (optionGroups.length === 0) {
+      const updated = addItem(item);
+      setCart(updated);
+      setAdded(item.id);
+      setTimeout(() => setAdded(null), 1200);
+      return;
+    }
+
+    const defaults = optionGroups.reduce((acc, group) => {
+      const options = Array.isArray(group.options) ? group.options : [];
+      if (group.selectionType === "single") {
+        const defaultOption = options.find((option) => option.isDefault) || null;
+        acc[group.id] = defaultOption ? [defaultOption.id] : [];
+      } else {
+        acc[group.id] = options.filter((option) => option.isDefault).map((option) => option.id);
+      }
+      return acc;
+    }, {});
+
+    closeConfigurationModal();
+    setConfiguringItem(item);
+    setSelectedOptionsByGroup(defaults);
   };
 
   const handleBackToMenu = () => {
@@ -93,11 +182,22 @@ export default function Menu() {
         category: item.category,
         image_url: item.imageUrl,
         allergens: item.allergens,
+        optionGroups: Array.isArray(item.optionGroups) ? item.optionGroups : [],
       }));
       setItems(normalized);
       setLoading(false);
     }).catch(() => setLoading(false));
   }, []);
+
+  const toggleMultiOption = (groupId, optionId, checked) => {
+    setSelectedOptionsByGroup((prev) => {
+      const current = Array.isArray(prev[groupId]) ? prev[groupId] : [];
+      if (checked) {
+        return { ...prev, [groupId]: Array.from(new Set([...current, optionId])) };
+      }
+      return { ...prev, [groupId]: current.filter((id) => id !== optionId) };
+    });
+  };
 
   useEffect(() => {
     if (!zoomedImage) return;
@@ -149,9 +249,22 @@ export default function Menu() {
     ? menuCategories.find(c => c.key === activeCategory)
     : null;
 
-  const categoryItems = activeCategory
-    ? items.filter(i => i.category === activeCategory)
-    : [];
+  const categoryItems = useMemo(() => {
+    if (!activeCategory) return [];
+    const currentItems = items.filter((item) => item.category === activeCategory);
+    const configuredOrder = Array.isArray(tenant?.orderingSettings?.productOrderByCategory?.[activeCategory])
+      ? tenant.orderingSettings.productOrderByCategory[activeCategory]
+      : [];
+    if (configuredOrder.length === 0) return currentItems;
+
+    const indexById = new Map(configuredOrder.map((id, index) => [id, index]));
+    return [...currentItems].sort((a, b) => {
+      const aIndex = indexById.has(a.id) ? indexById.get(a.id) : Number.POSITIVE_INFINITY;
+      const bIndex = indexById.has(b.id) ? indexById.get(b.id) : Number.POSITIVE_INFINITY;
+      if (aIndex !== bIndex) return aIndex - bIndex;
+      return 0;
+    });
+  }, [activeCategory, items, tenant?.orderingSettings?.productOrderByCategory]);
 
   if (activeCategory && activeCategoryData) {
     const cartTotal = cart.reduce((s, i) => s + i.price * i.quantity, 0);
@@ -266,6 +379,78 @@ export default function Menu() {
                 style={{ touchAction: "pinch-zoom" }}
                 onClick={(event) => event.stopPropagation()}
               />
+            </div>
+          </div>
+        )}
+
+        {configuringItem && (
+          <div className="fixed inset-0 z-[130] bg-black/60 p-4" onClick={closeConfigurationModal}>
+            <div className="mx-auto mt-8 w-full max-w-lg rounded-xl bg-white p-4 sm:p-5" onClick={(event) => event.stopPropagation()}>
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-900">{configuringItem.name}</h3>
+                  <p className="text-sm text-gray-500">Personnalisez votre article avant ajout.</p>
+                </div>
+                <button type="button" onClick={closeConfigurationModal} className="text-gray-500 hover:text-gray-800">✕</button>
+              </div>
+
+              <div className="mt-4 space-y-4 max-h-[65vh] overflow-y-auto pr-1">
+                {(Array.isArray(configuringItem.optionGroups) ? configuringItem.optionGroups : []).map((group) => {
+                  const selectedIds = Array.isArray(selectedOptionsByGroup[group.id]) ? selectedOptionsByGroup[group.id] : [];
+                  return (
+                    <div key={group.id} className="rounded-lg border border-gray-200 p-3">
+                      <div className="mb-2 flex items-center justify-between gap-2">
+                        <p className="text-sm font-medium text-gray-800">{group.name}</p>
+                        <span className={`text-xs ${group.required ? "text-red-600" : "text-gray-500"}`}>
+                          {group.required ? "Obligatoire" : "Optionnel"}
+                        </span>
+                      </div>
+                      <div className="space-y-2">
+                        {(Array.isArray(group.options) ? group.options : []).map((option) => {
+                          const delta = Number(option.priceDelta || 0);
+                          const priceDeltaLabel = delta > 0 ? ` (+CHF ${delta.toFixed(2)})` : "";
+                          if (group.selectionType === "single") {
+                            return (
+                              <label key={option.id} className="flex cursor-pointer items-center justify-between gap-3 rounded border border-gray-100 px-2 py-1.5">
+                                <span className="text-sm text-gray-700">{option.label}{priceDeltaLabel}</span>
+                                <input
+                                  type="radio"
+                                  name={`group-${group.id}`}
+                                  checked={selectedIds.includes(option.id)}
+                                  onChange={() => setSelectedOptionsByGroup((prev) => ({ ...prev, [group.id]: [option.id] }))}
+                                />
+                              </label>
+                            );
+                          }
+                          return (
+                            <label key={option.id} className="flex cursor-pointer items-center justify-between gap-3 rounded border border-gray-100 px-2 py-1.5">
+                              <span className="text-sm text-gray-700">{option.label}{priceDeltaLabel}</span>
+                              <input
+                                type="checkbox"
+                                checked={selectedIds.includes(option.id)}
+                                onChange={(event) => toggleMultiOption(group.id, option.id, event.target.checked)}
+                              />
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {optionValidationError && (
+                <p className="mt-3 text-sm text-red-600">{optionValidationError}</p>
+              )}
+
+              <div className="mt-4 flex gap-2">
+                <button type="button" onClick={closeConfigurationModal} className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-700">
+                  Annuler
+                </button>
+                <button type="button" onClick={handleConfirmConfiguredAdd} className="flex-1 rounded-lg bg-[#b5122a] px-3 py-2 text-sm font-medium text-white hover:bg-[#8f0e21]">
+                  Ajouter au panier
+                </button>
+              </div>
             </div>
           </div>
         )}

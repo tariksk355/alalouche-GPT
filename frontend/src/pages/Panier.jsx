@@ -53,14 +53,14 @@ export default function Panier() {
     }).catch(() => {});
   }, []);
 
-  const updateQty = (id, delta) => {
-    const updated = cart.map(c => c.id === id ? { ...c, quantity: c.quantity + delta } : c).filter(c => c.quantity > 0);
+  const updateQty = (lineKey, delta) => {
+    const updated = cart.map(c => (c.lineKey || c.id) === lineKey ? { ...c, quantity: c.quantity + delta } : c).filter(c => c.quantity > 0);
     setCart(updated);
     saveCart(updated);
   };
 
-  const removeItem = (id) => {
-    const updated = cart.filter(c => c.id !== id);
+  const removeItem = (lineKey) => {
+    const updated = cart.filter(c => (c.lineKey || c.id) !== lineKey);
     setCart(updated);
     saveCart(updated);
   };
@@ -120,7 +120,19 @@ export default function Panier() {
         paymentMethod: form.payment_method,
         notes: form.notes || undefined,
         promotionCode: appliedPromotion?.promotionCode || undefined,
-        items: cart.map(i => ({ id: i.id, name: i.name, price: Number(i.price || 0), quantity: i.quantity })),
+        items: cart.map(i => ({
+          id: i.id,
+          name: i.name,
+          price: Number(i.price || 0),
+          quantity: i.quantity,
+          selectedOptions: Array.isArray(i.selectedOptions) ? i.selectedOptions.map((option) => ({
+            groupId: option.groupId,
+            optionId: option.optionId,
+            groupName: option.groupName,
+            optionLabel: option.optionLabel,
+            priceDelta: Number(option.priceDelta || 0),
+          })) : [],
+        })),
       });
 
       saveCheckoutDefaults({
@@ -238,16 +250,25 @@ export default function Panier() {
               <>
                 <div className="space-y-4 mb-6">
                   {cart.map(item => (
-                    <div key={item.id} className="flex items-center justify-between border-b border-gray-100 pb-4">
+                    <div key={item.lineKey || item.id} className="flex items-center justify-between border-b border-gray-100 pb-4">
                       <div className="flex-1">
                         <p className="font-medium text-gray-900">{item.name}</p>
+                        {Array.isArray(item.selectedOptions) && item.selectedOptions.length > 0 && (
+                          <div className="mt-1 space-y-0.5">
+                            {item.selectedOptions.map((option, index) => (
+                              <p key={`${option.groupName}-${option.optionLabel}-${index}`} className="text-xs text-gray-500">
+                                {option.groupName}: {option.optionLabel}
+                              </p>
+                            ))}
+                          </div>
+                        )}
                         <p className="text-[#b5122a] text-sm font-semibold">CHF {item.price?.toFixed(2)}</p>
                       </div>
                       <div className="flex items-center gap-3">
-                        <button onClick={() => updateQty(item.id, -1)} className="w-7 h-7 bg-gray-100 rounded-full flex items-center justify-center font-bold hover:bg-gray-200">−</button>
+                        <button onClick={() => updateQty(item.lineKey || item.id, -1)} className="w-7 h-7 bg-gray-100 rounded-full flex items-center justify-center font-bold hover:bg-gray-200">−</button>
                         <span className="w-5 text-center font-semibold">{item.quantity}</span>
-                        <button onClick={() => updateQty(item.id, 1)} className="w-7 h-7 bg-black text-white rounded-full flex items-center justify-center font-bold hover:bg-gray-800">+</button>
-                        <button onClick={() => removeItem(item.id)} className="w-7 h-7 flex items-center justify-center text-gray-400 hover:text-red-500 transition-colors ml-1">
+                        <button onClick={() => updateQty(item.lineKey || item.id, 1)} className="w-7 h-7 bg-black text-white rounded-full flex items-center justify-center font-bold hover:bg-gray-800">+</button>
+                        <button onClick={() => removeItem(item.lineKey || item.id)} className="w-7 h-7 flex items-center justify-center text-gray-400 hover:text-red-500 transition-colors ml-1">
                           <Trash2 className="w-4 h-4" />
                         </button>
                       </div>
