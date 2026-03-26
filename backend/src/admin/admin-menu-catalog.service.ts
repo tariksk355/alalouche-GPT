@@ -1,4 +1,5 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { randomUUID } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateAdminMenuItemDto } from './dto/create-admin-menu-item.dto';
@@ -90,6 +91,65 @@ export class AdminMenuCatalogService {
     await this.publicConfigService.invalidateMenuCatalogCache(restaurantId);
   }
 
+  async getCategoryOrder(restaurantId: string): Promise<string[]> {
+    const restaurant = await this.getRestaurant(restaurantId);
+    return this.readCategoryOrder(restaurant.orderingSettings);
+  }
+
+  async updateCategoryOrder(restaurantId: string, categoryOrder: string[] = []): Promise<string[]> {
+    const restaurant = await this.getRestaurant(restaurantId);
+    const normalized = Array.from(new Set(categoryOrder.map((value) => value.trim()).filter(Boolean)));
+    const current = (restaurant.orderingSettings as Record<string, unknown> | null) || {};
+    await this.persistOrderingSettings(restaurantId, {
+      ...current,
+      categoryOrder: normalized,
+    });
+    await this.publicConfigService.invalidateMenuCatalogCache(restaurantId);
+    return normalized;
+  }
+
+  async deleteCategory(
+    restaurantId: string,
+    category: string,
+    targetCategory?: string,
+    clearCategory = false,
+  ): Promise<{ items: MenuCatalogItem[]; categoryOrder: string[]; affectedCount: number }> {
+    const fromCategory = category.trim();
+    const toCategory = targetCategory?.trim() || '';
+    if (!fromCategory) {
+      throw new BadRequestException({ error: 'CATEGORY_REQUIRED', message: 'Category is required.' });
+    }
+    if (!toCategory && !clearCategory) {
+      throw new BadRequestException({
+        error: 'CATEGORY_DELETE_ACTION_REQUIRED',
+        message: 'Choose a target category or clear the category.',
+      });
+    }
+
+    const restaurant = await this.getRestaurant(restaurantId);
+    const current = this.readMenuCatalog(restaurant.orderingSettings);
+    const affectedCount = current.filter((item) => item.category === fromCategory).length;
+    const replacement = toCategory || '';
+    const nextItems = current.map((item) =>
+      item.category === fromCategory
+        ? { ...item, category: replacement }
+        : item,
+    );
+    const currentSettings = (restaurant.orderingSettings as Record<string, unknown> | null) || {};
+    const currentOrder = this.readCategoryOrder(restaurant.orderingSettings);
+    const nextOrder = currentOrder.filter((value) => value !== fromCategory);
+    if (toCategory && !nextOrder.includes(toCategory)) {
+      nextOrder.push(toCategory);
+    }
+    await this.persistOrderingSettings(restaurantId, {
+      ...currentSettings,
+      menuCatalog: nextItems,
+      categoryOrder: nextOrder,
+    });
+    await this.publicConfigService.invalidateMenuCatalogCache(restaurantId);
+    return { items: nextItems, categoryOrder: nextOrder, affectedCount };
+  }
+
   private async getRestaurant(restaurantId: string) {
     const restaurant = await this.prisma.restaurant.findUnique({ where: { id: restaurantId } });
     if (!restaurant) {
@@ -123,16 +183,32 @@ export class AdminMenuCatalogService {
       .sort((a, b) => a.sortOrder - b.sortOrder);
   }
 
+  private readCategoryOrder(orderingSettings: unknown): string[] {
+    const settings = (orderingSettings as Record<string, unknown> | null) || {};
+    const rawOrder = Array.isArray(settings.categoryOrder) ? settings.categoryOrder : [];
+    return Array.from(
+      new Set(
+        rawOrder
+          .map((value) => (typeof value === 'string' ? value.trim() : ''))
+          .filter(Boolean),
+      ),
+    );
+  }
+
   private async persistMenuCatalog(restaurantId: string, orderingSettings: unknown, items: MenuCatalogItem[]) {
     const current = (orderingSettings as Record<string, unknown> | null) || {};
 
+    await this.persistOrderingSettings(restaurantId, {
+      ...current,
+      menuCatalog: items,
+    });
+  }
+
+  private async persistOrderingSettings(restaurantId: string, orderingSettings: Record<string, unknown>) {
     await this.prisma.restaurant.update({
       where: { id: restaurantId },
       data: {
-        orderingSettings: {
-          ...current,
-          menuCatalog: items,
-        },
+        orderingSettings: orderingSettings as Prisma.InputJsonValue,
       },
     });
   }
