@@ -112,6 +112,9 @@ export default function Menu() {
       if (group.required && selectedIds.length === 0) {
         return `Veuillez choisir une option pour "${group.name}".`;
       }
+      if (group.selectionType === "single") {
+        continue;
+      }
       if (Number.isFinite(Number(group.minSelections)) && selectedIds.length < Number(group.minSelections)) {
         return `Veuillez sélectionner au moins ${group.minSelections} option(s) pour "${group.name}".`;
       }

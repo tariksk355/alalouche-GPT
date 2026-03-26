@@ -287,8 +287,12 @@ export class AdminMenuCatalogService {
           .filter((option) => option.label);
 
         const selectionType: 'single' | 'multiple' = row.selectionType === 'multiple' ? 'multiple' : 'single';
-        const minSelections = Number.isFinite(Number(row.minSelections)) ? Math.max(Number(row.minSelections), 0) : null;
-        const maxSelections = Number.isFinite(Number(row.maxSelections)) ? Math.max(Number(row.maxSelections), 0) : null;
+        const minSelections = selectionType === 'single'
+          ? (row.required === true ? 1 : 0)
+          : (Number.isFinite(Number(row.minSelections)) ? Math.max(Number(row.minSelections), 0) : null);
+        const maxSelections = selectionType === 'single'
+          ? 1
+          : (Number.isFinite(Number(row.maxSelections)) ? Math.max(Number(row.maxSelections), 0) : null);
 
         return {
           id: typeof row.id === 'string' && row.id.trim() ? row.id.trim() : `group-${groupIndex}`,
