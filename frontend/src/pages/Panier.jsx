@@ -126,6 +126,8 @@ export default function Panier() {
           price: Number(i.price || 0),
           quantity: i.quantity,
           selectedOptions: Array.isArray(i.selectedOptions) ? i.selectedOptions.map((option) => ({
+            groupId: option.groupId,
+            optionId: option.optionId,
             groupName: option.groupName,
             optionLabel: option.optionLabel,
             priceDelta: Number(option.priceDelta || 0),

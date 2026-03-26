@@ -71,6 +71,12 @@ export default function Menu() {
   const isViewOnlyMenu = typeof window !== 'undefined'
     && new URLSearchParams(window.location.search).get('mode') === 'menu-only';
 
+  const closeConfigurationModal = () => {
+    setConfiguringItem(null);
+    setSelectedOptionsByGroup({});
+    setOptionValidationError("");
+  };
+
   const buildCartLineFromSelection = (item, selectedByGroup) => {
     const optionGroups = Array.isArray(item.optionGroups) ? item.optionGroups : [];
     const selectedOptions = optionGroups.flatMap((group) => {
@@ -128,13 +134,12 @@ export default function Menu() {
     const updated = addItem(cartLine);
     setCart(updated);
     setAdded(configuringItem.id);
-    setConfiguringItem(null);
-    setSelectedOptionsByGroup({});
-    setOptionValidationError("");
+    closeConfigurationModal();
     setTimeout(() => setAdded(null), 1200);
   };
 
   const handleAddToCart = (item) => {
+    if (isViewOnlyMenu) return;
     const optionGroups = Array.isArray(item.optionGroups) ? item.optionGroups : [];
     if (optionGroups.length === 0) {
       const updated = addItem(item);
@@ -155,9 +160,9 @@ export default function Menu() {
       return acc;
     }, {});
 
-    setSelectedOptionsByGroup(defaults);
-    setOptionValidationError("");
+    closeConfigurationModal();
     setConfiguringItem(item);
+    setSelectedOptionsByGroup(defaults);
   };
 
   const handleBackToMenu = () => {
@@ -379,14 +384,14 @@ export default function Menu() {
         )}
 
         {configuringItem && (
-          <div className="fixed inset-0 z-[130] bg-black/60 p-4" onClick={() => setConfiguringItem(null)}>
+          <div className="fixed inset-0 z-[130] bg-black/60 p-4" onClick={closeConfigurationModal}>
             <div className="mx-auto mt-8 w-full max-w-lg rounded-xl bg-white p-4 sm:p-5" onClick={(event) => event.stopPropagation()}>
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <h3 className="text-lg font-semibold text-gray-900">{configuringItem.name}</h3>
                   <p className="text-sm text-gray-500">Personnalisez votre article avant ajout.</p>
                 </div>
-                <button type="button" onClick={() => setConfiguringItem(null)} className="text-gray-500 hover:text-gray-800">✕</button>
+                <button type="button" onClick={closeConfigurationModal} className="text-gray-500 hover:text-gray-800">✕</button>
               </div>
 
               <div className="mt-4 space-y-4 max-h-[65vh] overflow-y-auto pr-1">
@@ -439,7 +444,7 @@ export default function Menu() {
               )}
 
               <div className="mt-4 flex gap-2">
-                <button type="button" onClick={() => setConfiguringItem(null)} className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-700">
+                <button type="button" onClick={closeConfigurationModal} className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-700">
                   Annuler
                 </button>
                 <button type="button" onClick={handleConfirmConfiguredAdd} className="flex-1 rounded-lg bg-[#b5122a] px-3 py-2 text-sm font-medium text-white hover:bg-[#8f0e21]">
