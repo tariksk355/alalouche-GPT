@@ -8,7 +8,7 @@ import DeviceProvisioning from "@/components/admin/DeviceProvisioning";
 import { recordAdminLoginDiagnostic } from "@/lib/adminLoginDiagnostics";
 import { clearStoredAdminSession, getStoredAdminSession } from "@/lib/customerAuth";
 import { getAdminKpis, hideAdminOrder, hideAdminReservation, listAdminOrders, listAdminReservations, restoreAdminOrder, restoreAdminReservation, updateAdminOrderStatus, updateAdminReservationStatus } from "@/lib/api/adminOps";
-import { createAdminMenuItem, deleteAdminMenuItem, listAdminMenuCatalog, updateAdminMenuItem, uploadAdminMenuImage } from "@/lib/api/adminMenuCatalog";
+import { createAdminMenuItem, deleteAdminMenuCategory, deleteAdminMenuItem, getAdminMenuCategoryOrder, listAdminMenuCatalog, updateAdminMenuCategoryOrder, updateAdminMenuItem, uploadAdminMenuImage } from "@/lib/api/adminMenuCatalog";
 import { createAdminCustomer, deleteAdminCustomer, listAdminCustomers, updateAdminCustomer } from "@/lib/api/adminCustomers";
 import {
   getAdminBrandingSettings,
@@ -806,7 +806,10 @@ function AdminOrders() {
 // ─── Menu Panel ───────────────────────────────────────────────────────────────
 function AdminMenu() {
   const [items, setItems] = useState([]);
-  const [form, setForm] = useState({ name: "", description: "", price: "", category: "Sandwichs et menu", imageUrl: "", available: true, allergens: "" });
+  const [categoryOrder, setCategoryOrder] = useState([]);
+  const [form, setForm] = useState({ name: "", description: "", price: "", category: "", imageUrl: "", available: true, allergens: "" });
+  const [selectedCategory, setSelectedCategory] = useState("__new_category__");
+  const [newCategoryName, setNewCategoryName] = useState("");
   const [editing, setEditing] = useState(null);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -815,11 +818,28 @@ function AdminMenu() {
   const [success, setSuccess] = useState("");
   const [error, setError] = useState("");
 
-  const CATEGORIES = ["Sandwichs et menu", "Nos sauces chaudes", "Nos sauces froides", "Plats et Pide", "Boissons", "Bières & Alcools", "Vins", "Desserts"];
+  const NEW_CATEGORY_OPTION = "__new_category__";
+  const discoveredCategories = useMemo(() => {
+    const dynamicCategories = items
+      .map((item) => (typeof item.category === "string" ? item.category.trim() : ""))
+      .filter(Boolean);
+    const currentFormCategory = typeof form.category === "string" ? form.category.trim() : "";
+    return Array.from(new Set([...categoryOrder, ...dynamicCategories, currentFormCategory].filter(Boolean)));
+  }, [items, form.category, categoryOrder]);
+  const categoryOptions = useMemo(() => {
+    if (!Array.isArray(categoryOrder) || categoryOrder.length === 0) {
+      return discoveredCategories;
+    }
+    const ordered = categoryOrder.filter((category) => discoveredCategories.includes(category));
+    const remaining = discoveredCategories.filter((category) => !ordered.includes(category));
+    return [...ordered, ...remaining];
+  }, [categoryOrder, discoveredCategories]);
 
   const resetForm = () => {
     setEditing(null);
-    setForm({ name: "", description: "", price: "", category: "Sandwichs et menu", imageUrl: "", available: true, allergens: "" });
+    setForm({ name: "", description: "", price: "", category: "", imageUrl: "", available: true, allergens: "" });
+    setSelectedCategory(categoryOptions[0] || NEW_CATEGORY_OPTION);
+    setNewCategoryName("");
     setUploadFeedback({ type: "", message: "" });
   };
 
@@ -827,8 +847,12 @@ function AdminMenu() {
     setLoading(true);
     setError("");
     try {
-      const data = await listAdminMenuCatalog();
+      const [data, order] = await Promise.all([
+        listAdminMenuCatalog(),
+        getAdminMenuCategoryOrder(),
+      ]);
       setItems(data);
+      setCategoryOrder(order);
     } catch (e) {
       setError(e.message || "Impossible de charger le catalogue menu.");
     } finally {
@@ -840,16 +864,29 @@ function AdminMenu() {
     loadItems();
   }, []);
 
+  useEffect(() => {
+    if (selectedCategory === NEW_CATEGORY_OPTION) return;
+    if (!selectedCategory || !categoryOptions.includes(selectedCategory)) {
+      setSelectedCategory(categoryOptions[0] || NEW_CATEGORY_OPTION);
+    }
+  }, [categoryOptions, selectedCategory]);
+
   const handleSave = async (e) => {
     e.preventDefault();
     setSaving(true);
     setError("");
+    const resolvedCategory = selectedCategory === NEW_CATEGORY_OPTION ? newCategoryName.trim() : selectedCategory;
+    if (!resolvedCategory) {
+      setSaving(false);
+      setError("Veuillez sélectionner une catégorie ou saisir une nouvelle catégorie.");
+      return;
+    }
 
     const payload = {
       name: form.name,
       description: form.description,
       price: parseFloat(form.price),
-      category: form.category,
+      category: resolvedCategory,
       imageUrl: form.imageUrl,
       available: form.available,
       allergens: form.allergens,
@@ -900,6 +937,8 @@ function AdminMenu() {
   const handleEdit = (item) => {
     setEditing(item);
     setUploadFeedback({ type: "", message: "" });
+    setSelectedCategory(item.category);
+    setNewCategoryName("");
     setForm({
       name: item.name,
       description: item.description || "",
@@ -937,6 +976,58 @@ function AdminMenu() {
     }
   };
 
+  const persistCategoryOrder = async (nextOrder) => {
+    const saved = await updateAdminMenuCategoryOrder(nextOrder);
+    setCategoryOrder(saved);
+  };
+
+  const moveCategory = async (category, direction) => {
+    const baseOrder = categoryOptions;
+    const index = baseOrder.indexOf(category);
+    const targetIndex = direction === "up" ? index - 1 : index + 1;
+    if (index < 0 || targetIndex < 0 || targetIndex >= baseOrder.length) return;
+    const nextOrder = [...baseOrder];
+    [nextOrder[index], nextOrder[targetIndex]] = [nextOrder[targetIndex], nextOrder[index]];
+    try {
+      await persistCategoryOrder(nextOrder);
+      setSuccess("Ordre des catégories enregistré.");
+      setTimeout(() => setSuccess(""), 3000);
+    } catch (e) {
+      setError(e.message || "Impossible de modifier l'ordre des catégories.");
+    }
+  };
+
+  const handleDeleteCategory = async (category) => {
+    const affectedCount = items.filter((item) => item.category === category).length;
+    const confirmed = confirm(`Supprimer la catégorie "${category}" ? ${affectedCount} article(s) seront impactés.`);
+    if (!confirmed) return;
+
+    const replacement = prompt(
+      `Catégorie de remplacement pour ${affectedCount} article(s). Laissez vide pour déplacer vers "Autres" :`,
+      "",
+    );
+    if (replacement === null) return;
+    const targetCategory = replacement.trim();
+    const clearCategory = targetCategory.length === 0;
+
+    try {
+      const result = await deleteAdminMenuCategory({
+        category,
+        ...(targetCategory ? { targetCategory } : {}),
+        clearCategory,
+      });
+      setItems(result.items || []);
+      setCategoryOrder(Array.isArray(result.categoryOrder) ? result.categoryOrder : []);
+      if (selectedCategory === category) {
+        setSelectedCategory((Array.isArray(result.categoryOrder) && result.categoryOrder[0]) || NEW_CATEGORY_OPTION);
+      }
+      setSuccess(`Catégorie supprimée. ${result.affectedCount || 0} article(s) mis à jour.`);
+      setTimeout(() => setSuccess(""), 3000);
+    } catch (e) {
+      setError(e.message || "Impossible de supprimer la catégorie.");
+    }
+  };
+
   return (
     <div className="grid lg:grid-cols-2 gap-8">
       <div className="bg-white rounded-xl p-6 border border-gray-200 shadow-sm">
@@ -957,10 +1048,38 @@ function AdminMenu() {
             </div>
             <div>
               <label className="block text-sm text-gray-500 mb-1">Catégorie</label>
-              <select value={form.category} onChange={e => setForm({ ...form, category: e.target.value })}
-                className="w-full bg-gray-50 border border-gray-200 text-gray-900 px-3 py-2 rounded-lg focus:outline-none focus:border-gray-400">
-                {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+              <select
+                value={selectedCategory}
+                onChange={(e) => {
+                  const nextCategory = e.target.value;
+                  setSelectedCategory(nextCategory);
+                  if (nextCategory !== NEW_CATEGORY_OPTION) {
+                    setNewCategoryName("");
+                    setForm((prev) => ({ ...prev, category: nextCategory }));
+                  }
+                }}
+                className="w-full bg-gray-50 border border-gray-200 text-gray-900 px-3 py-2 rounded-lg focus:outline-none focus:border-gray-400"
+              >
+                {categoryOptions.length === 0 && (
+                  <option value="" disabled>Aucune catégorie existante</option>
+                )}
+                {categoryOptions.map((c) => (
+                  <option key={c} value={c}>{c}</option>
+                ))}
+                <option value={NEW_CATEGORY_OPTION}>+ Nouvelle catégorie</option>
               </select>
+              {selectedCategory === NEW_CATEGORY_OPTION && (
+                <input
+                  value={newCategoryName}
+                  onChange={(e) => {
+                    const nextCategoryName = e.target.value;
+                    setNewCategoryName(nextCategoryName);
+                    setForm((prev) => ({ ...prev, category: nextCategoryName }));
+                  }}
+                  className="mt-2 w-full bg-gray-50 border border-gray-200 text-gray-900 px-3 py-2 rounded-lg focus:outline-none focus:border-gray-400"
+                  placeholder="Saisir la nouvelle catégorie"
+                />
+              )}
             </div>
             <div className="col-span-2">
               <label className="block text-sm text-gray-500 mb-1">Description</label>
@@ -1027,6 +1146,24 @@ function AdminMenu() {
       </div>
 
       <div className="space-y-3">
+        <div className="bg-white rounded-xl p-4 border border-gray-200 shadow-sm">
+          <h3 className="font-medium text-gray-900 mb-3">Catégories</h3>
+          <div className="space-y-2">
+            {categoryOptions.map((category, index) => (
+              <div key={category} className="flex items-center justify-between gap-2 border border-gray-100 rounded-lg px-3 py-2">
+                <span className="text-sm text-gray-700 truncate">{category}</span>
+                <div className="flex items-center gap-1">
+                  <button type="button" onClick={() => moveCategory(category, "up")} disabled={index === 0} className="text-xs border border-gray-200 rounded px-2 py-1 disabled:opacity-40">↑</button>
+                  <button type="button" onClick={() => moveCategory(category, "down")} disabled={index === categoryOptions.length - 1} className="text-xs border border-gray-200 rounded px-2 py-1 disabled:opacity-40">↓</button>
+                  <button type="button" onClick={() => handleDeleteCategory(category)} className="text-xs border border-red-200 text-red-600 rounded px-2 py-1 hover:bg-red-50">Supprimer</button>
+                </div>
+              </div>
+            ))}
+            {categoryOptions.length === 0 && (
+              <p className="text-sm text-gray-400">Aucune catégorie.</p>
+            )}
+          </div>
+        </div>
         <h2 className="font-semibold text-lg text-gray-900">Articles ({items.length})</h2>
         <div className="space-y-2 max-h-[600px] overflow-y-auto">
           {loading ? <AdminLoadingState /> : items.map(item => (
