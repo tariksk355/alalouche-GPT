@@ -95,6 +95,7 @@ export default function Menu() {
   useEffect(() => {
     if (!zoomedImage) return;
     const previousOverflow = document.body.style.overflow;
+    const previousHtmlOverflow = document.documentElement.style.overflow;
     const handleEscape = (event) => {
       if (event.key === "Escape") {
         setZoomedImage(null);
@@ -102,10 +103,12 @@ export default function Menu() {
     };
 
     document.body.style.overflow = "hidden";
+    document.documentElement.style.overflow = "hidden";
     window.addEventListener("keydown", handleEscape);
 
     return () => {
       document.body.style.overflow = previousOverflow;
+      document.documentElement.style.overflow = previousHtmlOverflow;
       window.removeEventListener("keydown", handleEscape);
     };
   }, [zoomedImage]);
@@ -182,6 +185,8 @@ export default function Menu() {
                         loading="lazy"
                         role="button"
                         tabIndex={0}
+                        aria-haspopup="dialog"
+                        aria-label={`Agrandir l'image de ${item.name}`}
                         onClick={() => setZoomedImage({ src: item.image_url, alt: item.name })}
                         onKeyDown={(event) => {
                           if (event.key === "Enter" || event.key === " ") {
