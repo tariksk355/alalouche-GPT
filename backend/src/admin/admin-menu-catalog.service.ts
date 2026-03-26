@@ -16,6 +16,24 @@ type MenuCatalogItem = {
   allergens: string | null;
   available: boolean;
   sortOrder: number;
+  optionGroups?: MenuOptionGroup[];
+};
+
+type MenuOptionGroup = {
+  id: string;
+  name: string;
+  selectionType: 'single' | 'multiple';
+  required: boolean;
+  minSelections: number | null;
+  maxSelections: number | null;
+  options: MenuOption[];
+};
+
+type MenuOption = {
+  id: string;
+  label: string;
+  priceDelta: number;
+  isDefault: boolean;
 };
 
 @Injectable()
@@ -45,6 +63,7 @@ export class AdminMenuCatalogService {
       allergens: dto.allergens?.trim() || null,
       available: dto.available !== false,
       sortOrder,
+      optionGroups: this.normalizeOptionGroups(dto.optionGroups),
     };
 
     await this.persistMenuCatalog(restaurantId, restaurant.orderingSettings, [...current, created]);
@@ -70,6 +89,7 @@ export class AdminMenuCatalogService {
       ...(dto.imageUrl !== undefined ? { imageUrl: dto.imageUrl.trim() || null } : {}),
       ...(dto.allergens !== undefined ? { allergens: dto.allergens.trim() || null } : {}),
       ...(dto.available !== undefined ? { available: dto.available } : {}),
+      ...(dto.optionGroups !== undefined ? { optionGroups: this.normalizeOptionGroups(dto.optionGroups) } : {}),
     };
 
     const next = [...current];
@@ -197,6 +217,7 @@ export class AdminMenuCatalogService {
           allergens: row.allergens ? String(row.allergens) : null,
           available: row.available !== false,
           sortOrder: Number.isFinite(Number(row.sortOrder)) ? Number(row.sortOrder) : index,
+          optionGroups: this.normalizeOptionGroups(row.optionGroups),
         };
       })
       .filter((item) => item.id && item.name)
@@ -240,6 +261,46 @@ export class AdminMenuCatalogService {
       acc[category] = normalizedOrder;
       return acc;
     }, {});
+  }
+
+  private normalizeOptionGroups(rawGroups: unknown): MenuOptionGroup[] {
+    if (!Array.isArray(rawGroups)) {
+      return [];
+    }
+
+    return rawGroups
+      .filter((group) => group && typeof group === 'object')
+      .map((group, groupIndex) => {
+        const row = group as Record<string, unknown>;
+        const rawOptions = Array.isArray(row.options) ? row.options : [];
+        const options = rawOptions
+          .filter((option) => option && typeof option === 'object')
+          .map((option, optionIndex) => {
+            const optionRow = option as Record<string, unknown>;
+            return {
+              id: typeof optionRow.id === 'string' && optionRow.id.trim() ? optionRow.id.trim() : `opt-${groupIndex}-${optionIndex}`,
+              label: typeof optionRow.label === 'string' ? optionRow.label.trim() : '',
+              priceDelta: Number.isFinite(Number(optionRow.priceDelta)) ? Number(optionRow.priceDelta) : 0,
+              isDefault: optionRow.isDefault === true,
+            };
+          })
+          .filter((option) => option.label);
+
+        const selectionType = row.selectionType === 'multiple' ? 'multiple' : 'single';
+        const minSelections = Number.isFinite(Number(row.minSelections)) ? Math.max(Number(row.minSelections), 0) : null;
+        const maxSelections = Number.isFinite(Number(row.maxSelections)) ? Math.max(Number(row.maxSelections), 0) : null;
+
+        return {
+          id: typeof row.id === 'string' && row.id.trim() ? row.id.trim() : `group-${groupIndex}`,
+          name: typeof row.name === 'string' ? row.name.trim() : '',
+          selectionType,
+          required: row.required === true,
+          minSelections,
+          maxSelections,
+          options,
+        };
+      })
+      .filter((group) => group.name && group.options.length > 0);
   }
 
   private async persistMenuCatalog(restaurantId: string, orderingSettings: unknown, items: MenuCatalogItem[]) {

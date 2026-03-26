@@ -780,9 +780,20 @@ function AdminOrders() {
                     <div>
                       <p className="font-medium text-gray-900 mb-2">Articles</p>
                       {order.items?.map((item, i) => (
-                        <div key={i} className="flex justify-between text-gray-600 py-1">
-                          <span>{item.name} x{item.quantity}</span>
-                          <span>CHF {(item.price * item.quantity).toFixed(2)}</span>
+                        <div key={i} className="py-1">
+                          <div className="flex justify-between text-gray-600">
+                            <span>{item.name} x{item.quantity}</span>
+                            <span>CHF {(item.price * item.quantity).toFixed(2)}</span>
+                          </div>
+                          {Array.isArray(item.selectedOptions) && item.selectedOptions.length > 0 && (
+                            <div className="mt-1 space-y-0.5">
+                              {item.selectedOptions.map((option, optionIndex) => (
+                                <p key={`${option.groupName}-${option.optionLabel}-${optionIndex}`} className="text-xs text-gray-400">
+                                  {option.groupName}: {option.optionLabel}
+                                </p>
+                              ))}
+                            </div>
+                          )}
                         </div>
                       ))}
                       <div className="border-t border-gray-100 mt-2 pt-2 flex justify-between font-bold text-gray-900">
@@ -819,7 +830,7 @@ function AdminMenu() {
   const [items, setItems] = useState([]);
   const [categoryOrder, setCategoryOrder] = useState([]);
   const [productOrderByCategory, setProductOrderByCategory] = useState({});
-  const [form, setForm] = useState({ name: "", description: "", price: "", category: "", imageUrl: "", available: true, allergens: "" });
+  const [form, setForm] = useState({ name: "", description: "", price: "", category: "", imageUrl: "", available: true, allergens: "", optionGroups: [] });
   const [selectedCategory, setSelectedCategory] = useState("__new_category__");
   const [newCategoryName, setNewCategoryName] = useState("");
   const [editing, setEditing] = useState(null);
@@ -849,7 +860,7 @@ function AdminMenu() {
 
   const resetForm = () => {
     setEditing(null);
-    setForm({ name: "", description: "", price: "", category: "", imageUrl: "", available: true, allergens: "" });
+    setForm({ name: "", description: "", price: "", category: "", imageUrl: "", available: true, allergens: "", optionGroups: [] });
     setSelectedCategory(categoryOptions[0] || NEW_CATEGORY_OPTION);
     setNewCategoryName("");
     setUploadFeedback({ type: "", message: "" });
@@ -904,6 +915,7 @@ function AdminMenu() {
       imageUrl: form.imageUrl,
       available: form.available,
       allergens: form.allergens,
+      optionGroups: Array.isArray(form.optionGroups) ? form.optionGroups : [],
     };
 
     try {
@@ -961,6 +973,39 @@ function AdminMenu() {
       imageUrl: item.imageUrl || "",
       available: item.available !== false,
       allergens: item.allergens || "",
+      optionGroups: Array.isArray(item.optionGroups) ? item.optionGroups : [],
+    });
+  };
+
+  const addOptionGroup = () => {
+    setForm((prev) => ({
+      ...prev,
+      optionGroups: [
+        ...(Array.isArray(prev.optionGroups) ? prev.optionGroups : []),
+        {
+          id: `group_${Date.now()}`,
+          name: "",
+          selectionType: "single",
+          required: false,
+          options: [{ id: `opt_${Date.now()}`, label: "", priceDelta: 0 }],
+        },
+      ],
+    }));
+  };
+
+  const updateOptionGroup = (groupIndex, updater) => {
+    setForm((prev) => {
+      const groups = Array.isArray(prev.optionGroups) ? [...prev.optionGroups] : [];
+      groups[groupIndex] = updater(groups[groupIndex] || {});
+      return { ...prev, optionGroups: groups };
+    });
+  };
+
+  const removeOptionGroup = (groupIndex) => {
+    setForm((prev) => {
+      const groups = Array.isArray(prev.optionGroups) ? [...prev.optionGroups] : [];
+      groups.splice(groupIndex, 1);
+      return { ...prev, optionGroups: groups };
     });
   };
 
@@ -1178,6 +1223,96 @@ function AdminMenu() {
               <label className="block text-sm text-gray-500 mb-1">Allergènes</label>
               <input value={form.allergens} onChange={e => setForm({ ...form, allergens: e.target.value })}
                 className="w-full bg-gray-50 border border-gray-200 text-gray-900 px-3 py-2 rounded-lg focus:outline-none focus:border-gray-400" placeholder="Gluten, lactose..." />
+            </div>
+            <div className="col-span-2">
+              <div className="mb-2 flex items-center justify-between">
+                <label className="block text-sm text-gray-500">Options de personnalisation</label>
+                <button type="button" onClick={addOptionGroup} className="text-xs border border-gray-200 rounded px-2 py-1 hover:bg-gray-100">
+                  + Groupe
+                </button>
+              </div>
+              <div className="space-y-3">
+                {(Array.isArray(form.optionGroups) ? form.optionGroups : []).map((group, groupIndex) => (
+                  <div key={group.id || groupIndex} className="rounded-lg border border-gray-200 p-3 space-y-2">
+                    <div className="flex items-center gap-2">
+                      <input
+                        value={group.name || ""}
+                        onChange={(e) => updateOptionGroup(groupIndex, (current) => ({ ...current, name: e.target.value }))}
+                        className="flex-1 bg-gray-50 border border-gray-200 text-gray-900 px-2 py-1.5 rounded focus:outline-none focus:border-gray-400"
+                        placeholder="Nom du groupe (ex: Oignons)"
+                      />
+                      <select
+                        value={group.selectionType === "multiple" ? "multiple" : "single"}
+                        onChange={(e) => updateOptionGroup(groupIndex, (current) => ({ ...current, selectionType: e.target.value }))}
+                        className="bg-gray-50 border border-gray-200 text-gray-900 px-2 py-1.5 rounded"
+                      >
+                        <option value="single">Choix unique</option>
+                        <option value="multiple">Choix multiple</option>
+                      </select>
+                      <button type="button" onClick={() => removeOptionGroup(groupIndex)} className="text-xs border border-red-200 text-red-600 rounded px-2 py-1 hover:bg-red-50">Supprimer</button>
+                    </div>
+                    <label className="inline-flex items-center gap-2 text-xs text-gray-600">
+                      <input
+                        type="checkbox"
+                        checked={group.required === true}
+                        onChange={(e) => updateOptionGroup(groupIndex, (current) => ({ ...current, required: e.target.checked }))}
+                      />
+                      Obligatoire
+                    </label>
+                    <div className="space-y-2">
+                      {(Array.isArray(group.options) ? group.options : []).map((option, optionIndex) => (
+                        <div key={option.id || optionIndex} className="grid grid-cols-12 gap-2">
+                          <input
+                            value={option.label || ""}
+                            onChange={(e) => updateOptionGroup(groupIndex, (current) => {
+                              const options = Array.isArray(current.options) ? [...current.options] : [];
+                              options[optionIndex] = { ...(options[optionIndex] || {}), label: e.target.value };
+                              return { ...current, options };
+                            })}
+                            className="col-span-8 bg-gray-50 border border-gray-200 text-gray-900 px-2 py-1.5 rounded"
+                            placeholder="Libellé option"
+                          />
+                          <input
+                            type="number"
+                            step="0.5"
+                            value={option.priceDelta ?? 0}
+                            onChange={(e) => updateOptionGroup(groupIndex, (current) => {
+                              const options = Array.isArray(current.options) ? [...current.options] : [];
+                              options[optionIndex] = { ...(options[optionIndex] || {}), priceDelta: Number(e.target.value || 0) };
+                              return { ...current, options };
+                            })}
+                            className="col-span-3 bg-gray-50 border border-gray-200 text-gray-900 px-2 py-1.5 rounded"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => updateOptionGroup(groupIndex, (current) => {
+                              const options = Array.isArray(current.options) ? [...current.options] : [];
+                              options.splice(optionIndex, 1);
+                              return { ...current, options };
+                            })}
+                            className="col-span-1 text-xs border border-gray-200 rounded px-2 py-1"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      ))}
+                      <button
+                        type="button"
+                        onClick={() => updateOptionGroup(groupIndex, (current) => ({
+                          ...current,
+                          options: [...(Array.isArray(current.options) ? current.options : []), { id: `opt_${Date.now()}_${groupIndex}`, label: "", priceDelta: 0 }],
+                        }))}
+                        className="text-xs border border-gray-200 rounded px-2 py-1 hover:bg-gray-100"
+                      >
+                        + Option
+                      </button>
+                    </div>
+                  </div>
+                ))}
+                {(Array.isArray(form.optionGroups) ? form.optionGroups : []).length === 0 && (
+                  <p className="text-xs text-gray-400">Aucun groupe. Les options sont facultatives.</p>
+                )}
+              </div>
             </div>
             <div className="col-span-2 flex items-center gap-2">
               <input type="checkbox" id="available" checked={form.available} onChange={e => setForm({ ...form, available: e.target.checked })} className="w-4 h-4" />
