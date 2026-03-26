@@ -153,14 +153,6 @@ export default function Menu() {
       <div className="min-h-screen bg-white pb-24">
         {/* Category Header */}
         <div className="bg-white border-b border-gray-100 px-4 py-3">
-          <div className="flex items-center mb-4">
-            <button
-              onClick={() => setActiveCategory(null)}
-              className="text-[#b5122a] text-sm flex items-center gap-1"
-            >
-              ← Retour au menu
-            </button>
-          </div>
           <p className="text-[#b5122a] text-sm font-medium text-center">{activeCategoryData.subtitle}</p>
           <h1 className="text-3xl font-serif italic text-center text-gray-900 mt-1 mb-2">{activeCategoryData.title}</h1>
           <p className="text-gray-500 text-sm text-center leading-relaxed max-w-md mx-auto">{activeCategoryData.description}</p>
@@ -221,6 +213,15 @@ export default function Menu() {
               </div>
             ))
           )}
+        </div>
+
+        <div className="max-w-2xl mx-auto px-4 pb-6">
+          <button
+            onClick={() => setActiveCategory(null)}
+            className="text-[#b5122a] text-sm flex items-center gap-1"
+          >
+            ← Retour au menu
+          </button>
         </div>
 
         {/* Sticky Cart Footer */}
