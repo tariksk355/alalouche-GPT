@@ -100,9 +100,45 @@ export class PublicConfigService {
           allergens: row.allergens ? String(row.allergens) : null,
           available: row.available !== false,
           sortOrder: Number(row.sortOrder || 0),
+          optionGroups: this.normalizeOptionGroups(row.optionGroups),
         };
       })
       .filter((item) => item.id && item.name && item.available)
       .sort((a, b) => a.sortOrder - b.sortOrder);
+  }
+
+  private normalizeOptionGroups(rawGroups: unknown) {
+    if (!Array.isArray(rawGroups)) {
+      return [];
+    }
+
+    return rawGroups
+      .filter((group) => group && typeof group === 'object')
+      .map((group, groupIndex) => {
+        const row = group as Record<string, unknown>;
+        const options = (Array.isArray(row.options) ? row.options : [])
+          .filter((option) => option && typeof option === 'object')
+          .map((option, optionIndex) => {
+            const optionRow = option as Record<string, unknown>;
+            return {
+              id: typeof optionRow.id === 'string' && optionRow.id.trim() ? optionRow.id.trim() : `opt-${groupIndex}-${optionIndex}`,
+              label: typeof optionRow.label === 'string' ? optionRow.label.trim() : '',
+              priceDelta: Number.isFinite(Number(optionRow.priceDelta)) ? Number(optionRow.priceDelta) : 0,
+              isDefault: optionRow.isDefault === true,
+            };
+          })
+          .filter((option) => option.label);
+
+        return {
+          id: typeof row.id === 'string' && row.id.trim() ? row.id.trim() : `group-${groupIndex}`,
+          name: typeof row.name === 'string' ? row.name.trim() : '',
+          selectionType: row.selectionType === 'multiple' ? 'multiple' : 'single',
+          required: row.required === true,
+          minSelections: Number.isFinite(Number(row.minSelections)) ? Math.max(Number(row.minSelections), 0) : null,
+          maxSelections: Number.isFinite(Number(row.maxSelections)) ? Math.max(Number(row.maxSelections), 0) : null,
+          options,
+        };
+      })
+      .filter((group) => group.name && group.options.length > 0);
   }
 }

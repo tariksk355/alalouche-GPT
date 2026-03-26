@@ -27,13 +27,32 @@ export class OrdersService {
     return `${prefix}-${suffix}`;
   }
 
-  private normalizeOrderItems(items: Array<{ id: string; name?: string; price: number; quantity: number }>) {
+  private normalizeOrderItems(items: Array<{ id: string; name?: string; price: number; quantity: number; selectedOptions?: unknown[] }>) {
     return items.map((item) => ({
       menuItemId: item.id,
       name: item.name?.trim() || 'Article',
       price: Number(item.price || 0),
       quantity: Number(item.quantity || 0),
+      selectedOptions: this.normalizeSelectedOptions(item.selectedOptions),
     }));
+  }
+
+  private normalizeSelectedOptions(rawOptions: unknown): Array<{ groupName: string; optionLabel: string; priceDelta: number }> {
+    if (!Array.isArray(rawOptions)) {
+      return [];
+    }
+
+    return rawOptions
+      .filter((row) => row && typeof row === 'object')
+      .map((row) => {
+        const option = row as Record<string, unknown>;
+        return {
+          groupName: typeof option.groupName === 'string' ? option.groupName.trim() : '',
+          optionLabel: typeof option.optionLabel === 'string' ? option.optionLabel.trim() : '',
+          priceDelta: Number.isFinite(Number(option.priceDelta)) ? Number(option.priceDelta) : 0,
+        };
+      })
+      .filter((option) => option.groupName && option.optionLabel);
   }
 
   private computeSubtotal(items: Array<{ price: number; quantity: number }>) {
