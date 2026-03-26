@@ -8,7 +8,18 @@ import DeviceProvisioning from "@/components/admin/DeviceProvisioning";
 import { recordAdminLoginDiagnostic } from "@/lib/adminLoginDiagnostics";
 import { clearStoredAdminSession, getStoredAdminSession } from "@/lib/customerAuth";
 import { getAdminKpis, hideAdminOrder, hideAdminReservation, listAdminOrders, listAdminReservations, restoreAdminOrder, restoreAdminReservation, updateAdminOrderStatus, updateAdminReservationStatus } from "@/lib/api/adminOps";
-import { createAdminMenuItem, deleteAdminMenuCategory, deleteAdminMenuItem, getAdminMenuCategoryOrder, listAdminMenuCatalog, updateAdminMenuCategoryOrder, updateAdminMenuItem, uploadAdminMenuImage } from "@/lib/api/adminMenuCatalog";
+import {
+  createAdminMenuItem,
+  deleteAdminMenuCategory,
+  deleteAdminMenuItem,
+  getAdminMenuCategoryOrder,
+  getAdminMenuProductOrderByCategory,
+  listAdminMenuCatalog,
+  updateAdminMenuCategoryOrder,
+  updateAdminMenuItem,
+  updateAdminMenuProductOrderByCategory,
+  uploadAdminMenuImage,
+} from "@/lib/api/adminMenuCatalog";
 import { createAdminCustomer, deleteAdminCustomer, listAdminCustomers, updateAdminCustomer } from "@/lib/api/adminCustomers";
 import {
   getAdminBrandingSettings,
@@ -807,6 +818,7 @@ function AdminOrders() {
 function AdminMenu() {
   const [items, setItems] = useState([]);
   const [categoryOrder, setCategoryOrder] = useState([]);
+  const [productOrderByCategory, setProductOrderByCategory] = useState({});
   const [form, setForm] = useState({ name: "", description: "", price: "", category: "", imageUrl: "", available: true, allergens: "" });
   const [selectedCategory, setSelectedCategory] = useState("__new_category__");
   const [newCategoryName, setNewCategoryName] = useState("");
@@ -847,12 +859,14 @@ function AdminMenu() {
     setLoading(true);
     setError("");
     try {
-      const [data, order] = await Promise.all([
+      const [data, order, byCategory] = await Promise.all([
         listAdminMenuCatalog(),
         getAdminMenuCategoryOrder(),
+        getAdminMenuProductOrderByCategory(),
       ]);
       setItems(data);
       setCategoryOrder(order);
+      setProductOrderByCategory(byCategory);
     } catch (e) {
       setError(e.message || "Impossible de charger le catalogue menu.");
     } finally {
@@ -979,6 +993,46 @@ function AdminMenu() {
   const persistCategoryOrder = async (nextOrder) => {
     const saved = await updateAdminMenuCategoryOrder(nextOrder);
     setCategoryOrder(saved);
+  };
+
+  const getOrderedItemsForCategory = (category) => {
+    const categoryItems = items.filter((item) => item.category === category);
+    const configuredOrder = Array.isArray(productOrderByCategory?.[category])
+      ? productOrderByCategory[category]
+      : [];
+    if (configuredOrder.length === 0) return categoryItems;
+
+    const indexById = new Map(configuredOrder.map((id, index) => [id, index]));
+    return [...categoryItems].sort((a, b) => {
+      const aIndex = indexById.has(a.id) ? indexById.get(a.id) : Number.POSITIVE_INFINITY;
+      const bIndex = indexById.has(b.id) ? indexById.get(b.id) : Number.POSITIVE_INFINITY;
+      if (aIndex !== bIndex) return aIndex - bIndex;
+      return 0;
+    });
+  };
+
+  const moveProductInCategory = async (category, productId, direction) => {
+    const orderedItems = getOrderedItemsForCategory(category);
+    const currentIndex = orderedItems.findIndex((item) => item.id === productId);
+    const targetIndex = direction === "up" ? currentIndex - 1 : currentIndex + 1;
+    if (currentIndex < 0 || targetIndex < 0 || targetIndex >= orderedItems.length) return;
+
+    const nextOrderIds = orderedItems.map((item) => item.id);
+    [nextOrderIds[currentIndex], nextOrderIds[targetIndex]] = [nextOrderIds[targetIndex], nextOrderIds[currentIndex]];
+
+    const nextMap = {
+      ...(productOrderByCategory || {}),
+      [category]: nextOrderIds,
+    };
+
+    try {
+      const saved = await updateAdminMenuProductOrderByCategory(nextMap);
+      setProductOrderByCategory(saved);
+      setSuccess(`Ordre des produits enregistré pour "${category}".`);
+      setTimeout(() => setSuccess(""), 3000);
+    } catch (e) {
+      setError(e.message || "Impossible de modifier l'ordre des produits.");
+    }
   };
 
   const moveCategory = async (category, direction) => {
@@ -1159,6 +1213,37 @@ function AdminMenu() {
                 </div>
               </div>
             ))}
+            {categoryOptions.length === 0 && (
+              <p className="text-sm text-gray-400">Aucune catégorie.</p>
+            )}
+          </div>
+        </div>
+        <div className="bg-white rounded-xl p-4 border border-gray-200 shadow-sm">
+          <h3 className="font-medium text-gray-900 mb-3">Ordre des produits par catégorie</h3>
+          <div className="space-y-4">
+            {categoryOptions.map((category) => {
+              const orderedItems = getOrderedItemsForCategory(category);
+              return (
+                <div key={`products-${category}`} className="border border-gray-100 rounded-lg p-3">
+                  <p className="text-sm font-medium text-gray-700 mb-2">{category}</p>
+                  {orderedItems.length === 0 ? (
+                    <p className="text-xs text-gray-400">Aucun article dans cette catégorie.</p>
+                  ) : (
+                    <div className="space-y-1">
+                      {orderedItems.map((item, index) => (
+                        <div key={item.id} className="flex items-center justify-between gap-2 rounded border border-gray-100 px-2 py-1.5">
+                          <span className="text-xs text-gray-600 truncate">{item.name}</span>
+                          <div className="flex items-center gap-1">
+                            <button type="button" onClick={() => moveProductInCategory(category, item.id, "up")} disabled={index === 0} className="text-xs border border-gray-200 rounded px-2 py-1 disabled:opacity-40">↑</button>
+                            <button type="button" onClick={() => moveProductInCategory(category, item.id, "down")} disabled={index === orderedItems.length - 1} className="text-xs border border-gray-200 rounded px-2 py-1 disabled:opacity-40">↓</button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
             {categoryOptions.length === 0 && (
               <p className="text-sm text-gray-400">Aucune catégorie.</p>
             )}

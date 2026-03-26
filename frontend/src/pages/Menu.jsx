@@ -149,9 +149,22 @@ export default function Menu() {
     ? menuCategories.find(c => c.key === activeCategory)
     : null;
 
-  const categoryItems = activeCategory
-    ? items.filter(i => i.category === activeCategory)
-    : [];
+  const categoryItems = useMemo(() => {
+    if (!activeCategory) return [];
+    const currentItems = items.filter((item) => item.category === activeCategory);
+    const configuredOrder = Array.isArray(tenant?.orderingSettings?.productOrderByCategory?.[activeCategory])
+      ? tenant.orderingSettings.productOrderByCategory[activeCategory]
+      : [];
+    if (configuredOrder.length === 0) return currentItems;
+
+    const indexById = new Map(configuredOrder.map((id, index) => [id, index]));
+    return [...currentItems].sort((a, b) => {
+      const aIndex = indexById.has(a.id) ? indexById.get(a.id) : Number.POSITIVE_INFINITY;
+      const bIndex = indexById.has(b.id) ? indexById.get(b.id) : Number.POSITIVE_INFINITY;
+      if (aIndex !== bIndex) return aIndex - bIndex;
+      return 0;
+    });
+  }, [activeCategory, items, tenant?.orderingSettings?.productOrderByCategory]);
 
   if (activeCategory && activeCategoryData) {
     const cartTotal = cart.reduce((s, i) => s + i.price * i.quantity, 0);
