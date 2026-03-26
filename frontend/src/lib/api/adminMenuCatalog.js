@@ -56,3 +56,28 @@ export async function uploadAdminMenuImage(file) {
   });
   return data.data;
 }
+
+export async function getAdminMenuCategoryOrder() {
+  const data = await backendClient.request('/admin/menu-catalog/categories/order', {
+    headers: authHeaders(),
+  });
+  return Array.isArray(data?.data?.categoryOrder) ? data.data.categoryOrder : [];
+}
+
+export async function updateAdminMenuCategoryOrder(categoryOrder) {
+  const data = await backendClient.request('/admin/menu-catalog/categories/order', {
+    method: 'PATCH',
+    headers: authHeaders(),
+    body: JSON.stringify({ categoryOrder }),
+  });
+  return Array.isArray(data?.data?.categoryOrder) ? data.data.categoryOrder : [];
+}
+
+export async function deleteAdminMenuCategory(payload) {
+  const data = await backendClient.request('/admin/menu-catalog/categories/delete', {
+    method: 'POST',
+    headers: authHeaders(),
+    body: JSON.stringify(payload),
+  });
+  return data.data;
+}
