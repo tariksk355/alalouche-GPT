@@ -1452,7 +1452,7 @@ export class NotificationService {
               ${this.escapeHtml(row.label)}
             </td>
             <td style="padding:12px 0;border-bottom:1px solid #e5e7eb;color:#111827;font-size:14px;text-align:right;">
-              ${this.escapeHtml(row.value)}
+              ${this.escapeHtml(row.value).replace(/\n/g, '<br />')}
             </td>
           </tr>`,
       )
@@ -1583,11 +1583,7 @@ export class NotificationService {
           : null;
     const totalAmount = this.formatCurrency(payload.totalAmount ?? order?.totalAmount?.toString(), context);
     const items = this.formatOrderItemsForEmail(payload.items);
-    const itemSummary = items.map((item) => (
-      item.options.length > 0
-        ? `${item.base} (${item.options.join('; ')})`
-        : item.base
-    ));
+    const itemSummary = this.formatOrderItemsSummaryValue(items);
     const statusContent = this.getOrderStatusContent(status);
     const prepTimeLabel = Number.isFinite(Number(prepMinutes)) ? `${Number(prepMinutes)} minutes` : null;
     const intro =
@@ -1604,7 +1600,7 @@ export class NotificationService {
         : []),
       ...(customerPhone ? [{ label: 'Téléphone', value: customerPhone }] : []),
       ...(totalAmount ? [{ label: 'Total', value: totalAmount }] : []),
-      ...(itemSummary.length > 0 ? [{ label: 'Récapitulatif', value: itemSummary.join(', ') }] : []),
+      ...(itemSummary ? [{ label: 'Récapitulatif', value: itemSummary }] : []),
     ];
 
     const subject = `${statusContent.subjectLabel} - ${context.name}${orderNumber ? ` - ${orderNumber}` : ''}`;
@@ -1822,11 +1818,7 @@ export class NotificationService {
     const totalAmount = this.formatCurrency(payload.totalAmount ?? order?.totalAmount?.toString(), context);
     const notes = typeof payload.notes === 'string' ? payload.notes : null;
     const items = this.formatOrderItemsForEmail(payload.items);
-    const itemSummary = items.map((item) => (
-      item.options.length > 0
-        ? `${item.base} (${item.options.join('; ')})`
-        : item.base
-    ));
+    const itemSummary = this.formatOrderItemsSummaryValue(items);
 
     const detailRows = [
       { label: 'Référence de commande', value: orderNumber },
@@ -1836,7 +1828,7 @@ export class NotificationService {
       ...(orderType ? [{ label: 'Type de commande', value: orderType }] : []),
       ...(customerAddress ? [{ label: 'Adresse', value: customerAddress }] : []),
       ...(totalAmount ? [{ label: 'Total', value: totalAmount }] : []),
-      ...(itemSummary.length > 0 ? [{ label: 'Articles', value: itemSummary.join(', ') }] : []),
+      ...(itemSummary ? [{ label: 'Articles', value: itemSummary }] : []),
     ];
 
     return {
@@ -1911,6 +1903,19 @@ export class NotificationService {
           options,
         };
       });
+  }
+
+  private formatOrderItemsSummaryValue(items: Array<{ base: string; options: string[] }>): string {
+    if (!Array.isArray(items) || items.length === 0) {
+      return '';
+    }
+
+    return items
+      .map((item) => [
+        item.base,
+        ...item.options.map((option) => `- ${option}`),
+      ].join('\n'))
+      .join('\n');
   }
 
   private async buildRestaurantReservationCreatedEmail(
