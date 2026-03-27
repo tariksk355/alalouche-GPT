@@ -81,6 +81,8 @@ interface RestaurantEmailContext {
   contactAddress: string | null;
 }
 
+const CUSTOMER_FACING_FOOTER_EMAIL = 'alalouche.fr@gmail.com';
+
 interface TransactionalEmailMessage {
   subject: string;
   text: string;
@@ -1779,12 +1781,16 @@ export class NotificationService {
 
   private async buildCustomerEventEmail(event: NotificationEvent): Promise<TransactionalEmailMessage> {
     const context = await this.getRestaurantEmailContextForEvent(event);
+    const customerContext: RestaurantEmailContext = {
+      ...context,
+      contactEmail: CUSTOMER_FACING_FOOTER_EMAIL,
+    };
 
     if (event.type === 'order.status_changed') {
-      return this.buildOrderEventEmail(event, context);
+      return this.buildOrderEventEmail(event, customerContext);
     }
 
-    return this.buildReservationEventEmail(event, context);
+    return this.buildReservationEventEmail(event, customerContext);
   }
 
   private async buildRestaurantOrderCreatedEmail(
