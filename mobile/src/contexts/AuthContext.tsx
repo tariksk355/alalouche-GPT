@@ -1,0 +1,60 @@
+import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { authApi, CustomerSession } from '../api/auth';
+import { clearOneSignalCustomerIdentity, setOneSignalCustomerIdentity } from '../services/oneSignal';
+
+const STORAGE_KEY = 'mobile_customer_session_v1';
+
+type AuthContextValue = {
+  session: CustomerSession | null;
+  login: (email: string, password: string) => Promise<void>;
+  signup: (payload: { email: string; password: string; fullName: string; phone: string }) => Promise<void>;
+  logout: () => Promise<void>;
+  loading: boolean;
+};
+
+const AuthContext = createContext<AuthContextValue | undefined>(undefined);
+
+export function AuthProvider({ children }: { children: React.ReactNode }) {
+  const [session, setSession] = useState<CustomerSession | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    AsyncStorage.getItem(STORAGE_KEY).then((raw) => {
+      if (raw) setSession(JSON.parse(raw));
+    }).finally(() => setLoading(false));
+  }, []);
+
+  const persist = async (next: CustomerSession | null) => {
+    setSession(next);
+    if (next) {
+      await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+      setOneSignalCustomerIdentity(next.customer?.id);
+    } else {
+      await AsyncStorage.removeItem(STORAGE_KEY);
+      clearOneSignalCustomerIdentity();
+    }
+  };
+
+  const value = useMemo<AuthContextValue>(() => ({
+    session,
+    loading,
+    login: async (email, password) => {
+      const next = await authApi.login({ email, password });
+      await persist(next);
+    },
+    signup: async (payload) => {
+      const next = await authApi.signup(payload);
+      await persist(next);
+    },
+    logout: async () => persist(null),
+  }), [session, loading]);
+
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+}
+
+export function useAuth() {
+  const ctx = useContext(AuthContext);
+  if (!ctx) throw new Error('useAuth must be used within AuthProvider');
+  return ctx;
+}

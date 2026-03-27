@@ -19,6 +19,10 @@ class StorefrontOrderItemDto {
   @IsNumber()
   @Min(1)
   quantity!: number;
+
+  @IsOptional()
+  @IsArray()
+  selectedOptions?: unknown[];
 }
 
 export class CreateStorefrontOrderDto {

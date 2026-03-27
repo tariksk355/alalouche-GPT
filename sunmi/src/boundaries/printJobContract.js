@@ -102,13 +102,25 @@ export function normalizeOrderForDisplay(order) {
     const totalPrice = totalPriceRaw != null
       ? Number(totalPriceRaw)
       : unitPrice != null ? unitPrice * qty : undefined;
+    const selectedOptionLines = Array.isArray(item.selectedOptions)
+      ? item.selectedOptions
+          .filter((option) => option && typeof option === 'object')
+          .map((option) => {
+            const row = /** @type {Record<string, unknown>} */ (option);
+            const groupName = typeof row.groupName === 'string' ? row.groupName.trim() : '';
+            const optionLabel = typeof row.optionLabel === 'string' ? row.optionLabel.trim() : '';
+            return groupName && optionLabel ? `${groupName}: ${optionLabel}` : '';
+          })
+          .filter(Boolean)
+      : [];
+    const legacyModifiers = Array.isArray(item.modifiers) ? item.modifiers : [];
 
     return {
       name: String(item.name || item.title || item.label || 'Article'),
       quantity: qty,
       unitPrice,
       totalPrice,
-      modifiers: Array.isArray(item.modifiers) ? item.modifiers : undefined,
+      modifiers: [...legacyModifiers, ...selectedOptionLines],
       note: item.note ? String(item.note) : item.notes ? String(item.notes) : undefined,
     };
   });
