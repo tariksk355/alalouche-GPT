@@ -30,6 +30,7 @@ import { AdminMenuCatalogService } from './admin-menu-catalog.service';
 import { CreateAdminMenuItemDto } from './dto/create-admin-menu-item.dto';
 import { UpdateAdminMenuItemDto } from './dto/update-admin-menu-item.dto';
 import { UpdateAdminMenuCategoryOrderDto } from './dto/update-admin-menu-category-order.dto';
+import { UpdateAdminMenuProductOrderByCategoryDto } from './dto/update-admin-menu-product-order-by-category.dto';
 import { DeleteAdminMenuCategoryDto } from './dto/delete-admin-menu-category.dto';
 import { AdminAnalyticsService } from './admin-analytics.service';
 import { AdminSettingsService } from './admin-settings.service';
@@ -585,6 +586,32 @@ export class AdminController {
     const auth = this.requireAdmin(authorization, adminToken, legacyRestaurantId);
     const categoryOrder = await this.adminMenuCatalogService.updateCategoryOrder(auth.restaurantId, dto.categoryOrder || []);
     return ok({ categoryOrder });
+  }
+
+  @Get('menu-catalog/products/order-by-category')
+  async getMenuProductOrderByCategory(
+    @Headers('authorization') authorization?: string,
+    @Headers('x-admin-token') adminToken?: string,
+    @Headers('x-restaurant-id') legacyRestaurantId?: string,
+  ) {
+    const auth = this.requireAdmin(authorization, adminToken, legacyRestaurantId);
+    const productOrderByCategory = await this.adminMenuCatalogService.getProductOrderByCategory(auth.restaurantId);
+    return ok({ productOrderByCategory });
+  }
+
+  @Patch('menu-catalog/products/order-by-category')
+  async updateMenuProductOrderByCategory(
+    @Body() dto: UpdateAdminMenuProductOrderByCategoryDto,
+    @Headers('authorization') authorization?: string,
+    @Headers('x-admin-token') adminToken?: string,
+    @Headers('x-restaurant-id') legacyRestaurantId?: string,
+  ) {
+    const auth = this.requireAdmin(authorization, adminToken, legacyRestaurantId);
+    const productOrderByCategory = await this.adminMenuCatalogService.updateProductOrderByCategory(
+      auth.restaurantId,
+      dto.productOrderByCategory || {},
+    );
+    return ok({ productOrderByCategory });
   }
 
   @Post('menu-catalog/categories/delete')
