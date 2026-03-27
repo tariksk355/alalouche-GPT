@@ -81,6 +81,8 @@ interface RestaurantEmailContext {
   contactAddress: string | null;
 }
 
+const CUSTOMER_FACING_FOOTER_EMAIL = 'alalouche.fr@gmail.com';
+
 interface TransactionalEmailMessage {
   subject: string;
   text: string;
@@ -1248,6 +1250,18 @@ export class NotificationService {
     };
   }
 
+  private resolveRestaurantNotificationRecipient(context: RestaurantEmailContext): string | null {
+    const envOverride = typeof process.env.RESTAURANT_NOTIFICATION_EMAIL === 'string'
+      ? process.env.RESTAURANT_NOTIFICATION_EMAIL.trim()
+      : '';
+    const overrideRecipient = this.normalizeRecipientEmail(envOverride);
+    if (overrideRecipient) {
+      return overrideRecipient;
+    }
+
+    return this.normalizeRecipientEmail(context.contactEmail);
+  }
+
   private escapeHtml(value: string): string {
     return value
       .replace(/&/g, '&amp;')
@@ -1440,7 +1454,7 @@ export class NotificationService {
               ${this.escapeHtml(row.label)}
             </td>
             <td style="padding:12px 0;border-bottom:1px solid #e5e7eb;color:#111827;font-size:14px;text-align:right;">
-              ${this.escapeHtml(row.value)}
+              ${this.escapeHtml(row.value).replace(/\n/g, '<br />')}
             </td>
           </tr>`,
       )
@@ -1570,15 +1584,8 @@ export class NotificationService {
           ? `Environ ${event.payload.prepMinutes} minutes`
           : null;
     const totalAmount = this.formatCurrency(payload.totalAmount ?? order?.totalAmount?.toString(), context);
-    const items = Array.isArray(payload.items)
-      ? payload.items
-          .filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === 'object')
-          .map((item) => {
-            const name = typeof item.name === 'string' ? item.name : 'Article';
-            const quantity = Number(item.quantity || 1);
-            return `${quantity} × ${name}`;
-          })
-      : [];
+    const items = this.formatOrderItemsForEmail(payload.items);
+    const itemSummary = this.formatOrderItemsSummaryValue(items);
     const statusContent = this.getOrderStatusContent(status);
     const prepTimeLabel = Number.isFinite(Number(prepMinutes)) ? `${Number(prepMinutes)} minutes` : null;
     const intro =
@@ -1595,7 +1602,7 @@ export class NotificationService {
         : []),
       ...(customerPhone ? [{ label: 'Téléphone', value: customerPhone }] : []),
       ...(totalAmount ? [{ label: 'Total', value: totalAmount }] : []),
-      ...(items.length > 0 ? [{ label: 'Récapitulatif', value: items.join(', ') }] : []),
+      ...(itemSummary ? [{ label: 'Récapitulatif', value: itemSummary }] : []),
     ];
 
     const subject = `${statusContent.subjectLabel} - ${context.name}${orderNumber ? ` - ${orderNumber}` : ''}`;
@@ -1611,7 +1618,15 @@ export class NotificationService {
       ...(estimatedReadyAt ? [`${status === 'accepted' ? 'Prêt vers' : 'Horaire'} : ${estimatedReadyAt}`] : []),
       ...(customerPhone ? [`Téléphone : ${customerPhone}`] : []),
       ...(totalAmount ? [`Total : ${totalAmount}`] : []),
-      ...(items.length > 0 ? ['Récapitulatif :', ...items.map((item) => `- ${item}`)] : []),
+      ...(items.length > 0
+        ? [
+            'Récapitulatif :',
+            ...items.flatMap((item) => [
+              `- ${item.base}`,
+              ...item.options.map((option) => `  - ${option}`),
+            ]),
+          ]
+        : []),
       '',
       `Statut : ${statusContent.badgeLabel}`,
       '',
@@ -1766,12 +1781,16 @@ export class NotificationService {
 
   private async buildCustomerEventEmail(event: NotificationEvent): Promise<TransactionalEmailMessage> {
     const context = await this.getRestaurantEmailContextForEvent(event);
+    const customerContext: RestaurantEmailContext = {
+      ...context,
+      contactEmail: CUSTOMER_FACING_FOOTER_EMAIL,
+    };
 
     if (event.type === 'order.status_changed') {
-      return this.buildOrderEventEmail(event, context);
+      return this.buildOrderEventEmail(event, customerContext);
     }
 
-    return this.buildReservationEventEmail(event, context);
+    return this.buildReservationEventEmail(event, customerContext);
   }
 
   private async buildRestaurantOrderCreatedEmail(
@@ -1804,15 +1823,8 @@ export class NotificationService {
     const orderType = this.formatOrderType(payload.orderType);
     const totalAmount = this.formatCurrency(payload.totalAmount ?? order?.totalAmount?.toString(), context);
     const notes = typeof payload.notes === 'string' ? payload.notes : null;
-    const items = Array.isArray(payload.items)
-      ? payload.items
-          .filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === 'object')
-          .map((item) => {
-            const name = typeof item.name === 'string' ? item.name : 'Article';
-            const quantity = Number(item.quantity || 1);
-            return `${quantity} × ${name}`;
-          })
-      : [];
+    const items = this.formatOrderItemsForEmail(payload.items);
+    const itemSummary = this.formatOrderItemsSummaryValue(items);
 
     const detailRows = [
       { label: 'Référence de commande', value: orderNumber },
@@ -1822,7 +1834,7 @@ export class NotificationService {
       ...(orderType ? [{ label: 'Type de commande', value: orderType }] : []),
       ...(customerAddress ? [{ label: 'Adresse', value: customerAddress }] : []),
       ...(totalAmount ? [{ label: 'Total', value: totalAmount }] : []),
-      ...(items.length > 0 ? [{ label: 'Articles', value: items.join(', ') }] : []),
+      ...(itemSummary ? [{ label: 'Articles', value: itemSummary }] : []),
     ];
 
     return {
@@ -1839,7 +1851,15 @@ export class NotificationService {
         ...(orderType ? [`Type de commande : ${orderType}`] : []),
         ...(customerAddress ? [`Adresse : ${customerAddress}`] : []),
         ...(totalAmount ? [`Total : ${totalAmount}`] : []),
-        ...(items.length > 0 ? ['Articles :', ...items.map((item) => `- ${item}`)] : []),
+        ...(items.length > 0
+          ? [
+              'Articles :',
+              ...items.flatMap((item) => [
+                `- ${item.base}`,
+                ...item.options.map((option) => `  - ${option}`),
+              ]),
+            ]
+          : []),
         ...(notes ? ['', 'Notes :', notes] : []),
         '',
         'Ouvrez le receiver ou le tableau de bord admin pour traiter cette commande.',
@@ -1862,6 +1882,46 @@ export class NotificationService {
         logoSourcePath: context.logoSourcePath,
       },
     };
+  }
+
+  private formatOrderItemsForEmail(rawItems: unknown): Array<{ base: string; options: string[] }> {
+    if (!Array.isArray(rawItems)) {
+      return [];
+    }
+
+    return rawItems
+      .filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === 'object')
+      .map((item) => {
+        const name = typeof item.name === 'string' ? item.name : 'Article';
+        const quantity = Number(item.quantity || 1);
+        const options = Array.isArray(item.selectedOptions)
+          ? item.selectedOptions
+              .filter((option): option is Record<string, unknown> => Boolean(option) && typeof option === 'object')
+              .map((option) => {
+                const groupName = typeof option.groupName === 'string' ? option.groupName.trim() : '';
+                const optionLabel = typeof option.optionLabel === 'string' ? option.optionLabel.trim() : '';
+                return groupName && optionLabel ? `${groupName}: ${optionLabel}` : '';
+              })
+              .filter(Boolean)
+          : [];
+        return {
+          base: `${quantity} × ${name}`,
+          options,
+        };
+      });
+  }
+
+  private formatOrderItemsSummaryValue(items: Array<{ base: string; options: string[] }>): string {
+    if (!Array.isArray(items) || items.length === 0) {
+      return '';
+    }
+
+    return items
+      .map((item) => [
+        item.base,
+        ...item.options.map((option) => `- ${option}`),
+      ].join('\n'))
+      .join('\n');
   }
 
   private async buildRestaurantReservationCreatedEmail(
@@ -2004,7 +2064,7 @@ export class NotificationService {
 
     if (this.shouldSendRestaurantNotification(event)) {
       const context = await this.getRestaurantEmailContextForEvent(event);
-      const restaurantRecipient = this.normalizeRecipientEmail(context.contactEmail);
+      const restaurantRecipient = this.resolveRestaurantNotificationRecipient(context);
 
       if (restaurantRecipient) {
         const restaurantMessage = await this.buildRestaurantEventEmail(event, context);
@@ -2017,7 +2077,7 @@ export class NotificationService {
         }
       } else {
         this.logger.warn(
-          `Skipping transactional restaurant email with missing/invalid restaurant contactInfo.email. type=${event.type} restaurantId=${event.restaurantId}`,
+          `Skipping transactional restaurant email with missing/invalid recipient (RESTAURANT_NOTIFICATION_EMAIL override or restaurant contactInfo.email). type=${event.type} restaurantId=${event.restaurantId}`,
         );
       }
     }
