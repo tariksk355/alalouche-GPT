@@ -36,18 +36,23 @@ export function saveCart(cart) {
 
 export function addItem(item) {
   const cart = getCart();
-  const existing = cart.find((c) => c.id === item.id);
+  const lineKey = typeof item.lineKey === 'string' && item.lineKey.trim()
+    ? item.lineKey
+    : item.id;
+  const existing = cart.find((c) => (c.lineKey || c.id) === lineKey);
   const updated = existing
-    ? cart.map((c) => (c.id === item.id ? { ...c, quantity: c.quantity + 1 } : c))
-    : [...cart, { ...item, quantity: 1 }];
+    ? cart.map((c) => ((c.lineKey || c.id) === lineKey ? { ...c, quantity: c.quantity + 1 } : c))
+    : [...cart, { ...item, lineKey, quantity: 1 }];
   saveCart(updated);
   return updated;
 }
 
-export function removeItem(id) {
+export function removeItem(lineKey) {
   const cart = getCart();
-  const existing = cart.find((c) => c.id === id);
-  const updated = existing?.quantity === 1 ? cart.filter((c) => c.id !== id) : cart.map((c) => (c.id === id ? { ...c, quantity: c.quantity - 1 } : c));
+  const existing = cart.find((c) => (c.lineKey || c.id) === lineKey);
+  const updated = existing?.quantity === 1
+    ? cart.filter((c) => (c.lineKey || c.id) !== lineKey)
+    : cart.map((c) => ((c.lineKey || c.id) === lineKey ? { ...c, quantity: c.quantity - 1 } : c));
   saveCart(updated);
   return updated;
 }

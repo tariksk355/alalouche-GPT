@@ -73,6 +73,24 @@ export async function updateAdminMenuCategoryOrder(categoryOrder) {
   return Array.isArray(data?.data?.categoryOrder) ? data.data.categoryOrder : [];
 }
 
+export async function getAdminMenuProductOrderByCategory() {
+  const data = await backendClient.request('/admin/menu-catalog/products/order-by-category', {
+    headers: authHeaders(),
+  });
+  const value = data?.data?.productOrderByCategory;
+  return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+}
+
+export async function updateAdminMenuProductOrderByCategory(productOrderByCategory) {
+  const data = await backendClient.request('/admin/menu-catalog/products/order-by-category', {
+    method: 'PATCH',
+    headers: authHeaders(),
+    body: JSON.stringify({ productOrderByCategory }),
+  });
+  const value = data?.data?.productOrderByCategory;
+  return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+}
+
 export async function deleteAdminMenuCategory(payload) {
   const data = await backendClient.request('/admin/menu-catalog/categories/delete', {
     method: 'POST',
