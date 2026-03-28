@@ -1,4 +1,4 @@
-import { IsBoolean, IsNumber, IsOptional, IsString, MaxLength, Min } from 'class-validator';
+import { IsArray, IsBoolean, IsNumber, IsOptional, IsString, MaxLength, Min } from 'class-validator';
 
 export class UpdateAdminMenuItemDto {
   @IsOptional()
@@ -34,4 +34,8 @@ export class UpdateAdminMenuItemDto {
   @IsOptional()
   @IsBoolean()
   available?: boolean;
+
+  @IsOptional()
+  @IsArray()
+  optionGroups?: unknown[];
 }

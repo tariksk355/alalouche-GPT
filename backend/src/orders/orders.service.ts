@@ -3,6 +3,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { NotificationService } from '../notifications/notification.service';
 import { CreateStorefrontOrderDto } from './dto/create-storefront-order.dto';
 import { PreviewStorefrontPromotionDto } from './dto/preview-storefront-promotion.dto';
+import { DELIVERY_ZONE_RULES, normalizePostalCode } from './delivery-zones';
 
 type OrderPromotionComputation = {
   promotionId: string;
@@ -27,17 +28,118 @@ export class OrdersService {
     return `${prefix}-${suffix}`;
   }
 
-  private normalizeOrderItems(items: Array<{ id: string; name?: string; price: number; quantity: number }>) {
+  private normalizeOrderItems(items: Array<{ id: string; name?: string; price: number; quantity: number; selectedOptions?: unknown[] }>) {
     return items.map((item) => ({
       menuItemId: item.id,
       name: item.name?.trim() || 'Article',
       price: Number(item.price || 0),
       quantity: Number(item.quantity || 0),
+      selectedOptions: this.normalizeSelectedOptions(item.selectedOptions),
     }));
+  }
+
+  private normalizeSelectedOptions(rawOptions: unknown): Array<{
+    groupId: string | null;
+    optionId: string | null;
+    groupName: string;
+    optionLabel: string;
+    priceDelta: number;
+  }> {
+    if (!Array.isArray(rawOptions)) {
+      return [];
+    }
+
+    return rawOptions
+      .filter((row) => row && typeof row === 'object')
+      .map((row) => {
+        const option = row as Record<string, unknown>;
+        return {
+          groupId: typeof option.groupId === 'string' ? option.groupId.trim() : null,
+          optionId: typeof option.optionId === 'string' ? option.optionId.trim() : null,
+          groupName: typeof option.groupName === 'string' ? option.groupName.trim() : '',
+          optionLabel: typeof option.optionLabel === 'string' ? option.optionLabel.trim() : '',
+          priceDelta: Number.isFinite(Number(option.priceDelta)) ? Number(option.priceDelta) : 0,
+        };
+      })
+      .filter((option) => option.groupName && option.optionLabel);
+  }
+
+  private recomputeOrderItemsFromMenuCatalog(
+    orderingSettings: unknown,
+    rawItems: Array<{ id: string; name?: string; price: number; quantity: number; selectedOptions?: unknown[] }>,
+  ) {
+    const normalizedItems = this.normalizeOrderItems(rawItems);
+    const settings = (orderingSettings as Record<string, unknown> | null) || {};
+    const menuCatalog = Array.isArray(settings.menuCatalog) ? settings.menuCatalog : [];
+    const menuById = new Map(
+      menuCatalog
+        .filter((row) => row && typeof row === 'object')
+        .map((row) => {
+          const item = row as Record<string, unknown>;
+          return [String(item.id || ''), item];
+        }),
+    );
+
+    return normalizedItems.map((item) => {
+      const menuItem = menuById.get(item.menuItemId);
+      if (!menuItem) {
+        return item;
+      }
+
+      const basePrice = Number.isFinite(Number(menuItem.price)) ? Number(menuItem.price) : Number(item.price || 0);
+      const rawGroups = Array.isArray(menuItem.optionGroups) ? menuItem.optionGroups : [];
+      const validSelectedOptions = item.selectedOptions
+        .map((selected) => {
+          const matchedGroup = rawGroups.find((group) => {
+            if (!group || typeof group !== 'object') return false;
+            const row = group as Record<string, unknown>;
+            const groupId = typeof row.id === 'string' ? row.id.trim() : '';
+            const groupName = typeof row.name === 'string' ? row.name.trim() : '';
+            return (selected.groupId && groupId && selected.groupId === groupId)
+              || (selected.groupName && groupName && selected.groupName === groupName);
+          });
+          if (!matchedGroup || typeof matchedGroup !== 'object') return null;
+          const groupRow = matchedGroup as Record<string, unknown>;
+          const rawOptions = Array.isArray(groupRow.options) ? groupRow.options : [];
+          const matchedOption = rawOptions.find((option) => {
+            if (!option || typeof option !== 'object') return false;
+            const row = option as Record<string, unknown>;
+            const optionId = typeof row.id === 'string' ? row.id.trim() : '';
+            const optionLabel = typeof row.label === 'string' ? row.label.trim() : '';
+            return (selected.optionId && optionId && selected.optionId === optionId)
+              || (selected.optionLabel && optionLabel && selected.optionLabel === optionLabel);
+          });
+          if (!matchedOption || typeof matchedOption !== 'object') return null;
+          const optionRow = matchedOption as Record<string, unknown>;
+          return {
+            groupId: typeof groupRow.id === 'string' ? groupRow.id.trim() : null,
+            optionId: typeof optionRow.id === 'string' ? optionRow.id.trim() : null,
+            groupName: typeof groupRow.name === 'string' ? groupRow.name.trim() : selected.groupName,
+            optionLabel: typeof optionRow.label === 'string' ? optionRow.label.trim() : selected.optionLabel,
+            priceDelta: Number.isFinite(Number(optionRow.priceDelta)) ? Number(optionRow.priceDelta) : 0,
+          };
+        })
+        .filter(Boolean) as Array<{ groupId: string | null; optionId: string | null; groupName: string; optionLabel: string; priceDelta: number }>;
+
+      const optionDeltaTotal = validSelectedOptions.reduce((sum, option) => sum + Number(option.priceDelta || 0), 0);
+      return {
+        ...item,
+        price: basePrice + optionDeltaTotal,
+        selectedOptions: validSelectedOptions,
+      };
+    });
   }
 
   private computeSubtotal(items: Array<{ price: number; quantity: number }>) {
     return items.reduce((sum, item) => sum + item.price * item.quantity, 0);
+  }
+
+  private resolveDeliveryRule(rawPostalCode?: string | null) {
+    const postalCode = normalizePostalCode(rawPostalCode);
+    if (!postalCode) return null;
+    const rule = DELIVERY_ZONE_RULES[postalCode];
+    if (!rule) return null;
+    return { postalCode, ...rule };
   }
 
   async previewStorefrontPromotion(
@@ -64,6 +166,7 @@ export class OrdersService {
     options?: { customerId?: string | null; customerEmail?: string | null },
   ) {
     const normalizedAddress = dto.customerAddress?.trim() || null;
+    const normalizedPostalCode = normalizePostalCode(dto.customerPostalCode || normalizedAddress);
     const normalizedNotes = dto.notes?.trim() || null;
 
     if (dto.orderType === 'delivery' && !normalizedAddress) {
@@ -77,7 +180,7 @@ export class OrdersService {
     const orderingSettings = (restaurant?.orderingSettings as Record<string, unknown> | null) || {};
     const prefix = typeof orderingSettings.orderNumberPrefix === 'string' ? orderingSettings.orderNumberPrefix : 'ORD';
     const orderNumber = this.generateOrderNumber(prefix);
-    const normalizedItems = this.normalizeOrderItems(dto.items);
+    const normalizedItems = this.recomputeOrderItemsFromMenuCatalog(orderingSettings, dto.items);
     const normalizedCustomerEmail = dto.customerEmail?.trim().toLowerCase() || options?.customerEmail?.trim().toLowerCase() || null;
     const promotionResult = dto.promotionCode
       ? await this.resolvePromotionForOrder(restaurantId, dto.promotionCode, normalizedItems, {
@@ -89,7 +192,29 @@ export class OrdersService {
 
     const subtotalAmount = this.computeSubtotal(normalizedItems);
     const discountAmount = promotionResult?.discountAmount || 0;
-    const totalAmount = promotionResult?.totalAmount || subtotalAmount;
+    const discountedSubtotal = promotionResult?.totalAmount || subtotalAmount;
+    let deliveryFeeAmount = 0;
+
+    if (dto.orderType === 'delivery') {
+      const deliveryRule = this.resolveDeliveryRule(normalizedPostalCode);
+      if (!deliveryRule) {
+        throw new BadRequestException({
+          error: 'DELIVERY_POSTAL_CODE_UNSUPPORTED',
+          message: 'Delivery is unavailable for this postal code.',
+        });
+      }
+
+      if (subtotalAmount < deliveryRule.minimumOrder) {
+        throw new BadRequestException({
+          error: 'DELIVERY_MINIMUM_NOT_REACHED',
+          message: `Minimum order is CHF ${deliveryRule.minimumOrder.toFixed(2)} for postal code ${deliveryRule.postalCode}.`,
+        });
+      }
+
+      deliveryFeeAmount = deliveryRule.deliveryFee;
+    }
+
+    const totalAmount = Number((discountedSubtotal + deliveryFeeAmount).toFixed(2));
 
     const order = await this.prisma.$transaction(async (tx: any) => {
       if (promotionResult?.promotionId) {
@@ -117,12 +242,14 @@ export class OrdersService {
           payload: {
             customerPhone: dto.customerPhone,
             customerAddress: normalizedAddress,
+            customerPostalCode: normalizedPostalCode || null,
             orderType: dto.orderType,
             paymentMethod: dto.paymentMethod,
             notes: normalizedNotes,
             items: normalizedItems,
             subtotalAmount,
             discountAmount,
+            deliveryFeeAmount,
             totalAmount,
             promotion: promotionResult
               ? {

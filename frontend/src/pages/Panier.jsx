@@ -6,12 +6,14 @@ import { Trash2 } from "lucide-react";
 import { StorefrontPromoCodeCard } from "@/components/storefront/StorefrontPromoCodeCard";
 import { createStorefrontOrder, getStoredCheckoutDefaults, getStorefrontCustomerPrefill, getStorefrontOrder, previewStorefrontPromotion, saveCheckoutDefaults } from "@/lib/api/storefrontOps";
 import { StorefrontNotice } from "@/components/storefront/feedback";
+import { getDeliveryRuleForPostalCode, normalizePostalCode } from "@/lib/deliveryZones";
 
 const BASE_FORM = {
   customer_name: "",
   customer_phone: "",
   customer_email: "",
   customer_address: "",
+  customer_postal_code: "",
   order_type: "takeaway",
   payment_method: "cash",
   notes: "",
@@ -35,6 +37,12 @@ export default function Panier() {
   const navigate = useNavigate();
 
   useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("checkDelivery") === "1") {
+      setStep("details");
+      setForm((prev) => ({ ...prev, order_type: "delivery" }));
+    }
+
     const checkoutDefaults = getStoredCheckoutDefaults();
     if (checkoutDefaults) {
       setForm(prev => ({ ...prev, ...checkoutDefaults }));
@@ -53,21 +61,38 @@ export default function Panier() {
     }).catch(() => {});
   }, []);
 
-  const updateQty = (id, delta) => {
-    const updated = cart.map(c => c.id === id ? { ...c, quantity: c.quantity + delta } : c).filter(c => c.quantity > 0);
+  const updateQty = (lineKey, delta) => {
+    const updated = cart.map(c => (c.lineKey || c.id) === lineKey ? { ...c, quantity: c.quantity + delta } : c).filter(c => c.quantity > 0);
     setCart(updated);
     saveCart(updated);
   };
 
-  const removeItem = (id) => {
-    const updated = cart.filter(c => c.id !== id);
+  const removeItem = (lineKey) => {
+    const updated = cart.filter(c => (c.lineKey || c.id) !== lineKey);
     setCart(updated);
     saveCart(updated);
   };
 
   const cartTotal = cart.reduce((s, i) => s + i.price * i.quantity, 0);
   const cartCount = cart.reduce((s, i) => s + i.quantity, 0);
-  const finalTotal = appliedPromotion?.totalAmount ?? cartTotal;
+  const normalizedPostalCode = normalizePostalCode(form.customer_postal_code || form.customer_address || "");
+  const deliveryRule = form.order_type === "delivery" ? getDeliveryRuleForPostalCode(normalizedPostalCode) : null;
+  const deliveryFee = form.order_type === "delivery" ? Number(deliveryRule?.deliveryFee || 0) : 0;
+  const minimumOrderAmount = form.order_type === "delivery" ? Number(deliveryRule?.minimumOrder || 0) : 0;
+  const missingForMinimum = minimumOrderAmount > 0 && cartTotal < minimumOrderAmount
+    ? Number((minimumOrderAmount - cartTotal).toFixed(2))
+    : 0;
+  const deliveryBlockedMessage = form.order_type !== "delivery"
+    ? ""
+    : !normalizedPostalCode
+      ? "Veuillez saisir un code postal de livraison."
+      : !deliveryRule
+        ? "Livraison indisponible pour ce code postal."
+        : missingForMinimum > 0
+          ? `Minimum de commande CHF ${minimumOrderAmount.toFixed(2)} pour ${normalizedPostalCode}. Il manque CHF ${missingForMinimum.toFixed(2)}.`
+          : "";
+  const discountedSubtotal = appliedPromotion?.totalAmount ?? cartTotal;
+  const finalTotal = discountedSubtotal + deliveryFee;
 
   useEffect(() => {
     if (!appliedPromotion) return;
@@ -107,6 +132,10 @@ export default function Panier() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (deliveryBlockedMessage) {
+      setSubmitError(deliveryBlockedMessage);
+      return;
+    }
     setLoading(true);
     setSubmitError('');
 
@@ -116,15 +145,29 @@ export default function Panier() {
         customerPhone: form.customer_phone,
         customerEmail: form.customer_email || undefined,
         customerAddress: form.customer_address || undefined,
+        customerPostalCode: form.order_type === "delivery" ? normalizedPostalCode : undefined,
         orderType: form.order_type,
         paymentMethod: form.payment_method,
         notes: form.notes || undefined,
         promotionCode: appliedPromotion?.promotionCode || undefined,
-        items: cart.map(i => ({ id: i.id, name: i.name, price: Number(i.price || 0), quantity: i.quantity })),
+        items: cart.map(i => ({
+          id: i.id,
+          name: i.name,
+          price: Number(i.price || 0),
+          quantity: i.quantity,
+          selectedOptions: Array.isArray(i.selectedOptions) ? i.selectedOptions.map((option) => ({
+            groupId: option.groupId,
+            optionId: option.optionId,
+            groupName: option.groupName,
+            optionLabel: option.optionLabel,
+            priceDelta: Number(option.priceDelta || 0),
+          })) : [],
+        })),
       });
 
       saveCheckoutDefaults({
         customer_address: form.customer_address,
+        customer_postal_code: form.customer_postal_code,
         order_type: form.order_type,
         payment_method: form.payment_method,
       });
@@ -238,16 +281,25 @@ export default function Panier() {
               <>
                 <div className="space-y-4 mb-6">
                   {cart.map(item => (
-                    <div key={item.id} className="flex items-center justify-between border-b border-gray-100 pb-4">
+                    <div key={item.lineKey || item.id} className="flex items-center justify-between border-b border-gray-100 pb-4">
                       <div className="flex-1">
                         <p className="font-medium text-gray-900">{item.name}</p>
+                        {Array.isArray(item.selectedOptions) && item.selectedOptions.length > 0 && (
+                          <div className="mt-1 space-y-0.5">
+                            {item.selectedOptions.map((option, index) => (
+                              <p key={`${option.groupName}-${option.optionLabel}-${index}`} className="text-xs text-gray-500">
+                                {option.groupName}: {option.optionLabel}
+                              </p>
+                            ))}
+                          </div>
+                        )}
                         <p className="text-[#b5122a] text-sm font-semibold">CHF {item.price?.toFixed(2)}</p>
                       </div>
                       <div className="flex items-center gap-3">
-                        <button onClick={() => updateQty(item.id, -1)} className="w-7 h-7 bg-gray-100 rounded-full flex items-center justify-center font-bold hover:bg-gray-200">−</button>
+                        <button onClick={() => updateQty(item.lineKey || item.id, -1)} className="w-7 h-7 bg-gray-100 rounded-full flex items-center justify-center font-bold hover:bg-gray-200">−</button>
                         <span className="w-5 text-center font-semibold">{item.quantity}</span>
-                        <button onClick={() => updateQty(item.id, 1)} className="w-7 h-7 bg-black text-white rounded-full flex items-center justify-center font-bold hover:bg-gray-800">+</button>
-                        <button onClick={() => removeItem(item.id)} className="w-7 h-7 flex items-center justify-center text-gray-400 hover:text-red-500 transition-colors ml-1">
+                        <button onClick={() => updateQty(item.lineKey || item.id, 1)} className="w-7 h-7 bg-black text-white rounded-full flex items-center justify-center font-bold hover:bg-gray-800">+</button>
+                        <button onClick={() => removeItem(item.lineKey || item.id)} className="w-7 h-7 flex items-center justify-center text-gray-400 hover:text-red-500 transition-colors ml-1">
                           <Trash2 className="w-4 h-4" />
                         </button>
                       </div>
@@ -256,11 +308,17 @@ export default function Panier() {
                   ))}
                 </div>
 
-                <div className="border-t border-gray-200 pt-4 mb-6 space-y-3">
+              <div className="border-t border-gray-200 pt-4 mb-6 space-y-3">
+                <div className="flex justify-between text-sm">
+                  <span>Sous-total</span>
+                  <span>CHF {cartTotal.toFixed(2)}</span>
+                </div>
+                {form.order_type === "delivery" && deliveryRule && (
                   <div className="flex justify-between text-sm">
-                    <span>Sous-total</span>
-                    <span>CHF {cartTotal.toFixed(2)}</span>
+                    <span>Frais de livraison ({deliveryRule.postalCode})</span>
+                    <span>CHF {deliveryFee.toFixed(2)}</span>
                   </div>
+                )}
                   <StorefrontPromoCodeCard
                     promoInput={promoInput}
                     appliedPromotion={appliedPromotion}
@@ -276,11 +334,14 @@ export default function Panier() {
                       <span>- CHF {Number(appliedPromotion.discountAmount || 0).toFixed(2)}</span>
                     </div>
                   )}
-                  <div className="flex justify-between font-bold text-lg">
-                    <span>Total</span>
-                    <span>CHF {finalTotal.toFixed(2)}</span>
-                  </div>
+                <div className="flex justify-between font-bold text-lg">
+                  <span>Total</span>
+                  <span>CHF {finalTotal.toFixed(2)}</span>
                 </div>
+                {form.order_type === "delivery" && deliveryBlockedMessage && (
+                  <StorefrontNotice type="error">{deliveryBlockedMessage}</StorefrontNotice>
+                )}
+              </div>
 
                 <div className="flex gap-3">
                   <button onClick={() => navigate(createPageUrl("Menu"))} className="flex-1 py-3 rounded-lg border border-gray-300 text-gray-700 text-sm font-medium hover:border-black transition-colors">
@@ -308,7 +369,7 @@ export default function Panier() {
                 <label className="block text-sm font-medium text-gray-700 mb-2">Type de commande</label>
                 <div className="grid grid-cols-2 gap-3">
                   {[{ value: "takeaway", label: "À emporter" }, { value: "delivery", label: "Livraison" }].map(opt => (
-                    <button key={opt.value} type="button" onClick={() => setForm({ ...form, order_type: opt.value })}
+                    <button key={opt.value} type="button" onClick={() => setForm({ ...form, order_type: opt.value, ...(opt.value === "takeaway" ? { customer_postal_code: "" } : {}) })}
                       className={`py-3 border-2 font-medium transition-colors ${form.order_type === opt.value ? "border-black bg-black text-white" : "border-gray-200 text-gray-600 hover:border-gray-400"}`}>
                       {opt.label}
                     </button>
@@ -348,11 +409,37 @@ export default function Panier() {
               </div>
 
               {form.order_type === "delivery" && (
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Adresse de livraison *</label>
-                  <input required value={form.customer_address} onChange={e => setForm({ ...form, customer_address: e.target.value })}
-                    className="w-full border border-gray-300 px-4 py-3 focus:outline-none focus:border-black" placeholder="Rue, numéro, ville" />
-                </div>
+                <>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Code postal *</label>
+                    <input
+                      required
+                      inputMode="numeric"
+                      value={form.customer_postal_code}
+                      onChange={e => setForm({ ...form, customer_postal_code: e.target.value })}
+                      className="w-full border border-gray-300 px-4 py-3 focus:outline-none focus:border-black"
+                      placeholder="1700"
+                    />
+                    {deliveryRule ? (
+                      <StorefrontNotice type="success" className="mt-2">
+                        Livraison disponible pour {deliveryRule.postalCode} · minimum CHF {minimumOrderAmount.toFixed(2)} · frais CHF {deliveryFee.toFixed(2)}.
+                      </StorefrontNotice>
+                    ) : normalizedPostalCode ? (
+                      <StorefrontNotice type="error" className="mt-2">
+                        Livraison indisponible pour le code postal {normalizedPostalCode}.
+                      </StorefrontNotice>
+                    ) : (
+                      <StorefrontNotice type="info" className="mt-2">
+                        Entrez votre code postal pour vérifier votre zone de livraison.
+                      </StorefrontNotice>
+                    )}
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Adresse de livraison *</label>
+                    <input required value={form.customer_address} onChange={e => setForm({ ...form, customer_address: e.target.value })}
+                      className="w-full border border-gray-300 px-4 py-3 focus:outline-none focus:border-black" placeholder="Rue, numéro, ville" />
+                  </div>
+                </>
               )}
 
               <div>
@@ -364,12 +451,18 @@ export default function Panier() {
               <div className="bg-gray-50 p-4 rounded-lg">
                 <h3 className="font-semibold mb-3">Récapitulatif</h3>
                 {cart.map(item => (
-                  <div key={item.id} className="flex justify-between text-sm mb-1">
+                  <div key={item.lineKey || item.id} className="flex justify-between text-sm mb-1">
                     <span>{item.name} x{item.quantity}</span>
                     <span>CHF {(item.price * item.quantity).toFixed(2)}</span>
                   </div>
                 ))}
                 <div className="border-t border-gray-200 mt-2 pt-2 space-y-3">
+                  {form.order_type === "delivery" && normalizedPostalCode && (
+                    <div className="flex justify-between text-sm">
+                      <span>Code postal</span>
+                      <span>{normalizedPostalCode}</span>
+                    </div>
+                  )}
                   <div className="flex justify-between text-sm">
                     <span>Sous-total</span>
                     <span>CHF {cartTotal.toFixed(2)}</span>
@@ -389,16 +482,25 @@ export default function Panier() {
                       <span>- CHF {Number(appliedPromotion.discountAmount || 0).toFixed(2)}</span>
                     </div>
                   )}
+                  {form.order_type === "delivery" && (
+                    <div className="flex justify-between text-sm">
+                      <span>Frais de livraison{deliveryRule ? ` (${deliveryRule.postalCode})` : ""}</span>
+                      <span>CHF {deliveryFee.toFixed(2)}</span>
+                    </div>
+                  )}
                   <div className="flex justify-between font-bold">
                     <span>Total</span>
                     <span>CHF {finalTotal.toFixed(2)}</span>
                   </div>
+                  {form.order_type === "delivery" && deliveryBlockedMessage && (
+                    <StorefrontNotice type="error">{deliveryBlockedMessage}</StorefrontNotice>
+                  )}
                 </div>
               </div>
 
               {submitError && <StorefrontNotice type="error">{submitError}</StorefrontNotice>}
 
-              <button type="submit" disabled={loading}
+              <button type="submit" disabled={loading || Boolean(deliveryBlockedMessage)}
                 className="w-full py-4 rounded-lg bg-[#b5122a] text-white font-semibold text-lg hover:bg-[#8f0e21] transition-colors disabled:opacity-60">
                 {loading ? "Envoi en cours..." : `Confirmer — CHF ${finalTotal.toFixed(2)}`}
               </button>

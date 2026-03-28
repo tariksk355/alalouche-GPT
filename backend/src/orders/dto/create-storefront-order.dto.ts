@@ -19,6 +19,10 @@ class StorefrontOrderItemDto {
   @IsNumber()
   @Min(1)
   quantity!: number;
+
+  @IsOptional()
+  @IsArray()
+  selectedOptions?: unknown[];
 }
 
 export class CreateStorefrontOrderDto {
@@ -38,6 +42,11 @@ export class CreateStorefrontOrderDto {
   @IsString()
   @IsNotEmpty()
   customerAddress?: string;
+
+  @ValidateIf((dto: CreateStorefrontOrderDto) => dto.orderType === 'delivery' || dto.customerPostalCode !== undefined)
+  @IsString()
+  @IsNotEmpty()
+  customerPostalCode?: string;
 
   @IsIn(['takeaway', 'delivery'])
   orderType!: 'takeaway' | 'delivery';
