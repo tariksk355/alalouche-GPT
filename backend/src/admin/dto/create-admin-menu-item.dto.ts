@@ -1,4 +1,4 @@
-import { IsBoolean, IsNumber, IsOptional, IsString, MaxLength, Min } from 'class-validator';
+import { IsArray, IsBoolean, IsNumber, IsOptional, IsString, MaxLength, Min } from 'class-validator';
 
 export class CreateAdminMenuItemDto {
   @IsString()
@@ -32,4 +32,8 @@ export class CreateAdminMenuItemDto {
   @IsOptional()
   @IsBoolean()
   available?: boolean;
+
+  @IsOptional()
+  @IsArray()
+  optionGroups?: unknown[];
 }

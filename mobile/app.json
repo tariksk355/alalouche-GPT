@@ -1,0 +1,15 @@
+{
+  "expo": {
+    "name": "À la Louche",
+    "slug": "alalouche-mobile",
+    "scheme": "alalouche",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "ios": {
+      "bundleIdentifier": "com.alalouche.mobile"
+    },
+    "android": {
+      "package": "com.alalouche.mobile"
+    }
+  }
+}
