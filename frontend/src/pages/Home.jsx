@@ -6,6 +6,12 @@ import { listMenuCatalog } from "@/lib/api/storefrontOps";
 export default function Home() {
   const [menuItems, setMenuItems] = useState([]);
 
+  const scrollToTopAfterNavigation = () => {
+    window.setTimeout(() => {
+      window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+    }, 0);
+  };
+
   useEffect(() => {
     listMenuCatalog().then(items => setMenuItems(items.slice(0, 6))).catch(() => setMenuItems([]));
   }, []);
@@ -54,10 +60,10 @@ export default function Home() {
             <p className="text-gray-600 text-base mb-4">Un kebab réinventé, généreux et moderne.</p>
             <p className="text-gray-600 text-base mb-8">Une expérience gourmande à partager.</p>
             <div className="flex gap-4 flex-wrap justify-center md:justify-start">
-              <Link to={createPageUrl("Menu")} className="px-7 py-3 bg-black text-white font-medium hover:bg-gray-800 transition-colors text-sm">
+              <Link to={createPageUrl("Menu")} onClick={scrollToTopAfterNavigation} className="px-7 py-3 bg-black text-white font-medium hover:bg-gray-800 transition-colors text-sm">
                 Voir le menu
               </Link>
-              <Link to={createPageUrl("Reservation")} className="px-7 py-3 bg-[#b5122a] text-white font-medium hover:bg-[#8f0e21] transition-colors text-sm">
+              <Link to={createPageUrl("Reservation")} onClick={scrollToTopAfterNavigation} className="px-7 py-3 bg-[#b5122a] text-white font-medium hover:bg-[#8f0e21] transition-colors text-sm">
                 Réserver
               </Link>
             </div>
