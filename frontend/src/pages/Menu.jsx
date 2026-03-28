@@ -475,6 +475,19 @@ export default function Menu() {
 
       {/* Category List */}
       <div className="max-w-2xl mx-auto px-4 py-6">
+        {!isViewOnlyMenu && (
+          <div className="mb-5 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+            <p className="font-medium">Livraison disponible uniquement dans certaines zones de Fribourg.</p>
+            <p className="mt-1">Le minimum de commande et les frais de livraison dépendent du code postal.</p>
+            <button
+              type="button"
+              onClick={() => navigate(`${createPageUrl("Panier")}?checkDelivery=1`)}
+              className="mt-2 inline-flex text-xs font-semibold underline underline-offset-2 hover:text-amber-700"
+            >
+              Vérifier ma zone de livraison
+            </button>
+          </div>
+        )}
         {menuCategories.map((cat, idx) => (
           <button
             key={cat.key}

@@ -43,6 +43,11 @@ export class CreateStorefrontOrderDto {
   @IsNotEmpty()
   customerAddress?: string;
 
+  @ValidateIf((dto: CreateStorefrontOrderDto) => dto.orderType === 'delivery' || dto.customerPostalCode !== undefined)
+  @IsString()
+  @IsNotEmpty()
+  customerPostalCode?: string;
+
   @IsIn(['takeaway', 'delivery'])
   orderType!: 'takeaway' | 'delivery';
 

@@ -44,10 +44,12 @@ export function normalizeStorefrontOrder(order) {
     customer_email: order.customerEmail,
     customer_phone: payload.customerPhone || null,
     customer_address: payload.customerAddress || null,
+    customer_postal_code: payload.customerPostalCode || null,
     order_type: payload.orderType || 'takeaway',
     payment_method: payload.paymentMethod || 'cash',
     subtotal_amount: Number((order.subtotalAmount ?? payload.subtotalAmount ?? order.totalAmount) || 0),
     discount_amount: Number((order.discountAmount ?? payload.discountAmount) || 0),
+    delivery_fee_amount: Number(payload.deliveryFeeAmount || 0),
     promotion_code: order.promotionCode || payload?.promotion?.code || null,
     total_amount: Number(order.totalAmount || 0),
     items: Array.isArray(payload.items) ? payload.items : [],
@@ -119,6 +121,7 @@ export function getStoredCheckoutDefaults() {
     const parsed = JSON.parse(raw);
     return {
       customer_address: parsed.customer_address || '',
+      customer_postal_code: parsed.customer_postal_code || '',
       order_type: parsed.order_type === 'delivery' ? 'delivery' : 'takeaway',
       payment_method: parsed.payment_method === 'card' ? 'card' : 'cash',
     };
@@ -130,6 +133,7 @@ export function getStoredCheckoutDefaults() {
 export function saveCheckoutDefaults(payload) {
   const defaults = {
     customer_address: payload.customer_address || '',
+    customer_postal_code: payload.customer_postal_code || '',
     order_type: payload.order_type === 'delivery' ? 'delivery' : 'takeaway',
     payment_method: payload.payment_method === 'card' ? 'card' : 'cash',
   };

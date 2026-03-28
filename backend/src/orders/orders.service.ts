@@ -3,6 +3,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { NotificationService } from '../notifications/notification.service';
 import { CreateStorefrontOrderDto } from './dto/create-storefront-order.dto';
 import { PreviewStorefrontPromotionDto } from './dto/preview-storefront-promotion.dto';
+import { DELIVERY_ZONE_RULES, normalizePostalCode } from './delivery-zones';
 
 type OrderPromotionComputation = {
   promotionId: string;
@@ -133,6 +134,14 @@ export class OrdersService {
     return items.reduce((sum, item) => sum + item.price * item.quantity, 0);
   }
 
+  private resolveDeliveryRule(rawPostalCode?: string | null) {
+    const postalCode = normalizePostalCode(rawPostalCode);
+    if (!postalCode) return null;
+    const rule = DELIVERY_ZONE_RULES[postalCode];
+    if (!rule) return null;
+    return { postalCode, ...rule };
+  }
+
   async previewStorefrontPromotion(
     restaurantId: string,
     dto: PreviewStorefrontPromotionDto,
@@ -157,6 +166,7 @@ export class OrdersService {
     options?: { customerId?: string | null; customerEmail?: string | null },
   ) {
     const normalizedAddress = dto.customerAddress?.trim() || null;
+    const normalizedPostalCode = normalizePostalCode(dto.customerPostalCode || normalizedAddress);
     const normalizedNotes = dto.notes?.trim() || null;
 
     if (dto.orderType === 'delivery' && !normalizedAddress) {
@@ -182,7 +192,29 @@ export class OrdersService {
 
     const subtotalAmount = this.computeSubtotal(normalizedItems);
     const discountAmount = promotionResult?.discountAmount || 0;
-    const totalAmount = promotionResult?.totalAmount || subtotalAmount;
+    const discountedSubtotal = promotionResult?.totalAmount || subtotalAmount;
+    let deliveryFeeAmount = 0;
+
+    if (dto.orderType === 'delivery') {
+      const deliveryRule = this.resolveDeliveryRule(normalizedPostalCode);
+      if (!deliveryRule) {
+        throw new BadRequestException({
+          error: 'DELIVERY_POSTAL_CODE_UNSUPPORTED',
+          message: 'Delivery is unavailable for this postal code.',
+        });
+      }
+
+      if (subtotalAmount < deliveryRule.minimumOrder) {
+        throw new BadRequestException({
+          error: 'DELIVERY_MINIMUM_NOT_REACHED',
+          message: `Minimum order is CHF ${deliveryRule.minimumOrder.toFixed(2)} for postal code ${deliveryRule.postalCode}.`,
+        });
+      }
+
+      deliveryFeeAmount = deliveryRule.deliveryFee;
+    }
+
+    const totalAmount = Number((discountedSubtotal + deliveryFeeAmount).toFixed(2));
 
     const order = await this.prisma.$transaction(async (tx: any) => {
       if (promotionResult?.promotionId) {
@@ -210,12 +242,14 @@ export class OrdersService {
           payload: {
             customerPhone: dto.customerPhone,
             customerAddress: normalizedAddress,
+            customerPostalCode: normalizedPostalCode || null,
             orderType: dto.orderType,
             paymentMethod: dto.paymentMethod,
             notes: normalizedNotes,
             items: normalizedItems,
             subtotalAmount,
             discountAmount,
+            deliveryFeeAmount,
             totalAmount,
             promotion: promotionResult
               ? {
