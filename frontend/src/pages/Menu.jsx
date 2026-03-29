@@ -118,8 +118,9 @@ export default function Menu() {
       if (Number.isFinite(Number(group.minSelections)) && selectedIds.length < Number(group.minSelections)) {
         return `Veuillez sélectionner au moins ${group.minSelections} option(s) pour "${group.name}".`;
       }
-      if (Number.isFinite(Number(group.maxSelections)) && selectedIds.length > Number(group.maxSelections)) {
-        return `Veuillez sélectionner au maximum ${group.maxSelections} option(s) pour "${group.name}".`;
+      const maxSelectionsValue = Number(group.maxSelections);
+      if (Number.isFinite(maxSelectionsValue) && maxSelectionsValue > 0 && selectedIds.length > maxSelectionsValue) {
+        return `Veuillez sélectionner au maximum ${maxSelectionsValue} option(s) pour "${group.name}".`;
       }
     }
     return "";
