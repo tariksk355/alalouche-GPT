@@ -57,9 +57,25 @@ const CATEGORY_METADATA = [
 ];
 
 export default function Menu() {
+  const getCategoryFromUrl = () => {
+    if (typeof window === "undefined") return null;
+    const value = new URLSearchParams(window.location.search).get("category");
+    return typeof value === "string" && value.trim() ? value.trim() : null;
+  };
+  const setCategoryInUrl = (category) => {
+    if (typeof window === "undefined") return;
+    const url = new URL(window.location.href);
+    if (typeof category === "string" && category.trim()) {
+      url.searchParams.set("category", category.trim());
+    } else {
+      url.searchParams.delete("category");
+    }
+    window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
+  };
+
   const { tenant } = useTenant();
   const [items, setItems] = useState([]);
-  const [activeCategory, setActiveCategory] = useState(null);
+  const [activeCategory, setActiveCategory] = useState(() => getCategoryFromUrl());
   const [zoomedImage, setZoomedImage] = useState(null);
   const [configuringItem, setConfiguringItem] = useState(null);
   const [selectedOptionsByGroup, setSelectedOptionsByGroup] = useState({});
@@ -171,6 +187,7 @@ export default function Menu() {
 
   const handleBackToMenu = () => {
     setActiveCategory(null);
+    setCategoryInUrl(null);
     setTimeout(() => {
       window.scrollTo({ top: 0, behavior: "smooth" });
     }, 0);
@@ -252,6 +269,13 @@ export default function Menu() {
   const activeCategoryData = activeCategory
     ? menuCategories.find(c => c.key === activeCategory)
     : null;
+
+  useEffect(() => {
+    if (!activeCategory) return;
+    if (menuCategories.some((category) => category.key === activeCategory)) return;
+    setActiveCategory(null);
+    setCategoryInUrl(null);
+  }, [activeCategory, menuCategories]);
 
   const categoryItems = useMemo(() => {
     if (!activeCategory) return [];
@@ -492,7 +516,10 @@ export default function Menu() {
         {menuCategories.map((cat, idx) => (
           <button
             key={cat.key}
-            onClick={() => setActiveCategory(cat.key)}
+            onClick={() => {
+              setActiveCategory(cat.key);
+              setCategoryInUrl(cat.key);
+            }}
             className={`w-full text-left py-5 flex justify-between items-center gap-4 transition-colors hover:bg-gray-50 px-2 -mx-2 rounded ${
               idx < menuCategories.length - 1 ? "border-b border-gray-100" : ""
             }`}
