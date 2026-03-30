@@ -65,6 +65,12 @@ export async function listMenuCatalog() {
   return data.data.items || [];
 }
 
+export async function trackStorefrontVisit() {
+  await backendClient.request('/public/visit', {
+    method: 'POST',
+  });
+}
+
 export async function createStorefrontOrder(payload) {
   const data = await backendClient.request('/orders', {
     method: 'POST',

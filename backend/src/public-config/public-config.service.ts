@@ -12,6 +12,14 @@ export class PublicConfigService {
     private readonly redisService: RedisService,
   ) {}
 
+  async recordStorefrontVisit(restaurantId: string) {
+    await this.prisma.storefrontVisit.create({
+      data: {
+        restaurantId,
+      },
+    });
+  }
+
   async getMenuCatalog(restaurantId: string) {
     const cacheKey = this.getMenuCatalogCacheKey(restaurantId);
     const cached = await this.redisService.getJson<ReturnType<PublicConfigService['mapMenuCatalogItems']>>(cacheKey);
@@ -130,18 +138,27 @@ export class PublicConfigService {
           .filter((option) => option.label);
 
         const selectionType: 'single' | 'multiple' = row.selectionType === 'multiple' ? 'multiple' : 'single';
+        const required = row.required === true;
         const minSelections = selectionType === 'single'
-          ? (row.required === true ? 1 : 0)
+          ? (required ? 1 : 0)
           : (Number.isFinite(Number(row.minSelections)) ? Math.max(Number(row.minSelections), 0) : null);
         const maxSelections = selectionType === 'single'
           ? 1
-          : (Number.isFinite(Number(row.maxSelections)) ? Math.max(Number(row.maxSelections), 0) : null);
+          : (
+            Number.isFinite(Number(row.maxSelections))
+              ? (
+                !required && Number(row.maxSelections) <= 0
+                  ? null
+                  : Math.max(Number(row.maxSelections), 0)
+              )
+              : null
+          );
 
         return {
           id: typeof row.id === 'string' && row.id.trim() ? row.id.trim() : `group-${groupIndex}`,
           name: typeof row.name === 'string' ? row.name.trim() : '',
           selectionType,
-          required: row.required === true,
+          required,
           minSelections,
           maxSelections,
           options,

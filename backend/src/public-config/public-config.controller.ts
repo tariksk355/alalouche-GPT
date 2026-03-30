@@ -1,4 +1,4 @@
-import { Controller, Get, Query, Res, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Query, Res, UseGuards } from '@nestjs/common';
 import { Response } from 'express';
 import { ok } from '../common/api-response';
 import { TenantContextGuard } from '../tenant/tenant-context.guard';
@@ -33,6 +33,13 @@ export class PublicConfigController {
   async getMenuCatalog(@TenantCtx() tenant: TenantContext) {
     const items = await this.publicConfigService.getMenuCatalog(tenant.restaurantId);
     return ok({ items, tenantSource: tenant.source });
+  }
+
+  @Post('visit')
+  @UseGuards(TenantContextGuard)
+  async trackVisit(@TenantCtx() tenant: TenantContext) {
+    await this.publicConfigService.recordStorefrontVisit(tenant.restaurantId);
+    return ok({ tracked: true });
   }
 
   @Get('media')

@@ -3,6 +3,7 @@ import { createPageUrl } from '@/utils';
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/lib/AuthContext';
 import { useTenant } from '@/lib/TenantContext';
+import { trackStorefrontVisit } from '@/lib/api/storefrontOps';
 import PrivacyPolicyModal from '@/components/PrivacyPolicyModal';
 import { getCart, cartCount } from '@/components/cartStore';
 import { Info, Mail, MapPin, Phone, ShoppingCart } from 'lucide-react';
@@ -70,7 +71,18 @@ export default function Layout({ children, currentPageName }) {
   const footerContact = RESTAURANT_CONTACT;
 
   useEffect(() => {
-    // TODO(migration): wire analytics events to backend analytics endpoint.
+    if (typeof window === 'undefined') return;
+    if (['AdminDashboard', 'AdminLogin', 'OrderReceiver', 'DevicePair'].includes(currentPageName)) return;
+
+    const visitKey = `${window.location.pathname}${window.location.search}`;
+    const storageKey = 'storefront_last_tracked_visit_key';
+    const lastTracked = sessionStorage.getItem(storageKey);
+    if (lastTracked === visitKey) return;
+    sessionStorage.setItem(storageKey, visitKey);
+
+    trackStorefrontVisit().catch(() => {
+      // noop: analytics should never block storefront UX
+    });
   }, [currentPageName]);
 
   useEffect(() => {
