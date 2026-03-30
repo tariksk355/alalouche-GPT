@@ -1,4 +1,4 @@
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/lib/AuthContext';
@@ -45,6 +45,7 @@ const hexToRgba = (hex, alpha) => {
 };
 
 export default function Layout({ children, currentPageName }) {
+  const location = useLocation();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const { user, logout } = useAuth();
   const { tenant } = useTenant();
@@ -74,7 +75,7 @@ export default function Layout({ children, currentPageName }) {
     if (typeof window === 'undefined') return;
     if (['AdminDashboard', 'AdminLogin', 'OrderReceiver', 'DevicePair'].includes(currentPageName)) return;
 
-    const visitKey = `${window.location.pathname}${window.location.search}`;
+    const visitKey = `${location.pathname}${location.search}`;
     const storageKey = 'storefront_last_tracked_visit_key';
     const lastTracked = sessionStorage.getItem(storageKey);
     if (lastTracked === visitKey) return;
@@ -83,7 +84,7 @@ export default function Layout({ children, currentPageName }) {
     trackStorefrontVisit().catch(() => {
       // noop: analytics should never block storefront UX
     });
-  }, [currentPageName]);
+  }, [currentPageName, location.pathname, location.search]);
 
   useEffect(() => {
     const handleScroll = () => setShowScrollTop(window.scrollY > 400);
