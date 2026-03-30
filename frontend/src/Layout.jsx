@@ -1,8 +1,9 @@
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/lib/AuthContext';
 import { useTenant } from '@/lib/TenantContext';
+import { trackStorefrontVisit } from '@/lib/api/storefrontOps';
 import PrivacyPolicyModal from '@/components/PrivacyPolicyModal';
 import { getCart, cartCount } from '@/components/cartStore';
 import { Info, Mail, MapPin, Phone, ShoppingCart } from 'lucide-react';
@@ -44,6 +45,7 @@ const hexToRgba = (hex, alpha) => {
 };
 
 export default function Layout({ children, currentPageName }) {
+  const location = useLocation();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const { user, logout } = useAuth();
   const { tenant } = useTenant();
@@ -70,8 +72,19 @@ export default function Layout({ children, currentPageName }) {
   const footerContact = RESTAURANT_CONTACT;
 
   useEffect(() => {
-    // TODO(migration): wire analytics events to backend analytics endpoint.
-  }, [currentPageName]);
+    if (typeof window === 'undefined') return;
+    if (['AdminDashboard', 'AdminLogin', 'OrderReceiver', 'DevicePair'].includes(currentPageName)) return;
+
+    const todayKey = new Date().toISOString().slice(0, 10);
+    const storageKey = 'storefront_last_tracked_visit_day';
+    const lastTrackedDay = localStorage.getItem(storageKey);
+    if (lastTrackedDay === todayKey) return;
+    localStorage.setItem(storageKey, todayKey);
+
+    trackStorefrontVisit().catch(() => {
+      // noop: analytics should never block storefront UX
+    });
+  }, [currentPageName, location.pathname, location.search]);
 
   useEffect(() => {
     const handleScroll = () => setShowScrollTop(window.scrollY > 400);
