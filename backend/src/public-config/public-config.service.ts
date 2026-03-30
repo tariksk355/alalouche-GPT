@@ -12,6 +12,14 @@ export class PublicConfigService {
     private readonly redisService: RedisService,
   ) {}
 
+  async recordStorefrontVisit(restaurantId: string) {
+    await this.prisma.storefrontVisit.create({
+      data: {
+        restaurantId,
+      },
+    });
+  }
+
   async getMenuCatalog(restaurantId: string) {
     const cacheKey = this.getMenuCatalogCacheKey(restaurantId);
     const cached = await this.redisService.getJson<ReturnType<PublicConfigService['mapMenuCatalogItems']>>(cacheKey);

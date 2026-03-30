@@ -648,7 +648,7 @@ export class OrdersService {
     const end = new Date(start);
     end.setDate(end.getDate() + 1);
 
-    const [orders, reservations, turnoverAgg] = await Promise.all([
+    const [orders, reservations, turnoverAgg, visitorCount] = await Promise.all([
       this.prisma.order.count({
         where: {
           restaurantId,
@@ -669,6 +669,12 @@ export class OrdersService {
           status: { in: ['accepted', 'ready', 'completed'] },
         },
       }),
+      this.prisma.storefrontVisit.count({
+        where: {
+          restaurantId,
+          createdAt: { gte: start, lt: end },
+        },
+      }),
     ]);
 
     return {
@@ -676,8 +682,7 @@ export class OrdersService {
       dailyTurnover: Number(turnoverAgg._sum.totalAmount || 0),
       orderCount: orders,
       reservationCount: reservations,
-      visitorCount: null,
-      visitorCountNote: 'Placeholder: visitor tracking not wired yet.',
+      visitorCount,
     };
   }
 }
