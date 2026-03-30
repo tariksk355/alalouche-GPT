@@ -75,11 +75,11 @@ export default function Layout({ children, currentPageName }) {
     if (typeof window === 'undefined') return;
     if (['AdminDashboard', 'AdminLogin', 'OrderReceiver', 'DevicePair'].includes(currentPageName)) return;
 
-    const visitKey = `${location.pathname}${location.search}`;
-    const storageKey = 'storefront_last_tracked_visit_key';
-    const lastTracked = sessionStorage.getItem(storageKey);
-    if (lastTracked === visitKey) return;
-    sessionStorage.setItem(storageKey, visitKey);
+    const todayKey = new Date().toISOString().slice(0, 10);
+    const storageKey = 'storefront_last_tracked_visit_day';
+    const lastTrackedDay = localStorage.getItem(storageKey);
+    if (lastTrackedDay === todayKey) return;
+    localStorage.setItem(storageKey, todayKey);
 
     trackStorefrontVisit().catch(() => {
       // noop: analytics should never block storefront UX
