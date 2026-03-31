@@ -3,12 +3,16 @@ import {
   ActivityIndicator,
   Alert,
   FlatList,
+  Keyboard,
+  KeyboardAvoidingView,
+  Platform,
   Pressable,
   SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
   TextInput,
+  TouchableWithoutFeedback,
   View,
 } from 'react-native';
 import {
@@ -186,42 +190,50 @@ export default function App() {
   if (!session?.token) {
     return (
       <SafeAreaView style={styles.loginScreen}>
-        <View style={styles.loginCard}>
-          <Text style={styles.loginTitle}>À la Louche Ops</Text>
-          <Text style={styles.loginSubtitle}>Connexion opérateur</Text>
+        <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+          <KeyboardAvoidingView
+            style={styles.loginKeyboardContainer}
+            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+            keyboardVerticalOffset={Platform.OS === 'ios' ? 16 : 0}
+          >
+            <View style={styles.loginCard}>
+              <Text style={styles.loginTitle}>À la Louche Ops</Text>
+              <Text style={styles.loginSubtitle}>Connexion opérateur</Text>
 
-          <View style={styles.inputGroup}>
-            <Text style={styles.inputLabel}>Nom d'utilisateur</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="admin"
-              autoCapitalize="none"
-              value={loginForm.username}
-              onChangeText={(username) => setLoginForm((prev) => ({ ...prev, username }))}
-            />
-          </View>
-          <View style={styles.inputGroup}>
-            <Text style={styles.inputLabel}>Mot de passe</Text>
-            <View style={styles.passwordRow}>
-              <TextInput
-                style={styles.passwordInput}
-                placeholder="••••••••"
-                secureTextEntry={!passwordVisible}
-                value={loginForm.password}
-                onChangeText={(password) => setLoginForm((prev) => ({ ...prev, password }))}
-              />
-              <Pressable onPress={() => setPasswordVisible((prev) => !prev)} style={styles.passwordToggle}>
-                <Text style={styles.passwordToggleLabel}>{passwordVisible ? 'Masquer' : 'Afficher'}</Text>
+              <View style={styles.inputGroup}>
+                <Text style={styles.inputLabel}>Nom d'utilisateur</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="admin"
+                  autoCapitalize="none"
+                  value={loginForm.username}
+                  onChangeText={(username) => setLoginForm((prev) => ({ ...prev, username }))}
+                />
+              </View>
+              <View style={styles.inputGroup}>
+                <Text style={styles.inputLabel}>Mot de passe</Text>
+                <View style={styles.passwordRow}>
+                  <TextInput
+                    style={styles.passwordInput}
+                    placeholder="••••••••"
+                    secureTextEntry={!passwordVisible}
+                    value={loginForm.password}
+                    onChangeText={(password) => setLoginForm((prev) => ({ ...prev, password }))}
+                  />
+                  <Pressable onPress={() => setPasswordVisible((prev) => !prev)} style={styles.passwordToggle}>
+                    <Text style={styles.passwordToggleLabel}>{passwordVisible ? 'Masquer' : 'Afficher'}</Text>
+                  </Pressable>
+                </View>
+              </View>
+
+              {loginError ? <Text style={styles.errorText}>{loginError}</Text> : null}
+
+              <Pressable style={styles.loginButton} disabled={loggingIn} onPress={handleLogin}>
+                <Text style={styles.loginButtonLabel}>{loggingIn ? 'Connexion...' : 'Se connecter'}</Text>
               </Pressable>
             </View>
-          </View>
-
-          {loginError ? <Text style={styles.errorText}>{loginError}</Text> : null}
-
-          <Pressable style={styles.loginButton} disabled={loggingIn} onPress={handleLogin}>
-            <Text style={styles.loginButtonLabel}>{loggingIn ? 'Connexion...' : 'Se connecter'}</Text>
-          </Pressable>
-        </View>
+          </KeyboardAvoidingView>
+        </TouchableWithoutFeedback>
       </SafeAreaView>
     );
   }
@@ -383,6 +395,7 @@ export default function App() {
 
 const styles = StyleSheet.create({
   loginScreen: { flex: 1, backgroundColor: '#f9fafb', padding: 20, justifyContent: 'center' },
+  loginKeyboardContainer: { flex: 1, justifyContent: 'center' },
   screen: { flex: 1, backgroundColor: '#fff', padding: 16 },
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   loginCard: {
