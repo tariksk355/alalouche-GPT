@@ -23,7 +23,7 @@ import { clearSession, loadSession, saveSession } from './src/storage';
 const PREP_OPTIONS = [15, 30, 45, 60];
 const ORDER_ACTIONS = ['accepted', 'ready', 'completed'];
 const RESERVATION_ACTIONS = ['confirmed', 'cancelled'];
-const POLL_MS = 15000;
+const POLL_MS = 5000;
 
 function formatDate(value) {
   if (!value) return '—';
