@@ -40,7 +40,7 @@ export async function loginAdmin(username, password) {
 }
 
 export async function listOrders(token) {
-  const data = await request('/admin/orders', { headers: authHeader(token) });
+  const data = await request('/admin/orders?includeOperational=true', { headers: authHeader(token) });
   return Array.isArray(data.orders) ? data.orders : [];
 }
 

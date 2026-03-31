@@ -51,6 +51,13 @@ function compactText(value) {
   return value.trim();
 }
 
+function previewText(value, max = 90) {
+  const text = compactText(value);
+  if (!text) return '';
+  if (text.length <= max) return text;
+  return `${text.slice(0, max).trim()}…`;
+}
+
 function renderItemOptionLabel(option) {
   if (!option || typeof option !== 'object') return '';
   const label = compactText(option.optionLabel);
@@ -296,13 +303,14 @@ export default function App() {
             <View style={styles.sectionCard}>
               <Text style={styles.detailTitle}>Commande #{selectedOrder.orderNumber}</Text>
               <Text style={styles.detailPrimary}>Statut: {selectedOrder.status}</Text>
-              <Text style={styles.detailItem}>Type: {textOrDash(orderPayload.orderType)}</Text>
+              <Text style={styles.detailItem}>Type: {textOrDash(selectedOrder.orderType || orderPayload.orderType)}</Text>
               <Text style={styles.detailItem}>Client: {selectedOrder.customerName || '—'}</Text>
               <Text style={styles.detailItem}>Email: {selectedOrder.customerEmail || '—'}</Text>
-              <Text style={styles.detailItem}>Téléphone: {textOrDash(orderPayload.customerPhone)}</Text>
-              <Text style={styles.detailItem}>Adresse: {textOrDash(orderPayload.customerAddress)}</Text>
-              <Text style={styles.detailItem}>Paiement: {textOrDash(orderPayload.paymentMethod)}</Text>
-              <Text style={styles.detailItem}>Notes: {textOrDash(orderPayload.notes)}</Text>
+              <Text style={styles.detailItem}>Téléphone: {textOrDash(selectedOrder.customerPhone || orderPayload.customerPhone)}</Text>
+              <Text style={styles.detailItem}>Adresse: {textOrDash(selectedOrder.customerAddress || orderPayload.customerAddress)}</Text>
+              <Text style={styles.detailItem}>Paiement: {textOrDash(selectedOrder.paymentMethod || orderPayload.paymentMethod)}</Text>
+              <Text style={styles.detailItem}>Notes: {textOrDash(selectedOrder.notes || orderPayload.notes)}</Text>
+              <Text style={styles.detailItem}>Historique client: {Number.isFinite(Number(selectedOrder.customerTotalOrderCount)) ? `${Number(selectedOrder.customerTotalOrderCount)} commande(s)` : '—'}</Text>
               <Text style={styles.detailItem}>Créée le: {formatDate(selectedOrder.createdAt)}</Text>
               <Text style={styles.detailAmount}>Total: CHF {Number(selectedOrder.totalAmount || 0).toFixed(2)}</Text>
             </View>
@@ -380,9 +388,20 @@ export default function App() {
                     <Text style={styles.statusBadgeLabel}>{item.status}</Text>
                   </View>
                 </View>
-                <Text style={styles.cardMeta}>{textOrDash(extractOrderPayload(item).orderType)}</Text>
+                <Text style={styles.cardMeta}>{textOrDash(item.orderType || extractOrderPayload(item).orderType)}</Text>
                 <Text style={styles.cardPrimary}>{item.customerName || 'Client inconnu'}</Text>
-                <Text style={styles.cardSecondary}>{textOrDash(extractOrderPayload(item).customerPhone)}</Text>
+                <Text style={styles.cardSecondary}>{textOrDash(item.customerPhone || extractOrderPayload(item).customerPhone)}</Text>
+                <Text style={styles.cardSecondaryStrong}>CHF {Number(item.totalAmount || 0).toFixed(2)}</Text>
+                {compactText(item.customerAddress || extractOrderPayload(item).customerAddress)
+                  && String(item.orderType || extractOrderPayload(item).orderType || '').toLowerCase() === 'delivery' ? (
+                    <Text style={styles.cardSecondary}>Livraison: {previewText(item.customerAddress || extractOrderPayload(item).customerAddress, 72)}</Text>
+                  ) : null}
+                {compactText(item.notes || extractOrderPayload(item).notes) ? (
+                  <Text style={styles.cardSecondary}>Note: {previewText(item.notes || extractOrderPayload(item).notes, 72)}</Text>
+                ) : null}
+                {Number.isFinite(Number(item.customerTotalOrderCount)) ? (
+                  <Text style={styles.cardSecondary}>Historique client: {Number(item.customerTotalOrderCount)} commande(s)</Text>
+                ) : null}
                 <Text style={styles.cardSecondary}>{formatDate(item.createdAt)}</Text>
               </Pressable>
             )}
@@ -502,13 +521,14 @@ const styles = StyleSheet.create({
   },
   infoBannerLabel: { color: '#374151', fontWeight: '600' },
   listContent: { gap: 10, paddingBottom: 32, paddingTop: 2 },
-  card: { borderWidth: 1, borderColor: '#e5e7eb', borderRadius: 12, padding: 14, backgroundColor: '#fff' },
+  card: { borderWidth: 1, borderColor: '#e5e7eb', borderRadius: 12, padding: 16, backgroundColor: '#fff', minHeight: 150, justifyContent: 'center' },
   cardTopRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 8 },
   cardTitle: { fontWeight: '700', marginBottom: 6, color: '#111827', fontSize: 16, flex: 1 },
   statusBadge: { backgroundColor: '#f3f4f6', borderWidth: 1, borderColor: '#d1d5db', borderRadius: 999, paddingHorizontal: 8, paddingVertical: 3 },
   statusBadgeLabel: { color: '#374151', fontSize: 12, fontWeight: '700' },
   cardPrimary: { color: '#111827', fontSize: 15, marginBottom: 2 },
   cardMeta: { color: '#6b7280', fontSize: 12, fontWeight: '700', textTransform: 'uppercase', marginBottom: 2 },
+  cardSecondaryStrong: { color: '#111827', fontSize: 14, fontWeight: '700', marginTop: 2 },
   cardSecondary: { color: '#6b7280', fontSize: 13 },
   detailContainer: { flex: 1, paddingBottom: 10 },
   sectionCard: { borderWidth: 1, borderColor: '#e5e7eb', borderRadius: 12, padding: 14, backgroundColor: '#fff', marginBottom: 10 },
