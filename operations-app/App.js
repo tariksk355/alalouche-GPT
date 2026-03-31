@@ -42,6 +42,7 @@ export default function App() {
   const [loggingIn, setLoggingIn] = useState(false);
   const [loginForm, setLoginForm] = useState({ username: '', password: '' });
   const [loginError, setLoginError] = useState('');
+  const [passwordVisible, setPasswordVisible] = useState(false);
 
   const [tab, setTab] = useState('orders');
   const [orders, setOrders] = useState([]);
@@ -184,30 +185,41 @@ export default function App() {
 
   if (!session?.token) {
     return (
-      <SafeAreaView style={styles.screen}>
+      <SafeAreaView style={styles.loginScreen}>
         <View style={styles.loginCard}>
-          <Text style={styles.title}>À la Louche Ops</Text>
-          <Text style={styles.subtitle}>Connexion opérateur</Text>
+          <Text style={styles.loginTitle}>À la Louche Ops</Text>
+          <Text style={styles.loginSubtitle}>Connexion opérateur</Text>
 
-          <TextInput
-            style={styles.input}
-            placeholder="Nom d'utilisateur"
-            autoCapitalize="none"
-            value={loginForm.username}
-            onChangeText={(username) => setLoginForm((prev) => ({ ...prev, username }))}
-          />
-          <TextInput
-            style={styles.input}
-            placeholder="Mot de passe"
-            secureTextEntry
-            value={loginForm.password}
-            onChangeText={(password) => setLoginForm((prev) => ({ ...prev, password }))}
-          />
+          <View style={styles.inputGroup}>
+            <Text style={styles.inputLabel}>Nom d'utilisateur</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="admin"
+              autoCapitalize="none"
+              value={loginForm.username}
+              onChangeText={(username) => setLoginForm((prev) => ({ ...prev, username }))}
+            />
+          </View>
+          <View style={styles.inputGroup}>
+            <Text style={styles.inputLabel}>Mot de passe</Text>
+            <View style={styles.passwordRow}>
+              <TextInput
+                style={styles.passwordInput}
+                placeholder="••••••••"
+                secureTextEntry={!passwordVisible}
+                value={loginForm.password}
+                onChangeText={(password) => setLoginForm((prev) => ({ ...prev, password }))}
+              />
+              <Pressable onPress={() => setPasswordVisible((prev) => !prev)} style={styles.passwordToggle}>
+                <Text style={styles.passwordToggleLabel}>{passwordVisible ? 'Masquer' : 'Afficher'}</Text>
+              </Pressable>
+            </View>
+          </View>
 
           {loginError ? <Text style={styles.errorText}>{loginError}</Text> : null}
 
-          <Pressable style={styles.primaryButton} disabled={loggingIn} onPress={handleLogin}>
-            <Text style={styles.primaryButtonLabel}>{loggingIn ? 'Connexion...' : 'Se connecter'}</Text>
+          <Pressable style={styles.loginButton} disabled={loggingIn} onPress={handleLogin}>
+            <Text style={styles.loginButtonLabel}>{loggingIn ? 'Connexion...' : 'Se connecter'}</Text>
           </Pressable>
         </View>
       </SafeAreaView>
@@ -234,7 +246,12 @@ export default function App() {
         </Pressable>
       </View>
 
-      {loadingData ? <ActivityIndicator style={styles.loader} /> : null}
+      {loadingData ? (
+        <View style={styles.infoBanner}>
+          <ActivityIndicator size="small" color="#111827" />
+          <Text style={styles.infoBannerLabel}>Actualisation...</Text>
+        </View>
+      ) : null}
       {loadError ? <Text style={styles.errorText}>{loadError}</Text> : null}
 
       {tab === 'orders' ? (
@@ -243,39 +260,46 @@ export default function App() {
             <Pressable onPress={() => setSelectedOrderId(null)}>
               <Text style={styles.link}>← Retour</Text>
             </Pressable>
-            <Text style={styles.detailTitle}>Commande #{selectedOrder.orderNumber}</Text>
-            <Text>Statut: {selectedOrder.status}</Text>
-            <Text>Client: {selectedOrder.customerName || '—'}</Text>
-            <Text>Email: {selectedOrder.customerEmail || '—'}</Text>
-            <Text>Téléphone: {orderPayload.customerPhone || '—'}</Text>
-            <Text>Créée le: {formatDate(selectedOrder.createdAt)}</Text>
-            <Text>Total: CHF {Number(selectedOrder.totalAmount || 0).toFixed(2)}</Text>
 
-            <Text style={styles.sectionTitle}>Temps de préparation (acceptation)</Text>
-            <View style={styles.pillRow}>
-              {PREP_OPTIONS.map((value) => (
-                <Pressable
-                  key={value}
-                  style={[styles.pill, selectedPrep === value && styles.pillActive]}
-                  onPress={() => setSelectedPrep(value)}
-                >
-                  <Text style={[styles.pillLabel, selectedPrep === value && styles.pillLabelActive]}>{value} min</Text>
-                </Pressable>
-              ))}
+            <View style={styles.sectionCard}>
+              <Text style={styles.detailTitle}>Commande #{selectedOrder.orderNumber}</Text>
+              <Text style={styles.detailPrimary}>Statut: {selectedOrder.status}</Text>
+              <Text style={styles.detailItem}>Client: {selectedOrder.customerName || '—'}</Text>
+              <Text style={styles.detailItem}>Email: {selectedOrder.customerEmail || '—'}</Text>
+              <Text style={styles.detailItem}>Téléphone: {orderPayload.customerPhone || '—'}</Text>
+              <Text style={styles.detailItem}>Créée le: {formatDate(selectedOrder.createdAt)}</Text>
+              <Text style={styles.detailAmount}>Total: CHF {Number(selectedOrder.totalAmount || 0).toFixed(2)}</Text>
             </View>
 
-            <Text style={styles.sectionTitle}>Actions</Text>
-            <View style={styles.actionRow}>
-              {ORDER_ACTIONS.map((status) => (
-                <Pressable
-                  key={status}
-                  disabled={actionInFlight}
-                  style={styles.primaryButton}
-                  onPress={() => handleOrderAction(status)}
-                >
-                  <Text style={styles.primaryButtonLabel}>{status}</Text>
-                </Pressable>
-              ))}
+            <View style={styles.sectionCard}>
+              <Text style={styles.sectionTitle}>Temps de préparation (acceptation)</Text>
+              <View style={styles.pillRow}>
+                {PREP_OPTIONS.map((value) => (
+                  <Pressable
+                    key={value}
+                    style={[styles.pill, selectedPrep === value && styles.pillActive]}
+                    onPress={() => setSelectedPrep(value)}
+                  >
+                    <Text style={[styles.pillLabel, selectedPrep === value && styles.pillLabelActive]}>{value} min</Text>
+                  </Pressable>
+                ))}
+              </View>
+            </View>
+
+            <View style={styles.sectionCard}>
+              <Text style={styles.sectionTitle}>Actions</Text>
+              <View style={styles.actionRow}>
+                {ORDER_ACTIONS.map((status) => (
+                  <Pressable
+                    key={status}
+                    disabled={actionInFlight}
+                    style={styles.primaryButton}
+                    onPress={() => handleOrderAction(status)}
+                  >
+                    <Text style={styles.primaryButtonLabel}>{status}</Text>
+                  </Pressable>
+                ))}
+              </View>
             </View>
           </ScrollView>
         ) : (
@@ -287,12 +311,17 @@ export default function App() {
             onRefresh={refreshData}
             renderItem={({ item }) => (
               <Pressable style={styles.card} onPress={() => setSelectedOrderId(item.id)}>
-                <Text style={styles.cardTitle}>#{item.orderNumber} • {item.status}</Text>
-                <Text>{item.customerName || 'Client inconnu'}</Text>
-                <Text>{formatDate(item.createdAt)}</Text>
+                <View style={styles.cardTopRow}>
+                  <Text style={styles.cardTitle}>#{item.orderNumber}</Text>
+                  <View style={styles.statusBadge}>
+                    <Text style={styles.statusBadgeLabel}>{item.status}</Text>
+                  </View>
+                </View>
+                <Text style={styles.cardPrimary}>{item.customerName || 'Client inconnu'}</Text>
+                <Text style={styles.cardSecondary}>{formatDate(item.createdAt)}</Text>
               </Pressable>
             )}
-            ListEmptyComponent={<Text style={styles.empty}>Aucune commande.</Text>}
+            ListEmptyComponent={<Text style={styles.empty}>Aucune commande en cours.</Text>}
           />
         )
       ) : selectedReservation ? (
@@ -300,26 +329,30 @@ export default function App() {
           <Pressable onPress={() => setSelectedReservationId(null)}>
             <Text style={styles.link}>← Retour</Text>
           </Pressable>
-          <Text style={styles.detailTitle}>Réservation</Text>
-          <Text>Statut: {selectedReservation.status}</Text>
-          <Text>Nom: {selectedReservation.customerName || '—'}</Text>
-          <Text>Email: {selectedReservation.customerEmail || '—'}</Text>
-          <Text>Téléphone: {selectedReservation.customerPhone || '—'}</Text>
-          <Text>Couverts: {selectedReservation.guestCount ?? '—'}</Text>
-          <Text>Date: {formatDate(selectedReservation.reservationDate)}</Text>
+          <View style={styles.sectionCard}>
+            <Text style={styles.detailTitle}>Réservation</Text>
+            <Text style={styles.detailPrimary}>Statut: {selectedReservation.status}</Text>
+            <Text style={styles.detailItem}>Nom: {selectedReservation.customerName || '—'}</Text>
+            <Text style={styles.detailItem}>Email: {selectedReservation.customerEmail || '—'}</Text>
+            <Text style={styles.detailItem}>Téléphone: {selectedReservation.customerPhone || '—'}</Text>
+            <Text style={styles.detailItem}>Couverts: {selectedReservation.guestCount ?? '—'}</Text>
+            <Text style={styles.detailItem}>Date: {formatDate(selectedReservation.reservationDate)}</Text>
+          </View>
 
-          <Text style={styles.sectionTitle}>Actions</Text>
-          <View style={styles.actionRow}>
-            {RESERVATION_ACTIONS.map((status) => (
-              <Pressable
-                key={status}
-                disabled={actionInFlight}
-                style={styles.primaryButton}
-                onPress={() => handleReservationAction(status)}
-              >
-                <Text style={styles.primaryButtonLabel}>{status}</Text>
-              </Pressable>
-            ))}
+          <View style={styles.sectionCard}>
+            <Text style={styles.sectionTitle}>Actions</Text>
+            <View style={styles.actionRow}>
+              {RESERVATION_ACTIONS.map((status) => (
+                <Pressable
+                  key={status}
+                  disabled={actionInFlight}
+                  style={styles.primaryButton}
+                  onPress={() => handleReservationAction(status)}
+                >
+                  <Text style={styles.primaryButtonLabel}>{status}</Text>
+                </Pressable>
+              ))}
+            </View>
           </View>
         </ScrollView>
       ) : (
@@ -331,12 +364,17 @@ export default function App() {
           onRefresh={refreshData}
           renderItem={({ item }) => (
             <Pressable style={styles.card} onPress={() => setSelectedReservationId(item.id)}>
-              <Text style={styles.cardTitle}>{item.customerName || 'Réservation'} • {item.status}</Text>
-              <Text>{item.guestCount} couvert(s)</Text>
-              <Text>{formatDate(item.reservationDate)}</Text>
+              <View style={styles.cardTopRow}>
+                <Text style={styles.cardTitle}>{item.customerName || 'Réservation'}</Text>
+                <View style={styles.statusBadge}>
+                  <Text style={styles.statusBadgeLabel}>{item.status}</Text>
+                </View>
+              </View>
+              <Text style={styles.cardPrimary}>{item.guestCount} couvert(s)</Text>
+              <Text style={styles.cardSecondary}>{formatDate(item.reservationDate)}</Text>
             </Pressable>
           )}
-          ListEmptyComponent={<Text style={styles.empty}>Aucune réservation.</Text>}
+          ListEmptyComponent={<Text style={styles.empty}>Aucune réservation en attente.</Text>}
         />
       )}
     </SafeAreaView>
@@ -344,34 +382,76 @@ export default function App() {
 }
 
 const styles = StyleSheet.create({
+  loginScreen: { flex: 1, backgroundColor: '#f9fafb', padding: 20, justifyContent: 'center' },
   screen: { flex: 1, backgroundColor: '#fff', padding: 16 },
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  loginCard: { marginTop: 80, borderWidth: 1, borderColor: '#e5e7eb', borderRadius: 12, padding: 16, gap: 10 },
+  loginCard: {
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    borderRadius: 16,
+    padding: 20,
+    gap: 12,
+    backgroundColor: '#fff',
+    shadowColor: '#111827',
+    shadowOpacity: 0.08,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 8 },
+  },
+  loginTitle: { fontSize: 28, fontWeight: '700', color: '#111827' },
+  loginSubtitle: { color: '#6b7280', marginBottom: 4, fontSize: 15 },
   title: { fontSize: 22, fontWeight: '700', color: '#111827' },
-  subtitle: { color: '#6b7280', marginBottom: 6 },
-  input: { borderWidth: 1, borderColor: '#d1d5db', borderRadius: 8, padding: 10 },
-  primaryButton: { backgroundColor: '#b5122a', borderRadius: 8, paddingVertical: 10, paddingHorizontal: 12, marginTop: 8 },
+  inputGroup: { gap: 6 },
+  inputLabel: { color: '#374151', fontSize: 13, fontWeight: '600' },
+  input: { borderWidth: 1, borderColor: '#d1d5db', borderRadius: 10, paddingHorizontal: 12, minHeight: 50, fontSize: 16 },
+  passwordRow: { flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: '#d1d5db', borderRadius: 10, minHeight: 50 },
+  passwordInput: { flex: 1, paddingHorizontal: 12, fontSize: 16 },
+  passwordToggle: { minHeight: 50, justifyContent: 'center', paddingHorizontal: 12, borderLeftWidth: 1, borderLeftColor: '#e5e7eb' },
+  passwordToggleLabel: { color: '#1d4ed8', fontWeight: '600' },
+  loginButton: { backgroundColor: '#b5122a', borderRadius: 10, minHeight: 52, justifyContent: 'center', marginTop: 4 },
+  loginButtonLabel: { color: '#fff', textAlign: 'center', fontWeight: '700', fontSize: 16 },
+  primaryButton: { backgroundColor: '#b5122a', borderRadius: 10, minHeight: 48, justifyContent: 'center', paddingHorizontal: 12, marginTop: 8 },
   primaryButtonLabel: { color: '#fff', textAlign: 'center', fontWeight: '600' },
-  errorText: { color: '#b91c1c', marginTop: 6 },
+  errorText: { color: '#b91c1c', marginTop: 8, backgroundColor: '#fef2f2', borderWidth: 1, borderColor: '#fecaca', borderRadius: 8, padding: 10 },
   headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
-  link: { color: '#1d4ed8', marginVertical: 8 },
+  link: { color: '#1d4ed8', marginVertical: 10, fontWeight: '600' },
   tabRow: { flexDirection: 'row', gap: 8, marginBottom: 8 },
-  tab: { flex: 1, borderWidth: 1, borderColor: '#d1d5db', borderRadius: 8, paddingVertical: 10 },
+  tab: { flex: 1, borderWidth: 1, borderColor: '#d1d5db', borderRadius: 10, paddingVertical: 12 },
   tabActive: { backgroundColor: '#111827', borderColor: '#111827' },
   tabLabel: { textAlign: 'center', color: '#111827', fontWeight: '600' },
   tabLabelActive: { color: '#fff' },
-  loader: { marginVertical: 8 },
-  listContent: { gap: 8, paddingBottom: 24 },
-  card: { borderWidth: 1, borderColor: '#e5e7eb', borderRadius: 10, padding: 12 },
-  cardTitle: { fontWeight: '700', marginBottom: 4, color: '#111827' },
-  detailContainer: { flex: 1 },
+  infoBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: '#f3f4f6',
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    marginBottom: 8,
+  },
+  infoBannerLabel: { color: '#374151', fontWeight: '600' },
+  listContent: { gap: 10, paddingBottom: 32, paddingTop: 2 },
+  card: { borderWidth: 1, borderColor: '#e5e7eb', borderRadius: 12, padding: 14, backgroundColor: '#fff' },
+  cardTopRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 8 },
+  cardTitle: { fontWeight: '700', marginBottom: 6, color: '#111827', fontSize: 16, flex: 1 },
+  statusBadge: { backgroundColor: '#f3f4f6', borderWidth: 1, borderColor: '#d1d5db', borderRadius: 999, paddingHorizontal: 8, paddingVertical: 3 },
+  statusBadgeLabel: { color: '#374151', fontSize: 12, fontWeight: '700' },
+  cardPrimary: { color: '#111827', fontSize: 15, marginBottom: 2 },
+  cardSecondary: { color: '#6b7280', fontSize: 13 },
+  detailContainer: { flex: 1, paddingBottom: 10 },
+  sectionCard: { borderWidth: 1, borderColor: '#e5e7eb', borderRadius: 12, padding: 14, backgroundColor: '#fff', marginBottom: 10 },
   detailTitle: { fontSize: 20, fontWeight: '700', color: '#111827', marginBottom: 8 },
-  sectionTitle: { marginTop: 16, fontWeight: '700', color: '#111827' },
+  detailPrimary: { color: '#111827', fontWeight: '700', marginBottom: 6, fontSize: 15 },
+  detailItem: { color: '#374151', marginBottom: 4, fontSize: 14 },
+  detailAmount: { color: '#111827', fontWeight: '700', marginTop: 4, fontSize: 15 },
+  sectionTitle: { fontWeight: '700', color: '#111827', marginBottom: 8, fontSize: 15 },
   pillRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 8 },
-  pill: { borderWidth: 1, borderColor: '#d1d5db', borderRadius: 999, paddingVertical: 8, paddingHorizontal: 12 },
+  pill: { borderWidth: 1, borderColor: '#d1d5db', borderRadius: 999, paddingVertical: 10, paddingHorizontal: 14, minHeight: 42, justifyContent: 'center' },
   pillActive: { borderColor: '#b5122a', backgroundColor: '#fef2f2' },
   pillLabel: { color: '#111827' },
   pillLabelActive: { color: '#b5122a', fontWeight: '700' },
   actionRow: { marginTop: 8, gap: 6, paddingBottom: 20 },
-  empty: { color: '#6b7280', textAlign: 'center', marginTop: 24 },
+  empty: { color: '#6b7280', textAlign: 'center', marginTop: 24, backgroundColor: '#f9fafb', borderWidth: 1, borderColor: '#e5e7eb', borderRadius: 10, paddingVertical: 16, paddingHorizontal: 12 },
 });
