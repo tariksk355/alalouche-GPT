@@ -40,6 +40,25 @@ function extractOrderPayload(order) {
   return order?.payload && typeof order.payload === 'object' ? order.payload : {};
 }
 
+function textOrDash(value) {
+  if (typeof value !== 'string') return '—';
+  const trimmed = value.trim();
+  return trimmed || '—';
+}
+
+function compactText(value) {
+  if (typeof value !== 'string') return '';
+  return value.trim();
+}
+
+function renderItemOptionLabel(option) {
+  if (!option || typeof option !== 'object') return '';
+  const label = compactText(option.optionLabel);
+  const group = compactText(option.groupName);
+  if (group && label) return `${group}: ${label}`;
+  return label || group;
+}
+
 export default function App() {
   const [session, setSession] = useState(null);
   const [booting, setBooting] = useState(true);
@@ -239,6 +258,7 @@ export default function App() {
   }
 
   const orderPayload = extractOrderPayload(selectedOrder);
+  const orderItems = Array.isArray(orderPayload.items) ? orderPayload.items : [];
 
   return (
     <SafeAreaView style={styles.screen}>
@@ -276,11 +296,42 @@ export default function App() {
             <View style={styles.sectionCard}>
               <Text style={styles.detailTitle}>Commande #{selectedOrder.orderNumber}</Text>
               <Text style={styles.detailPrimary}>Statut: {selectedOrder.status}</Text>
+              <Text style={styles.detailItem}>Type: {textOrDash(orderPayload.orderType)}</Text>
               <Text style={styles.detailItem}>Client: {selectedOrder.customerName || '—'}</Text>
               <Text style={styles.detailItem}>Email: {selectedOrder.customerEmail || '—'}</Text>
-              <Text style={styles.detailItem}>Téléphone: {orderPayload.customerPhone || '—'}</Text>
+              <Text style={styles.detailItem}>Téléphone: {textOrDash(orderPayload.customerPhone)}</Text>
+              <Text style={styles.detailItem}>Adresse: {textOrDash(orderPayload.customerAddress)}</Text>
+              <Text style={styles.detailItem}>Paiement: {textOrDash(orderPayload.paymentMethod)}</Text>
+              <Text style={styles.detailItem}>Notes: {textOrDash(orderPayload.notes)}</Text>
               <Text style={styles.detailItem}>Créée le: {formatDate(selectedOrder.createdAt)}</Text>
               <Text style={styles.detailAmount}>Total: CHF {Number(selectedOrder.totalAmount || 0).toFixed(2)}</Text>
+            </View>
+
+            <View style={styles.sectionCard}>
+              <Text style={styles.sectionTitle}>Articles</Text>
+              {orderItems.length === 0 ? (
+                <Text style={styles.detailItem}>Aucun article détaillé.</Text>
+              ) : orderItems.map((item, index) => {
+                const quantity = Number(item?.quantity || 1);
+                const name = textOrDash(item?.name);
+                const linePrice = Number(item?.price || 0);
+                const selectedOptions = Array.isArray(item?.selectedOptions) ? item.selectedOptions : [];
+                return (
+                  <View key={`${name}-${index}`} style={styles.orderItemBlock}>
+                    <Text style={styles.orderItemTitle}>{quantity} × {name}</Text>
+                    <Text style={styles.orderItemPrice}>CHF {linePrice.toFixed(2)}</Text>
+                    {selectedOptions.length > 0 ? selectedOptions.map((option, optionIndex) => {
+                      const optionLabel = renderItemOptionLabel(option);
+                      if (!optionLabel) return null;
+                      return (
+                        <Text key={`${name}-${index}-opt-${optionIndex}`} style={styles.orderItemOption}>
+                          • {optionLabel}
+                        </Text>
+                      );
+                    }) : null}
+                  </View>
+                );
+              })}
             </View>
 
             <View style={styles.sectionCard}>
@@ -329,7 +380,9 @@ export default function App() {
                     <Text style={styles.statusBadgeLabel}>{item.status}</Text>
                   </View>
                 </View>
+                <Text style={styles.cardMeta}>{textOrDash(extractOrderPayload(item).orderType)}</Text>
                 <Text style={styles.cardPrimary}>{item.customerName || 'Client inconnu'}</Text>
+                <Text style={styles.cardSecondary}>{textOrDash(extractOrderPayload(item).customerPhone)}</Text>
                 <Text style={styles.cardSecondary}>{formatDate(item.createdAt)}</Text>
               </Pressable>
             )}
@@ -349,6 +402,7 @@ export default function App() {
             <Text style={styles.detailItem}>Téléphone: {selectedReservation.customerPhone || '—'}</Text>
             <Text style={styles.detailItem}>Couverts: {selectedReservation.guestCount ?? '—'}</Text>
             <Text style={styles.detailItem}>Date: {formatDate(selectedReservation.reservationDate)}</Text>
+            <Text style={styles.detailItem}>Notes: {textOrDash(selectedReservation.notes)}</Text>
           </View>
 
           <View style={styles.sectionCard}>
@@ -383,6 +437,8 @@ export default function App() {
                 </View>
               </View>
               <Text style={styles.cardPrimary}>{item.guestCount} couvert(s)</Text>
+              <Text style={styles.cardSecondary}>{textOrDash(item.customerPhone)}</Text>
+              {compactText(item.notes) ? <Text style={styles.cardSecondary}>Note: {compactText(item.notes)}</Text> : null}
               <Text style={styles.cardSecondary}>{formatDate(item.reservationDate)}</Text>
             </Pressable>
           )}
@@ -452,6 +508,7 @@ const styles = StyleSheet.create({
   statusBadge: { backgroundColor: '#f3f4f6', borderWidth: 1, borderColor: '#d1d5db', borderRadius: 999, paddingHorizontal: 8, paddingVertical: 3 },
   statusBadgeLabel: { color: '#374151', fontSize: 12, fontWeight: '700' },
   cardPrimary: { color: '#111827', fontSize: 15, marginBottom: 2 },
+  cardMeta: { color: '#6b7280', fontSize: 12, fontWeight: '700', textTransform: 'uppercase', marginBottom: 2 },
   cardSecondary: { color: '#6b7280', fontSize: 13 },
   detailContainer: { flex: 1, paddingBottom: 10 },
   sectionCard: { borderWidth: 1, borderColor: '#e5e7eb', borderRadius: 12, padding: 14, backgroundColor: '#fff', marginBottom: 10 },
@@ -459,6 +516,10 @@ const styles = StyleSheet.create({
   detailPrimary: { color: '#111827', fontWeight: '700', marginBottom: 6, fontSize: 15 },
   detailItem: { color: '#374151', marginBottom: 4, fontSize: 14 },
   detailAmount: { color: '#111827', fontWeight: '700', marginTop: 4, fontSize: 15 },
+  orderItemBlock: { paddingVertical: 8, borderTopWidth: 1, borderTopColor: '#f3f4f6' },
+  orderItemTitle: { color: '#111827', fontWeight: '700', fontSize: 14 },
+  orderItemPrice: { color: '#374151', fontSize: 13, marginTop: 2 },
+  orderItemOption: { color: '#4b5563', fontSize: 13, marginTop: 2 },
   sectionTitle: { fontWeight: '700', color: '#111827', marginBottom: 8, fontSize: 15 },
   pillRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 8 },
   pill: { borderWidth: 1, borderColor: '#d1d5db', borderRadius: 999, paddingVertical: 10, paddingHorizontal: 14, minHeight: 42, justifyContent: 'center' },
