@@ -527,7 +527,7 @@ class OfficialLibraryPrinterProbe(
         val sectionGapPx = 16
         val majorSectionGapPx = 24
         val totalPreGapPx = 16
-        val totalsBottomSafeReservePx = 72
+        val totalsBottomSafeReservePx = 56
         val drawableWidthPx = (bitmapWidth - leftPaddingPx - rightPaddingPx).coerceAtLeast(1)
         val safeLines = if (lines.isEmpty()) listOf("EMPTY_RECEIPT") else lines
 
@@ -571,8 +571,15 @@ class OfficialLibraryPrinterProbe(
                 return@forEachIndexed
             }
             if (index == 1) {
+                val clientParts = sourceLine.split("•", limit = 2).map { it.trim() }
+                val clientName = clientParts.getOrNull(0).orEmpty().ifBlank { sourceLine.trim() }
+                val orderType = clientParts.getOrNull(1).orEmpty().trim()
                 semanticLines += ReceiptRenderLine("Client:", isLabel = true)
-                semanticLines += ReceiptRenderLine(sourceLine, gapAfterPx = majorSectionGapPx)
+                semanticLines += ReceiptRenderLine(clientName, gapAfterPx = if (orderType.isNotEmpty()) sectionGapPx else majorSectionGapPx)
+                if (orderType.isNotEmpty()) {
+                    semanticLines += ReceiptRenderLine("Type de commande:", isLabel = true)
+                    semanticLines += ReceiptRenderLine(orderType, gapAfterPx = majorSectionGapPx)
+                }
                 return@forEachIndexed
             }
 
@@ -582,7 +589,7 @@ class OfficialLibraryPrinterProbe(
                 "Commande:" to "Commande:",
                 "Historique client:" to "Commandes total:",
                 "Paiement:" to "Paiement:",
-                "Préparation:" to "Livraison pour (env.):",
+                    "Préparation:" to "Durée de préparation:",
                 "Notes:" to "Commentaire:",
                 "Sous-total:" to "Sous-total:",
                 "Code promo:" to "Code promo:",
@@ -596,7 +603,7 @@ class OfficialLibraryPrinterProbe(
                 val value = sourceLine.removePrefix(match.first).trim()
                 val gapAfter = when (match.second) {
                     "Adresse:" -> majorSectionGapPx
-                    "Livraison pour (env.):" -> majorSectionGapPx
+                    "Durée de préparation:" -> majorSectionGapPx
                     "Commentaire:" -> majorSectionGapPx
                     "TOTAL:" -> majorSectionGapPx
                     else -> 0
