@@ -36,6 +36,13 @@ private enum class OfficialProductionBitmapPrimitive {
 class OfficialLibraryPrinterProbe(
     private val context: Context,
 ) {
+
+    private data class ReceiptRenderLine(
+        val text: String,
+        val isSeparator: Boolean = false,
+        val isLabel: Boolean = false,
+        val gapAfterPx: Int = 0,
+    )
     fun dispatch(job: NativePrintJobEntity): NativeDispatchReport {
         val runMode = resolveRunMode()
         val bindLatch = CountDownLatch(1)
@@ -514,7 +521,7 @@ class OfficialLibraryPrinterProbe(
         val leftPaddingPx = 12
         val rightPaddingPx = 12
         val topPaddingPx = 18
-        val bottomPaddingPx = 44
+        val bottomPaddingPx = 72
         val lineHeightPx = 38
         val sectionGapPx = 10
         val drawableWidthPx = (bitmapWidth - leftPaddingPx - rightPaddingPx).coerceAtLeast(1)
@@ -524,6 +531,11 @@ class OfficialLibraryPrinterProbe(
             color = Color.BLACK
             textSize = 26f
             typeface = Typeface.MONOSPACE
+        }
+        val labelPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.BLACK
+            textSize = 26f
+            typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
         }
 
         val normalizedLines = mutableListOf<String>()
@@ -535,37 +547,90 @@ class OfficialLibraryPrinterProbe(
             normalizedLines += normalized
         }
 
-        val wrappedLines = mutableListOf<String>()
-        val separatorSegmentIndices = mutableSetOf<Int>()
-        var truncatedLineCount = 0
-        normalizedLines.forEach { sourceLine ->
+        val semanticLines = mutableListOf<ReceiptRenderLine>()
+        normalizedLines.forEachIndexed { index, sourceLine ->
             if (sourceLine.isBlank()) {
-                wrappedLines += ""
-                return@forEach
+                semanticLines += ReceiptRenderLine("")
+                return@forEachIndexed
             }
             if (SEPARATOR_LINE_PATTERN.matcher(sourceLine).matches()) {
+                semanticLines += ReceiptRenderLine(sourceLine, isSeparator = true, gapAfterPx = 6)
+                return@forEachIndexed
+            }
+            if (index == 1) {
+                semanticLines += ReceiptRenderLine("Client:", isLabel = true)
+                semanticLines += ReceiptRenderLine(sourceLine, gapAfterPx = sectionGapPx)
+                return@forEachIndexed
+            }
+
+            val mappings = listOf(
+                "Téléphone:" to "Téléphone:",
+                "Adresse:" to "Adresse:",
+                "Commande:" to "Commande:",
+                "Historique client:" to "Commandes total:",
+                "Paiement:" to "Paiement:",
+                "Préparation:" to "Livraison pour (env.):",
+                "Notes:" to "Commentaire:",
+                "Sous-total:" to "Sous-total:",
+                "Code promo:" to "Code promo:",
+                "Réduction:" to "Réduction:",
+                "TOTAL:" to "TOTAL:",
+                "Articles:" to "Articles:",
+            )
+
+            val match = mappings.firstOrNull { (prefix, _) -> sourceLine.startsWith(prefix) }
+            if (match != null) {
+                val value = sourceLine.removePrefix(match.first).trim()
+                val gapAfter = when (match.second) {
+                    "Commandes total:", "Commentaire:", "Articles:", "TOTAL:" -> sectionGapPx
+                    else -> 0
+                }
+                semanticLines += ReceiptRenderLine(match.second, isLabel = true)
+                if (value.isNotEmpty()) {
+                    semanticLines += ReceiptRenderLine(value, gapAfterPx = gapAfter)
+                } else {
+                    semanticLines += ReceiptRenderLine("—", gapAfterPx = gapAfter)
+                }
+            } else {
+                semanticLines += ReceiptRenderLine(sourceLine)
+            }
+        }
+
+        val wrappedLines = mutableListOf<ReceiptRenderLine>()
+        var truncatedLineCount = 0
+        semanticLines.forEach { sourceLine ->
+            if (sourceLine.text.isBlank()) {
+                wrappedLines += ReceiptRenderLine("")
+                return@forEach
+            }
+            if (sourceLine.isSeparator) {
                 wrappedLines += sourceLine
-                separatorSegmentIndices += wrappedLines.lastIndex
                 return@forEach
             }
             var cursor = 0
-            while (cursor < sourceLine.length) {
-                var count = paint.breakText(sourceLine, cursor, sourceLine.length, true, drawableWidthPx.toFloat(), null)
+            val sourceText = sourceLine.text
+            val measurePaint = if (sourceLine.isLabel) labelPaint else paint
+            while (cursor < sourceText.length) {
+                var count = measurePaint.breakText(sourceText, cursor, sourceText.length, true, drawableWidthPx.toFloat(), null)
                 if (count <= 0) {
                     count = 1
                     truncatedLineCount += 1
                 }
-                var end = (cursor + count).coerceAtMost(sourceLine.length)
-                if (end < sourceLine.length) {
-                    val candidate = sourceLine.substring(cursor, end)
+                var end = (cursor + count).coerceAtMost(sourceText.length)
+                if (end < sourceText.length) {
+                    val candidate = sourceText.substring(cursor, end)
                     val lastWhitespace = candidate.indexOfLast { it.isWhitespace() }
                     if (lastWhitespace > 0) {
                         end = cursor + lastWhitespace
                     }
                 }
-                wrappedLines += sourceLine.substring(cursor, end)
+                wrappedLines += ReceiptRenderLine(
+                    text = sourceText.substring(cursor, end),
+                    isLabel = sourceLine.isLabel,
+                    gapAfterPx = if (end >= sourceText.length) sourceLine.gapAfterPx else 0,
+                )
                 cursor = end
-                while (cursor < sourceLine.length && sourceLine[cursor].isWhitespace()) {
+                while (cursor < sourceText.length && sourceText[cursor].isWhitespace()) {
                     cursor += 1
                 }
             }
@@ -595,29 +660,29 @@ class OfficialLibraryPrinterProbe(
 
         var y = topPaddingPx + lineHeightPx
         drawableLines.forEachIndexed { drawIndex, line ->
-            val sourceWrappedIndex = drawIndex
-            if (separatorSegmentIndices.contains(sourceWrappedIndex)) {
+            if (line.isSeparator) {
                 val startX = leftPaddingPx.toFloat()
                 val endX = (bitmapWidth - rightPaddingPx).toFloat()
                 val centerY = (y - (lineHeightPx / 2f))
                 canvas.drawLine(startX, centerY, endX, centerY, separatorPaint)
-                Log.i(TAG, "official_receipt_separator_rendered index=$sourceWrappedIndex mode=drawLine")
+                Log.i(TAG, "official_receipt_separator_rendered index=$drawIndex mode=drawLine")
             } else if (drawIndex == 0) {
-                val textWidth = paint.measureText(line)
+                val drawPaint = if (line.isLabel) labelPaint else paint
+                val textWidth = drawPaint.measureText(line.text)
                 val centeredX = ((bitmapWidth - textWidth) / 2f).coerceAtLeast(leftPaddingPx.toFloat())
-                canvas.drawText(line, centeredX, y.toFloat(), paint)
+                canvas.drawText(line.text, centeredX, y.toFloat(), drawPaint)
             } else {
-                canvas.drawText(line, leftPaddingPx.toFloat(), y.toFloat(), paint)
+                val drawPaint = if (line.isLabel) labelPaint else paint
+                canvas.drawText(line.text, leftPaddingPx.toFloat(), y.toFloat(), drawPaint)
             }
 
             var advance = lineHeightPx
             if (drawIndex == 0) {
                 advance += sectionGapPx
-            } else if (line == "Articles:") {
+            } else if (line.text == "Articles:") {
                 advance += sectionGapPx
-            } else if (separatorSegmentIndices.contains(sourceWrappedIndex)) {
-                advance += 6
             }
+            advance += line.gapAfterPx
             y += advance
         }
         return bmp
