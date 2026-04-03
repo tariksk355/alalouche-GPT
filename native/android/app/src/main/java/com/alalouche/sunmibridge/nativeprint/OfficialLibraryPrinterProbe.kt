@@ -527,6 +527,7 @@ class OfficialLibraryPrinterProbe(
         val sectionGapPx = 16
         val majorSectionGapPx = 24
         val totalPreGapPx = 16
+        val totalsBottomSafeReservePx = 72
         val drawableWidthPx = (bitmapWidth - leftPaddingPx - rightPaddingPx).coerceAtLeast(1)
         val safeLines = if (lines.isEmpty()) listOf("EMPTY_RECEIPT") else lines
 
@@ -658,11 +659,24 @@ class OfficialLibraryPrinterProbe(
             }
         }
 
-        val desiredHeight = topPaddingPx + bottomPaddingPx + (wrappedLines.size * lineHeightPx)
+        val hasTotalBlock = wrappedLines.any { it.isLabel && it.text == "TOTAL:" }
+        var measuredY = topPaddingPx + lineHeightPx
+        wrappedLines.forEachIndexed { drawIndex, line ->
+            if (line.isLabel && line.text == "TOTAL:") {
+                measuredY += totalPreGapPx
+            }
+            measuredY += lineHeightPx
+            if (drawIndex == 0) {
+                measuredY += sectionGapPx
+            }
+            measuredY += line.gapAfterPx
+        }
+        val measuredContentHeightPx = (measuredY - topPaddingPx).coerceAtLeast(lineHeightPx)
+        val trailingSafeReservePx = if (hasTotalBlock) totalsBottomSafeReservePx else 0
+        val desiredHeight = topPaddingPx + measuredContentHeightPx + bottomPaddingPx + trailingSafeReservePx
         val maxBitmapHeightPx = 12000
         val bitmapHeight = desiredHeight.coerceIn(220, maxBitmapHeightPx)
-        val maxDrawableLines = ((bitmapHeight - topPaddingPx - bottomPaddingPx) / lineHeightPx).coerceAtLeast(1)
-        val drawableLines = wrappedLines.take(maxDrawableLines)
+        val drawableLines = wrappedLines
         val droppedLineCount = (wrappedLines.size - drawableLines.size).coerceAtLeast(0)
 
         Log.i(
