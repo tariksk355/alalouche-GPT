@@ -515,13 +515,13 @@ class OfficialLibraryPrinterProbe(
         val rightPaddingPx = 12
         val topPaddingPx = 18
         val bottomPaddingPx = 26
-        val lineHeightPx = 34
+        val lineHeightPx = 38
         val drawableWidthPx = (bitmapWidth - leftPaddingPx - rightPaddingPx).coerceAtLeast(1)
         val safeLines = if (lines.isEmpty()) listOf("EMPTY_RECEIPT") else lines
 
         val paint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.BLACK
-            textSize = 24f
+            textSize = 26f
             typeface = Typeface.MONOSPACE
         }
 
@@ -554,9 +554,19 @@ class OfficialLibraryPrinterProbe(
                     count = 1
                     truncatedLineCount += 1
                 }
-                val end = (cursor + count).coerceAtMost(sourceLine.length)
+                var end = (cursor + count).coerceAtMost(sourceLine.length)
+                if (end < sourceLine.length) {
+                    val candidate = sourceLine.substring(cursor, end)
+                    val lastWhitespace = candidate.indexOfLast { it.isWhitespace() }
+                    if (lastWhitespace > 0) {
+                        end = cursor + lastWhitespace
+                    }
+                }
                 wrappedLines += sourceLine.substring(cursor, end)
                 cursor = end
+                while (cursor < sourceLine.length && sourceLine[cursor].isWhitespace()) {
+                    cursor += 1
+                }
             }
         }
 
