@@ -514,8 +514,9 @@ class OfficialLibraryPrinterProbe(
         val leftPaddingPx = 12
         val rightPaddingPx = 12
         val topPaddingPx = 18
-        val bottomPaddingPx = 26
+        val bottomPaddingPx = 44
         val lineHeightPx = 38
+        val sectionGapPx = 10
         val drawableWidthPx = (bitmapWidth - leftPaddingPx - rightPaddingPx).coerceAtLeast(1)
         val safeLines = if (lines.isEmpty()) listOf("EMPTY_RECEIPT") else lines
 
@@ -601,10 +602,23 @@ class OfficialLibraryPrinterProbe(
                 val centerY = (y - (lineHeightPx / 2f))
                 canvas.drawLine(startX, centerY, endX, centerY, separatorPaint)
                 Log.i(TAG, "official_receipt_separator_rendered index=$sourceWrappedIndex mode=drawLine")
+            } else if (drawIndex == 0) {
+                val textWidth = paint.measureText(line)
+                val centeredX = ((bitmapWidth - textWidth) / 2f).coerceAtLeast(leftPaddingPx.toFloat())
+                canvas.drawText(line, centeredX, y.toFloat(), paint)
             } else {
                 canvas.drawText(line, leftPaddingPx.toFloat(), y.toFloat(), paint)
             }
-            y += lineHeightPx
+
+            var advance = lineHeightPx
+            if (drawIndex == 0) {
+                advance += sectionGapPx
+            } else if (line == "Articles:") {
+                advance += sectionGapPx
+            } else if (separatorSegmentIndices.contains(sourceWrappedIndex)) {
+                advance += 6
+            }
+            y += advance
         }
         return bmp
     }
