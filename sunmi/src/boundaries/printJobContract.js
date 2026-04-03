@@ -76,6 +76,32 @@ function formatCurrencyAmount(amount, currency = 'CHF') {
   return `${Number(amount).toFixed(2)} ${currency}`;
 }
 
+function wrapLineAtWordBoundaries(rawLine, maxChars = 32) {
+  const line = typeof rawLine === 'string' ? rawLine : String(rawLine ?? '');
+  if (!line.trim()) return [''];
+
+  const words = line.split(/\s+/).filter(Boolean);
+  const wrapped = [];
+  let current = '';
+
+  words.forEach((word) => {
+    if (!current) {
+      current = word;
+      return;
+    }
+    const candidate = `${current} ${word}`;
+    if (candidate.length <= maxChars) {
+      current = candidate;
+      return;
+    }
+    wrapped.push(current);
+    current = word;
+  });
+
+  if (current) wrapped.push(current);
+  return wrapped;
+}
+
 export function normalizeOrderForDisplay(order) {
   const payload = (order?.payload && typeof order.payload === 'object') ? order.payload : {};
   const customerObj = (payload?.customer && typeof payload.customer === 'object') ? payload.customer : {};
@@ -206,7 +232,10 @@ export function normalizeOrderForDisplay(order) {
     const unitPrice = Number.isFinite(Number(line.unitPrice)) ? Number(line.unitPrice) : null;
     const priceText = linePrice != null ? `${linePrice.toFixed(2)} CHF` : unitPrice != null ? `${unitPrice.toFixed(2)} CHF` : '-';
     itemDisplayLines.push(`• ${qty} x ${line.name} — ${priceText}`);
-    receiptItemLines.push(linePrice != null || unitPrice != null ? `${qty} x ${line.name}  ${(linePrice ?? unitPrice).toFixed(2)}` : `${qty} x ${line.name}`);
+    receiptItemLines.push(`${qty} x ${line.name}`);
+    if (linePrice != null || unitPrice != null) {
+      receiptItemLines.push(`  ${Number(linePrice ?? unitPrice).toFixed(2)} CHF`);
+    }
     (Array.isArray(line.modifiers) ? line.modifiers : []).forEach((mod) => {
       if (mod) {
         itemDisplayLines.push(`  + ${String(mod)}`);
@@ -264,28 +293,47 @@ export function normalizeOrderForDisplay(order) {
     .filter((section) => !['items_header', 'item', 'subtotal', 'promotion_code', 'discount', 'total', 'notes'].includes(section.key))
     .map((section) => section.line);
 
-  const receiptLines = [
-    String(order.orderNumber || order.id || ''),
-    ...receiptMetaLines,
-    '------------------------------',
-    'Articles:',
-    ...receiptItemLines,
-    '------------------------------',
-  ];
+  const separator = '────────────────────────────';
+  const receiptLines = [];
+  const pushSectionGap = () => {
+    if (receiptLines.length > 0 && receiptLines[receiptLines.length - 1] !== '') {
+      receiptLines.push('');
+    }
+  };
+  const pushWrapped = (line, width = 30) => {
+    wrapLineAtWordBoundaries(line, width).forEach((wrappedLine) => receiptLines.push(wrappedLine));
+  };
+  const pushSeparator = () => {
+    receiptLines.push(separator);
+  };
+
+  pushWrapped(String(order.orderNumber || order.id || ''), 30);
+  pushSectionGap();
+  receiptMetaLines.forEach((line) => pushWrapped(line, 30));
+  pushSectionGap();
+  pushSeparator();
+  pushWrapped('Articles:', 30);
+  pushSectionGap();
+  receiptItemLines.forEach((line) => pushWrapped(line, 30));
+  pushSectionGap();
+  pushSeparator();
   if (totals && Number.isFinite(Number(totals.total))) {
     const hasAppliedDiscount = Number.isFinite(Number(totals.discount)) && Number(totals.discount) > 0;
     if (hasAppliedDiscount && Number.isFinite(Number(totals.subtotal))) {
-      receiptLines.push(`Sous-total: ${formatCurrencyAmount(Number(totals.subtotal), totals.currency || 'CHF')}`);
+      pushWrapped(`Sous-total: ${formatCurrencyAmount(Number(totals.subtotal), totals.currency || 'CHF')}`, 30);
     }
     if (hasAppliedDiscount && totals.promotionCode) {
-      receiptLines.push(`Code promo: ${totals.promotionCode}`);
+      pushWrapped(`Code promo: ${totals.promotionCode}`, 30);
     }
     if (hasAppliedDiscount) {
-      receiptLines.push(`Réduction: -${formatCurrencyAmount(Number(totals.discount), totals.currency || 'CHF')}`);
+      pushWrapped(`Réduction: -${formatCurrencyAmount(Number(totals.discount), totals.currency || 'CHF')}`, 30);
     }
-    receiptLines.push(`TOTAL: ${formatCurrencyAmount(Number(totals.total), totals.currency || 'CHF')}`);
+    pushWrapped(`TOTAL: ${formatCurrencyAmount(Number(totals.total), totals.currency || 'CHF')}`, 30);
   }
-  if (notesExtra) receiptLines.push(`Notes: ${notesExtra}`);
+  if (notesExtra) {
+    pushSectionGap();
+    pushWrapped(`Notes: ${notesExtra}`, 30);
+  }
 
   return {
     items,
@@ -364,6 +412,10 @@ export function buildPrintJobFromOrder(order, restaurant) {
     formattingHints: {
       paperWidth: '58mm',
       locale: 'fr-CH',
+      fontScale: 1.15,
+      sectionSpacingLines: 1,
+      wordWrap: 'word',
+      sectionSeparator: 'line',
     },
   };
 }
