@@ -28,6 +28,11 @@ const PREP_OPTIONS = [15, 30, 45, 60];
 const ORDER_ACTIONS = ['accepted', 'ready', 'completed'];
 const RESERVATION_ACTIONS = ['confirmed', 'cancelled'];
 const POLL_MS = 5000;
+const ORDER_STATUS_MAP = {
+  accepted: 'accepted',
+  ready: 'ready',
+  completed: 'completed',
+};
 
 function formatDate(value) {
   if (!value) return '—';
@@ -185,9 +190,16 @@ export default function App() {
 
   const handleOrderAction = async (status) => {
     if (!selectedOrder || actionInFlight) return;
+    const normalizedStatus = ORDER_STATUS_MAP[String(status || '').trim().toLowerCase()];
+    if (!normalizedStatus) {
+      Alert.alert('Erreur', 'Statut de commande invalide.');
+      return;
+    }
     setActionInFlight(true);
     try {
-      const payload = status === 'accepted' ? { status, prepMinutes: selectedPrep } : { status };
+      const payload = normalizedStatus === 'accepted'
+        ? { status: normalizedStatus, prepMinutes: selectedPrep }
+        : { status: normalizedStatus };
       await updateOrderStatus(session.token, selectedOrder.id, payload);
       await refreshData();
       Alert.alert('Succès', 'Statut commande mis à jour.');

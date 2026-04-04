@@ -8,13 +8,19 @@
     "icon": "./assets/icon.png",
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "ch.alalouche.operations"
+      "bundleIdentifier": "ch.alalouche.operations",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "package": "ch.alalouche.operations"
     },
     "extra": {
-      "apiBaseUrl": "https://app.kodlantis-test.com"
+      "apiBaseUrl": "https://app.kodlantis-test.com",
+      "eas": {
+        "projectId": "d8e457a6-8f00-451b-8599-17e4e5458bc3"
+      }
     }
   }
 }
