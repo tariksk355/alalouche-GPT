@@ -1535,11 +1535,52 @@ function render() {
       duplicateFieldCheck,
     });
 
-    const sectionRowsHtml = displayModel.displaySections.length
-      ? displayModel.displaySections.map((section, idx) => {
-        const marginStyle = idx === 0 ? '' : ' style="margin-top:6px;"';
-        return `<div class="subtle"${marginStyle}>${escapeHtml(section.line)}</div>`;
-      }).join('')
+    const sectionBlocks = [];
+    const pushLabelValueBlock = (label, rawValue, options = {}) => {
+      const value = typeof rawValue === 'string' ? rawValue : '';
+      if (!label) return;
+      const lines = options.preserveMultiline ? value.split('\n') : [value];
+      const valueHtml = lines
+        .map((line, idx) => `<div class="subtle" style="margin-top:${idx === 0 ? 3 : 2}px;">${escapeHtml(line || ' ')}</div>`)
+        .join('');
+      const totalStyle = options.total ? 'font-weight:700;color:#f8fafc;' : '';
+      sectionBlocks.push(
+        `<div style="margin-top:${sectionBlocks.length === 0 ? 0 : 8}px;">`
+          + `<div class="subtle" style="font-weight:700;${totalStyle}">${escapeHtml(label)}</div>`
+          + valueHtml
+          + `</div>`,
+      );
+    };
+
+    if (displayModel.displaySections.length) {
+      displayModel.displaySections.forEach((section) => {
+        const key = String(section?.key || '');
+        const line = typeof section?.line === 'string' ? section.line : '';
+        if (key === 'customer_type') {
+          const parts = line.split('•', 2).map((part) => part.trim());
+          pushLabelValueBlock('Client:', parts[0] || line.trim());
+          if (parts[1]) pushLabelValueBlock('Type de commande:', parts[1]);
+          return;
+        }
+        if (key === 'phone') return pushLabelValueBlock('Téléphone:', line.replace(/^Téléphone:\s*/i, ''));
+        if (key === 'address') return pushLabelValueBlock('Adresse:', line.replace(/^Adresse:\s*/i, ''));
+        if (key === 'payment') return pushLabelValueBlock('Paiement:', line.replace(/^Paiement:\s*/i, ''));
+        if (key === 'ordered_at') return pushLabelValueBlock('Commande:', line.replace(/^Commande:\s*/i, ''));
+        if (key === 'history') return pushLabelValueBlock('Commandes total:', line.replace(/^Historique client:\s*/i, ''));
+        if (key === 'prep') return pushLabelValueBlock('Durée de préparation:', line.replace(/^Préparation:\s*/i, ''));
+        if (key === 'notes') return pushLabelValueBlock('Commentaire:', line.replace(/^Notes:\s*/i, ''), { preserveMultiline: true });
+        if (key === 'items_header') return sectionBlocks.push(`<div style="margin-top:${sectionBlocks.length === 0 ? 0 : 10}px;"><div class="subtle" style="font-weight:700;">Articles:</div></div>`);
+        if (key === 'item') return sectionBlocks.push(`<div class="subtle" style="margin-top:4px;">${escapeHtml(line)}</div>`);
+        if (key === 'total') return pushLabelValueBlock('TOTAL:', line.replace(/^Total:\s*/i, ''), { total: true });
+        if (key === 'subtotal') return pushLabelValueBlock('Sous-total:', line.replace(/^Sous-total:\s*/i, ''));
+        if (key === 'promotion_code') return pushLabelValueBlock('Code promo:', line.replace(/^Code promo:\s*/i, ''));
+        if (key === 'discount') return pushLabelValueBlock('Réduction:', line.replace(/^Réduction:\s*/i, ''));
+        sectionBlocks.push(`<div class="subtle" style="margin-top:${sectionBlocks.length === 0 ? 0 : 6}px;">${escapeHtml(line)}</div>`);
+      });
+    }
+
+    const sectionRowsHtml = sectionBlocks.length
+      ? sectionBlocks.join('')
       : `<div class="subtle" style="margin-top:8px;">${t('details_unavailable')}</div>`;
 
     const printJob = state.printJobsByOrderId[order.id];
