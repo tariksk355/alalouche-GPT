@@ -200,6 +200,7 @@ export default function App() {
       const payload = normalizedStatus === 'accepted'
         ? { status: normalizedStatus, prepMinutes: selectedPrep }
         : { status: normalizedStatus };
+      console.log('[ops-debug] handleOrderAction payload', { rawStatus: status, normalizedStatus, payload });
       await updateOrderStatus(session.token, selectedOrder.id, payload);
       await refreshData();
       Alert.alert('Succès', 'Statut commande mis à jour.');
