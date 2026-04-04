@@ -151,6 +151,7 @@ export class AdminController {
   @Get('orders')
   async listOrders(
     @Query('includeHidden') includeHidden?: string,
+    @Query('includeOperational') includeOperational?: string,
     @Headers('authorization') authorization?: string,
     @Headers('x-admin-token') adminToken?: string,
     @Headers('x-restaurant-id') legacyRestaurantId?: string,
@@ -158,6 +159,7 @@ export class AdminController {
     const auth = this.requireAdmin(authorization, adminToken, legacyRestaurantId);
     const orders = await this.ordersService.listAdminOrders(auth.restaurantId, {
       includeHidden: includeHidden === 'true',
+      includeOperational: includeOperational === 'true',
     });
     return ok({ orders });
   }
