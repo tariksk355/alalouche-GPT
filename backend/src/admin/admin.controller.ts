@@ -192,10 +192,16 @@ export class AdminController {
   async updateOrderStatus(
     @Param('id') id: string,
     @Body() dto: UpdateAdminOrderStatusDto,
+    @Req() req: Request,
     @Headers('authorization') authorization?: string,
     @Headers('x-admin-token') adminToken?: string,
     @Headers('x-restaurant-id') legacyRestaurantId?: string,
   ) {
+    console.log('[debug][admin/orders/:id/status] incoming request', {
+      method: req.method,
+      path: req.path,
+      body: req.body,
+    });
     const auth = this.requireAdmin(authorization, adminToken, legacyRestaurantId);
     const order = await this.ordersService.updateStatus(auth.restaurantId, id, dto.status, dto.prepMinutes);
     return ok({ order });
