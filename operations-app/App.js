@@ -200,7 +200,6 @@ export default function App() {
       const payload = normalizedStatus === 'accepted'
         ? { status: normalizedStatus, prepMinutes: selectedPrep }
         : { status: normalizedStatus };
-      Alert.alert('Debug statut commande', `raw status: ${String(status)}\nnormalized status: ${normalizedStatus}\nfinal payload: ${JSON.stringify(payload)}\nprepMinutes: ${payload.prepMinutes ?? 'absent'}`);
       await updateOrderStatus(session.token, selectedOrder.id, payload);
       await refreshData();
       Alert.alert('Succès', 'Statut commande mis à jour.');
