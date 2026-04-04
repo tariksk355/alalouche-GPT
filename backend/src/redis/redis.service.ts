@@ -1,13 +1,15 @@
 import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
 import { createHash } from 'node:crypto';
-import { createClient, RedisClientType } from 'redis';
+import { createClient } from 'redis';
+
+type RedisClient = ReturnType<typeof createClient>;
 
 @Injectable()
 export class RedisService implements OnModuleDestroy {
   private readonly logger = new Logger(RedisService.name);
   private readonly redisUrl = process.env.REDIS_URL?.trim() || '';
-  private client: RedisClientType | null = null;
-  private connectPromise: Promise<RedisClientType | null> | null = null;
+  private client: RedisClient | null = null;
+  private connectPromise: Promise<RedisClient | null> | null = null;
   private lastWarningAt = 0;
 
   isConfigured(): boolean {
@@ -105,7 +107,7 @@ export class RedisService implements OnModuleDestroy {
     return `rate-limit:${scope}:${digest}`;
   }
 
-  private async getClient(): Promise<RedisClientType | null> {
+  private async getClient(): Promise<RedisClient | null> {
     if (!this.redisUrl) {
       return null;
     }

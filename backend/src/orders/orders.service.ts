@@ -452,8 +452,8 @@ export class OrdersService {
   }
 
 
-  async listAdminOrders(restaurantId: string, options?: { includeHidden?: boolean }) {
-    return this.prisma.order.findMany({
+  async listAdminOrders(restaurantId: string, options?: { includeHidden?: boolean; includeOperational?: boolean }) {
+    const orders = await this.prisma.order.findMany({
       where: {
         restaurantId,
         ...(options?.includeHidden ? {} : { adminHiddenAt: null }),
@@ -461,6 +461,36 @@ export class OrdersService {
       orderBy: { createdAt: 'desc' },
       take: 200,
     });
+
+    if (!options?.includeOperational) {
+      return orders;
+    }
+
+    const enriched = await Promise.all(
+      orders.map(async (order: any) => {
+        const payload = (order.payload && typeof order.payload === 'object' ? order.payload : {}) as Record<string, unknown>;
+        const orderType = payload.orderType === 'delivery' ? 'delivery' : 'takeaway';
+
+        const customerOrderCount = order.customerId
+          ? await this.prisma.order.count({ where: { restaurantId, customerId: order.customerId } })
+          : order.customerEmail
+            ? await this.prisma.order.count({ where: { restaurantId, customerEmail: order.customerEmail } })
+            : 0;
+
+        return {
+          ...order,
+          orderType,
+          customerPhone: typeof payload.customerPhone === 'string' ? payload.customerPhone : null,
+          customerAddress: typeof payload.customerAddress === 'string' ? payload.customerAddress : null,
+          paymentMethod: typeof payload.paymentMethod === 'string' ? payload.paymentMethod : null,
+          notes: typeof payload.notes === 'string' ? payload.notes : null,
+          customerTotalOrderCount: customerOrderCount,
+          customerOrderCount: Math.max(customerOrderCount - 1, 0),
+        };
+      }),
+    );
+
+    return enriched;
   }
 
   async hideAdminOrder(restaurantId: string, orderId: string) {
