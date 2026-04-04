@@ -273,6 +273,10 @@ export default function App() {
 
   const orderPayload = extractOrderPayload(selectedOrder);
   const orderItems = Array.isArray(orderPayload.items) ? orderPayload.items : [];
+  const orderNotesRaw = typeof (selectedOrder?.notes || orderPayload?.notes) === 'string'
+    ? (selectedOrder?.notes || orderPayload?.notes)
+    : '';
+  const orderNoteLines = orderNotesRaw.length ? orderNotesRaw.split('\n') : [];
 
   return (
     <SafeAreaView style={styles.screen}>
@@ -346,7 +350,9 @@ export default function App() {
               ) : null}
               <View style={styles.semanticBlock}>
                 <Text style={styles.semanticLabel}>Commentaire:</Text>
-                <Text style={styles.semanticValue}>{typeof (selectedOrder.notes || orderPayload.notes) === 'string' && (selectedOrder.notes || orderPayload.notes).length ? (selectedOrder.notes || orderPayload.notes) : '—'}</Text>
+                {orderNoteLines.length ? orderNoteLines.map((line, index) => (
+                  <Text key={`comment-line-${index}`} style={styles.semanticValue}>{line || ' '}</Text>
+                )) : <Text style={styles.semanticValue}>—</Text>}
               </View>
               <View style={styles.semanticBlock}>
                 <Text style={styles.semanticLabelTotal}>TOTAL:</Text>
