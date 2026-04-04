@@ -27,7 +27,8 @@ export class AdminAnalyticsService {
       last7Days.push({ date: toDateKey(start), start, end });
     }
 
-    const [allOrders, todayOrders] = await Promise.all([
+    const oldestLast7Start = last7Days[0]?.start || todayStart;
+    const [allOrders, todayOrders, totalVisits, last7Visits] = await Promise.all([
       this.prisma.order.findMany({
         where: { restaurantId },
         select: { createdAt: true, totalAmount: true, payload: true },
@@ -36,18 +37,34 @@ export class AdminAnalyticsService {
         where: { restaurantId, createdAt: { gte: todayStart } },
         select: { createdAt: true, totalAmount: true, payload: true },
       }),
+      this.prisma.storefrontVisit.count({
+        where: { restaurantId },
+      }),
+      this.prisma.storefrontVisit.findMany({
+        where: {
+          restaurantId,
+          createdAt: { gte: oldestLast7Start },
+        },
+        select: { createdAt: true },
+      }),
     ]);
+
+    const visitsByDate = new Map<string, number>();
+    for (const visit of last7Visits) {
+      const key = toDateKey(visit.createdAt);
+      visitsByDate.set(key, (visitsByDate.get(key) || 0) + 1);
+    }
 
     const totals = {
       orders: allOrders.length,
       revenue: allOrders.reduce((sum: number, order: (typeof allOrders)[number]) => sum + Number(order.totalAmount || 0), 0),
-      visits: null as number | null,
+      visits: totalVisits,
     };
 
     const today = {
       orders: todayOrders.length,
       revenue: todayOrders.reduce((sum: number, order: (typeof todayOrders)[number]) => sum + Number(order.totalAmount || 0), 0),
-      visits: null as number | null,
+      visits: visitsByDate.get(toDateKey(todayStart)) || 0,
     };
 
     const orderTypeStats = allOrders.reduce(
@@ -72,7 +89,7 @@ export class AdminAnalyticsService {
         date: day.date,
         orders: orders.length,
         revenue: orders.reduce((sum: number, order: (typeof orders)[number]) => sum + Number(order.totalAmount || 0), 0),
-        visits: null as number | null,
+        visits: visitsByDate.get(day.date) || 0,
       };
     });
 
@@ -81,9 +98,6 @@ export class AdminAnalyticsService {
       totals,
       orderTypeStats,
       last7,
-      notes: {
-        visits: 'Visitor metrics unavailable: backend visit tracking is not yet implemented.',
-      },
     };
   }
 }

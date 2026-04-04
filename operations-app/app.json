@@ -1,0 +1,20 @@
+{
+  "expo": {
+    "name": "A la Louche Ops",
+    "slug": "alalouche-operations-app",
+    "scheme": "alaloucheops",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "ch.alalouche.operations"
+    },
+    "android": {
+      "package": "ch.alalouche.operations"
+    },
+    "extra": {
+      "apiBaseUrl": "https://app.kodlantis-test.com"
+    }
+  }
+}

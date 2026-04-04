@@ -65,6 +65,7 @@ model Restaurant {
   adminUsers          AdminUser[]
   customers           Customer[]
   promotions          Promotion[]
+  storefrontVisits    StorefrontVisit[]
 }
 
 model AdminUser {
@@ -225,4 +226,13 @@ model Promotion {
 
   @@unique([restaurantId, code])
   @@index([restaurantId, isActive, startsAt, endsAt])
+}
+
+model StorefrontVisit {
+  id           String     @id @default(cuid())
+  restaurantId String
+  restaurant   Restaurant @relation(fields: [restaurantId], references: [id])
+  createdAt    DateTime   @default(now())
+
+  @@index([restaurantId, createdAt])
 }
