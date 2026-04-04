@@ -58,6 +58,13 @@ function previewText(value, max = 90) {
   return `${text.slice(0, max).trim()}…`;
 }
 
+function formatOrderType(value) {
+  const normalized = compactText(value).toLowerCase();
+  if (normalized === 'delivery') return 'Livraison';
+  if (normalized === 'takeaway' || normalized === 'pickup') return 'À emporter';
+  return textOrDash(value);
+}
+
 function renderItemOptionLabel(option) {
   if (!option || typeof option !== 'object') return '';
   const label = compactText(option.optionLabel);
@@ -303,16 +310,48 @@ export default function App() {
             <View style={styles.sectionCard}>
               <Text style={styles.detailTitle}>Commande #{selectedOrder.orderNumber}</Text>
               <Text style={styles.detailPrimary}>Statut: {selectedOrder.status}</Text>
-              <Text style={styles.detailItem}>Type: {textOrDash(selectedOrder.orderType || orderPayload.orderType)}</Text>
-              <Text style={styles.detailItem}>Client: {selectedOrder.customerName || '—'}</Text>
-              <Text style={styles.detailItem}>Email: {selectedOrder.customerEmail || '—'}</Text>
-              <Text style={styles.detailItem}>Téléphone: {textOrDash(selectedOrder.customerPhone || orderPayload.customerPhone)}</Text>
-              <Text style={styles.detailItem}>Adresse: {textOrDash(selectedOrder.customerAddress || orderPayload.customerAddress)}</Text>
-              <Text style={styles.detailItem}>Paiement: {textOrDash(selectedOrder.paymentMethod || orderPayload.paymentMethod)}</Text>
-              <Text style={styles.detailItem}>Notes: {textOrDash(selectedOrder.notes || orderPayload.notes)}</Text>
-              <Text style={styles.detailItem}>Historique client: {Number.isFinite(Number(selectedOrder.customerTotalOrderCount)) ? `${Number(selectedOrder.customerTotalOrderCount)} commande(s)` : '—'}</Text>
-              <Text style={styles.detailItem}>Créée le: {formatDate(selectedOrder.createdAt)}</Text>
-              <Text style={styles.detailAmount}>Total: CHF {Number(selectedOrder.totalAmount || 0).toFixed(2)}</Text>
+              <View style={styles.semanticBlock}>
+                <Text style={styles.semanticLabel}>Client:</Text>
+                <Text style={styles.semanticValue}>{selectedOrder.customerName || '—'}</Text>
+              </View>
+              <View style={styles.semanticBlock}>
+                <Text style={styles.semanticLabel}>Type de commande:</Text>
+                <Text style={styles.semanticValue}>{formatOrderType(selectedOrder.orderType || orderPayload.orderType)}</Text>
+              </View>
+              <View style={styles.semanticBlock}>
+                <Text style={styles.semanticLabel}>Téléphone:</Text>
+                <Text style={styles.semanticValue}>{textOrDash(selectedOrder.customerPhone || orderPayload.customerPhone)}</Text>
+              </View>
+              <View style={styles.semanticBlock}>
+                <Text style={styles.semanticLabel}>Adresse:</Text>
+                <Text style={styles.semanticValue}>{textOrDash(selectedOrder.customerAddress || orderPayload.customerAddress)}</Text>
+              </View>
+              <View style={styles.semanticBlock}>
+                <Text style={styles.semanticLabel}>Paiement:</Text>
+                <Text style={styles.semanticValue}>{textOrDash(selectedOrder.paymentMethod || orderPayload.paymentMethod)}</Text>
+              </View>
+              <View style={styles.semanticBlock}>
+                <Text style={styles.semanticLabel}>Commande:</Text>
+                <Text style={styles.semanticValue}>{formatDate(selectedOrder.createdAt)}</Text>
+              </View>
+              <View style={styles.semanticBlock}>
+                <Text style={styles.semanticLabel}>Commandes total:</Text>
+                <Text style={styles.semanticValue}>{Number.isFinite(Number(selectedOrder.customerTotalOrderCount)) ? `${Number(selectedOrder.customerTotalOrderCount)} commande(s)` : '—'}</Text>
+              </View>
+              {Number.isFinite(Number(selectedOrder.prepMinutes || orderPayload.prepMinutes)) ? (
+                <View style={styles.semanticBlock}>
+                  <Text style={styles.semanticLabel}>Durée de préparation:</Text>
+                  <Text style={styles.semanticValue}>{Number(selectedOrder.prepMinutes || orderPayload.prepMinutes)} min</Text>
+                </View>
+              ) : null}
+              <View style={styles.semanticBlock}>
+                <Text style={styles.semanticLabel}>Commentaire:</Text>
+                <Text style={styles.semanticValue}>{typeof (selectedOrder.notes || orderPayload.notes) === 'string' && (selectedOrder.notes || orderPayload.notes).length ? (selectedOrder.notes || orderPayload.notes) : '—'}</Text>
+              </View>
+              <View style={styles.semanticBlock}>
+                <Text style={styles.semanticLabelTotal}>TOTAL:</Text>
+                <Text style={styles.semanticValueTotal}>CHF {Number(selectedOrder.totalAmount || 0).toFixed(2)}</Text>
+              </View>
             </View>
 
             <View style={styles.sectionCard}>
@@ -536,6 +575,11 @@ const styles = StyleSheet.create({
   detailPrimary: { color: '#111827', fontWeight: '700', marginBottom: 6, fontSize: 15 },
   detailItem: { color: '#374151', marginBottom: 4, fontSize: 14 },
   detailAmount: { color: '#111827', fontWeight: '700', marginTop: 4, fontSize: 15 },
+  semanticBlock: { marginBottom: 8 },
+  semanticLabel: { color: '#111827', fontSize: 13, fontWeight: '700', marginBottom: 2 },
+  semanticValue: { color: '#374151', fontSize: 14, lineHeight: 20 },
+  semanticLabelTotal: { color: '#111827', fontSize: 13, fontWeight: '800', marginBottom: 2 },
+  semanticValueTotal: { color: '#111827', fontSize: 16, fontWeight: '800' },
   orderItemBlock: { paddingVertical: 8, borderTopWidth: 1, borderTopColor: '#f3f4f6' },
   orderItemTitle: { color: '#111827', fontWeight: '700', fontSize: 14 },
   orderItemPrice: { color: '#374151', fontSize: 13, marginTop: 2 },
