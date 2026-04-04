@@ -21,6 +21,18 @@ export class AllExceptionsFilter implements ExceptionFilter {
     const path = request?.originalUrl || request?.url || 'unknown';
     const method = request?.method || 'unknown';
 
+
+    const matchPath = path.split('?')[0];
+    if (method === 'POST' && /^\/admin\/orders\/[^/]+\/status$/.test(matchPath)) {
+      this.logger.warn(
+        JSON.stringify({
+          event: 'debug_admin_order_status_validation_request',
+          method,
+          path,
+          body: request?.body,
+        }),
+      );
+    }
     this.logger.error(
       JSON.stringify({
         event: 'http_exception',
