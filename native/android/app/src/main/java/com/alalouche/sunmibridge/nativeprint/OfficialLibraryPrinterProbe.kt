@@ -526,6 +526,7 @@ class OfficialLibraryPrinterProbe(
         val lineHeightPx = 38
         val sectionGapPx = 16
         val majorSectionGapPx = 24
+        val microGapPx = 4
         val totalPreGapPx = 16
         val totalsBottomSafeReservePx = 56
         val drawableWidthPx = (bitmapWidth - leftPaddingPx - rightPaddingPx).coerceAtLeast(1)
@@ -538,7 +539,7 @@ class OfficialLibraryPrinterProbe(
         }
         val headerPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.BLACK
-            textSize = 30f
+            textSize = 31f
             typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
         }
         val labelPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -574,7 +575,7 @@ class OfficialLibraryPrinterProbe(
                 val clientParts = sourceLine.split("•", limit = 2).map { it.trim() }
                 val clientName = clientParts.getOrNull(0).orEmpty().ifBlank { sourceLine.trim() }
                 val orderType = clientParts.getOrNull(1).orEmpty().trim()
-                semanticLines += ReceiptRenderLine("Client:", isLabel = true)
+                semanticLines += ReceiptRenderLine("Client:", isLabel = true, gapAfterPx = microGapPx)
                 semanticLines += ReceiptRenderLine(clientName, gapAfterPx = if (orderType.isNotEmpty()) sectionGapPx else majorSectionGapPx)
                 if (orderType.isNotEmpty()) {
                     semanticLines += ReceiptRenderLine("Type de commande:", isLabel = true)
@@ -609,7 +610,8 @@ class OfficialLibraryPrinterProbe(
                     else -> 0
                 }
                 val labelGap = when (match.second) {
-                    "Articles:" -> sectionGapPx
+                    "Commandes total:" -> microGapPx
+                    "Articles:" -> sectionGapPx + microGapPx
                     else -> 0
                 }
                 semanticLines += ReceiptRenderLine(match.second, isLabel = true, gapAfterPx = labelGap)
