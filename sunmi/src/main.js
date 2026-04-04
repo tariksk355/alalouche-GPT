@@ -1790,6 +1790,7 @@ function render() {
               </div>
             </div>
           </div>
+          <button class="btn-secondary" data-action="request-unpair">${t('unpair_device')}</button>
         </div>
       </div>
     `
@@ -1814,7 +1815,6 @@ function render() {
         <button class="receiver-settings-icon-btn" data-action="open-settings-panel" aria-label="${t('settings_open')}">⚙️</button>
       </div>
       <p class="subtle">${t('connected_label')}: ${state.deviceName || t('device_fallback')}</p>
-      <button id="unpair-btn" class="btn-secondary">${t('unpair_device')}</button>
     </div>
 
     <div class="card">
@@ -2287,7 +2287,13 @@ app.addEventListener('click', async (event) => {
     return;
   }
 
-  if (target.id === 'unpair-btn') {
+  if (target.dataset.action === 'request-unpair') {
+    const shouldUnpair = window.confirm(
+      "Désassocier cet appareil ?\n\nCet appareil ne recevra plus les commandes jusqu'à une nouvelle association.",
+    );
+    if (!shouldUnpair) {
+      return;
+    }
     const result = await selfUnpairDevice();
     if (!result.ok) {
       state.error = result.message || "Impossible de désassocier l'appareil.";
