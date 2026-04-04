@@ -590,7 +590,7 @@ class OfficialLibraryPrinterProbe(
                 "Commande:" to "Commande:",
                 "Historique client:" to "Commandes total:",
                 "Paiement:" to "Paiement:",
-                    "Préparation:" to "Durée de préparation:",
+                "Préparation:" to "Durée de préparation:",
                 "Notes:" to "Commentaire:",
                 "Sous-total:" to "Sous-total:",
                 "Code promo:" to "Code promo:",
@@ -603,6 +603,8 @@ class OfficialLibraryPrinterProbe(
             if (match != null) {
                 val value = sourceLine.removePrefix(match.first).trim()
                 val gapAfter = when (match.second) {
+                    "Commande:" -> sectionGapPx / 2
+                    "Commandes total:" -> sectionGapPx
                     "Adresse:" -> majorSectionGapPx
                     "Durée de préparation:" -> majorSectionGapPx
                     "Commentaire:" -> majorSectionGapPx
@@ -616,7 +618,17 @@ class OfficialLibraryPrinterProbe(
                 }
                 semanticLines += ReceiptRenderLine(match.second, isLabel = true, gapAfterPx = labelGap)
                 if (value.isNotEmpty() || match.second == "TOTAL:") {
-                    semanticLines += ReceiptRenderLine(if (value.isNotEmpty()) value else "—", gapAfterPx = gapAfter)
+                    if (match.second == "Commentaire:") {
+                        val noteLines = value.split('\n')
+                        noteLines.forEachIndexed { noteIndex, noteLine ->
+                            semanticLines += ReceiptRenderLine(
+                                if (noteLine.isNotBlank()) noteLine else " ",
+                                gapAfterPx = if (noteIndex == noteLines.lastIndex) gapAfter else 0,
+                            )
+                        }
+                    } else {
+                        semanticLines += ReceiptRenderLine(if (value.isNotEmpty()) value else "—", gapAfterPx = gapAfter)
+                    }
                 }
             } else {
                 semanticLines += ReceiptRenderLine(sourceLine)
