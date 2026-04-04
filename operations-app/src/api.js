@@ -1,4 +1,5 @@
 import Constants from 'expo-constants';
+import { Alert } from 'react-native';
 
 const API_BASE_URL =
   process.env.EXPO_PUBLIC_API_BASE_URL
@@ -10,7 +11,15 @@ function buildUrl(path) {
 }
 
 async function request(path, options = {}) {
-  const response = await fetch(buildUrl(path), {
+  const url = buildUrl(path);
+  if (/^\/admin\/orders\/[^/]+\/status$/.test(path)) {
+    Alert.alert('Debug API order status', `url: ${url}
+method: ${options.method || 'GET'}
+path: ${path}
+body: ${options.body || ''}`);
+  }
+
+  const response = await fetch(url, {
     headers: {
       'Content-Type': 'application/json',
       ...(options.headers || {}),
