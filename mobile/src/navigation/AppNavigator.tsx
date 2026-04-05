@@ -31,26 +31,19 @@ function MainTabs() {
 }
 
 export function AppNavigator() {
-  const { session, loading } = useAuth();
+  const { loading } = useAuth();
   if (loading) return null;
 
   return (
     <NavigationContainer>
-      <Stack.Navigator>
-        {!session ? (
-          <>
-            <Stack.Screen name="Login" component={LoginScreen} options={{ title: 'Connexion' }} />
-            <Stack.Screen name="Signup" component={SignupScreen} options={{ title: 'Inscription' }} />
-            <Stack.Screen name="ForgotPassword" component={ForgotPasswordScreen} options={{ title: 'Mot de passe oublié' }} />
-            <Stack.Screen name="ResetPassword" component={ResetPasswordScreen} options={{ title: 'Réinitialiser' }} />
-          </>
-        ) : (
-          <>
-            <Stack.Screen name="Main" component={MainTabs} options={{ headerShown: false }} />
-            <Stack.Screen name="ProductDetail" component={ProductDetailScreen} options={{ title: 'Produit' }} />
-            <Stack.Screen name="Checkout" component={CheckoutScreen} options={{ title: 'Checkout' }} />
-          </>
-        )}
+      <Stack.Navigator initialRouteName="Main">
+        <Stack.Screen name="Main" component={MainTabs} options={{ headerShown: false }} />
+        <Stack.Screen name="ProductDetail" component={ProductDetailScreen} options={{ title: 'Produit' }} />
+        <Stack.Screen name="Checkout" component={CheckoutScreen} options={{ title: 'Checkout' }} />
+        <Stack.Screen name="Login" component={LoginScreen} options={{ title: 'Connexion' }} />
+        <Stack.Screen name="Signup" component={SignupScreen} options={{ title: 'Inscription' }} />
+        <Stack.Screen name="ForgotPassword" component={ForgotPasswordScreen} options={{ title: 'Mot de passe oublié' }} />
+        <Stack.Screen name="ResetPassword" component={ResetPasswordScreen} options={{ title: 'Réinitialiser' }} />
       </Stack.Navigator>
     </NavigationContainer>
   );
