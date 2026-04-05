@@ -33,6 +33,18 @@ const ORDER_STATUS_MAP = {
   ready: 'ready',
   completed: 'completed',
 };
+const ORDER_STATUS_LABELS = {
+  new: 'Nouveau',
+  accepted: 'Acceptée',
+  ready: 'Prête',
+  completed: 'Terminée',
+  cancelled: 'Annulée',
+};
+const RESERVATION_STATUS_LABELS = {
+  pending: 'En attente',
+  confirmed: 'Confirmée',
+  cancelled: 'Annulée',
+};
 
 function formatDate(value) {
   if (!value) return '—';
@@ -68,6 +80,16 @@ function formatOrderType(value) {
   if (normalized === 'delivery') return 'Livraison';
   if (normalized === 'takeaway' || normalized === 'pickup') return 'À emporter';
   return textOrDash(value);
+}
+
+function formatOrderStatus(value) {
+  const normalized = compactText(value).toLowerCase();
+  return ORDER_STATUS_LABELS[normalized] || textOrDash(value);
+}
+
+function formatReservationStatus(value) {
+  const normalized = compactText(value).toLowerCase();
+  return RESERVATION_STATUS_LABELS[normalized] || textOrDash(value);
 }
 
 function renderItemOptionLabel(option) {
@@ -325,7 +347,7 @@ export default function App() {
 
             <View style={styles.sectionCard}>
               <Text style={styles.detailTitle}>Commande #{selectedOrder.orderNumber}</Text>
-              <Text style={styles.detailPrimary}>Statut: {selectedOrder.status}</Text>
+              <Text style={styles.detailPrimary}>Statut: {formatOrderStatus(selectedOrder.status)}</Text>
               <View style={styles.semanticBlock}>
                 <Text style={styles.semanticLabel}>Client:</Text>
                 <Text style={styles.semanticValue}>{selectedOrder.customerName || '—'}</Text>
@@ -424,7 +446,7 @@ export default function App() {
                     style={styles.primaryButton}
                     onPress={() => handleOrderAction(status)}
                   >
-                    <Text style={styles.primaryButtonLabel}>{status}</Text>
+                    <Text style={styles.primaryButtonLabel}>{formatOrderStatus(status)}</Text>
                   </Pressable>
                 ))}
               </View>
@@ -442,10 +464,10 @@ export default function App() {
                 <View style={styles.cardTopRow}>
                   <Text style={styles.cardTitle}>#{item.orderNumber}</Text>
                   <View style={styles.statusBadge}>
-                    <Text style={styles.statusBadgeLabel}>{item.status}</Text>
+                    <Text style={styles.statusBadgeLabel}>{formatOrderStatus(item.status)}</Text>
                   </View>
                 </View>
-                <Text style={styles.cardMeta}>{textOrDash(item.orderType || extractOrderPayload(item).orderType)}</Text>
+                <Text style={styles.cardMeta}>{formatOrderType(item.orderType || extractOrderPayload(item).orderType)}</Text>
                 <Text style={styles.cardPrimary}>{item.customerName || 'Client inconnu'}</Text>
                 <Text style={styles.cardSecondary}>{textOrDash(item.customerPhone || extractOrderPayload(item).customerPhone)}</Text>
                 <Text style={styles.cardSecondaryStrong}>CHF {Number(item.totalAmount || 0).toFixed(2)}</Text>
@@ -472,7 +494,7 @@ export default function App() {
           </Pressable>
           <View style={styles.sectionCard}>
             <Text style={styles.detailTitle}>Réservation</Text>
-            <Text style={styles.detailPrimary}>Statut: {selectedReservation.status}</Text>
+            <Text style={styles.detailPrimary}>Statut: {formatReservationStatus(selectedReservation.status)}</Text>
             <Text style={styles.detailItem}>Nom: {selectedReservation.customerName || '—'}</Text>
             <Text style={styles.detailItem}>Email: {selectedReservation.customerEmail || '—'}</Text>
             <Text style={styles.detailItem}>Téléphone: {selectedReservation.customerPhone || '—'}</Text>
@@ -491,7 +513,7 @@ export default function App() {
                   style={styles.primaryButton}
                   onPress={() => handleReservationAction(status)}
                 >
-                  <Text style={styles.primaryButtonLabel}>{status}</Text>
+                  <Text style={styles.primaryButtonLabel}>{formatReservationStatus(status)}</Text>
                 </Pressable>
               ))}
             </View>
@@ -509,7 +531,7 @@ export default function App() {
               <View style={styles.cardTopRow}>
                 <Text style={styles.cardTitle}>{item.customerName || 'Réservation'}</Text>
                 <View style={styles.statusBadge}>
-                  <Text style={styles.statusBadgeLabel}>{item.status}</Text>
+                  <Text style={styles.statusBadgeLabel}>{formatReservationStatus(item.status)}</Text>
                 </View>
               </View>
               <Text style={styles.cardPrimary}>{item.guestCount} couvert(s)</Text>
