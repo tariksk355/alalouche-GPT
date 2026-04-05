@@ -1,5 +1,7 @@
 import { apiRequest } from './client';
 import { CartLine, MenuItem } from '../types/models';
+// @ts-expect-error Shared storefront delivery-zone helpers currently live in frontend JS module.
+import { getDeliveryRuleForPostalCode, normalizePostalCode } from '../../../frontend/src/lib/deliveryZones';
 
 export type DeliveryRule = {
   minimumOrder: number;
@@ -13,34 +15,7 @@ export type PromotionPreview = {
   totalAmount: number;
 };
 
-export const DELIVERY_ZONE_RULES: Record<string, DeliveryRule> = {
-  '1753': { minimumOrder: 50, deliveryFee: 5 },
-  '1784': { minimumOrder: 50, deliveryFee: 5 },
-  '1783': { minimumOrder: 35, deliveryFee: 3 },
-  '1782': { minimumOrder: 35, deliveryFee: 3 },
-  '1712': { minimumOrder: 40, deliveryFee: 3 },
-  '1763': { minimumOrder: 30, deliveryFee: 3 },
-  '1762': { minimumOrder: 30, deliveryFee: 3 },
-  '1700': { minimumOrder: 30, deliveryFee: 3 },
-  '1752': { minimumOrder: 35, deliveryFee: 3 },
-  '3186': { minimumOrder: 40, deliveryFee: 3 },
-  '1720': { minimumOrder: 35, deliveryFee: 3 },
-  '1722': { minimumOrder: 35, deliveryFee: 3 },
-};
-
-export function normalizePostalCode(rawValue?: string | null): string {
-  if (typeof rawValue !== 'string') return '';
-  const match = rawValue.match(/\b(\d{4})\b/);
-  return match ? match[1] : '';
-}
-
-export function getDeliveryRuleForPostalCode(rawValue?: string | null): (DeliveryRule & { postalCode: string }) | null {
-  const postalCode = normalizePostalCode(rawValue);
-  if (!postalCode) return null;
-  const rule = DELIVERY_ZONE_RULES[postalCode];
-  if (!rule) return null;
-  return { postalCode, ...rule };
-}
+export { getDeliveryRuleForPostalCode, normalizePostalCode };
 
 export const storefrontApi = {
   listMenu: () => apiRequest<{ items: MenuItem[] }>('/public/menu-catalog').then((d) => d.items || []),
