@@ -1918,7 +1918,12 @@ async function refreshOperations() {
     const nextOrders = result.orders || [];
     const nextReservations = result.reservations || [];
     const backendCompletedOrders = nextOrders.filter((order) => String(order?.status || '').toLowerCase() === 'completed');
-    const activeOrderIds = new Set(nextOrders.map((order) => order?.id).filter(Boolean));
+    const activeOrderIds = new Set(
+      nextOrders
+        .filter((order) => String(order?.status || '').toLowerCase() !== 'completed')
+        .map((order) => order?.id)
+        .filter(Boolean),
+    );
     for (const activeOrderId of activeOrderIds) {
       if (state.dismissedCompletedOrderIds[activeOrderId]) {
         delete state.dismissedCompletedOrderIds[activeOrderId];
