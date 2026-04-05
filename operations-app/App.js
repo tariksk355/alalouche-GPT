@@ -224,7 +224,6 @@ export default function App() {
         : { status: normalizedStatus };
       await updateOrderStatus(session.token, selectedOrder.id, payload);
       await refreshData();
-      Alert.alert('Succès', 'Statut commande mis à jour.');
     } catch (error) {
       Alert.alert('Erreur', error?.message || 'Impossible de mettre à jour la commande.');
     } finally {
@@ -238,7 +237,6 @@ export default function App() {
     try {
       await updateReservationStatus(session.token, selectedReservation.id, { status });
       await refreshData();
-      Alert.alert('Succès', 'Statut réservation mis à jour.');
     } catch (error) {
       Alert.alert('Erreur', error?.message || 'Impossible de mettre à jour la réservation.');
     } finally {
