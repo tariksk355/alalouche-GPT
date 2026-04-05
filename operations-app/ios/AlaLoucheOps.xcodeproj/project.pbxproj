@@ -259,12 +259,14 @@
 					"-ObjC",
 					"-lc++",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = org.name.AlaLoucheOps;
-				PRODUCT_NAME = AlaLoucheOps;
+				PRODUCT_BUNDLE_IDENTIFIER = "ch.alalouche.operations";
+				PRODUCT_NAME = "AlaLoucheOps";
 				SWIFT_OBJC_BRIDGING_HEADER = "AlaLoucheOps/AlaLoucheOps-Bridging-Header.h";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_VERSION = 5.0;
 				VERSIONING_SYSTEM = "apple-generic";
+				TARGETED_DEVICE_FAMILY = "1";
+				CODE_SIGN_ENTITLEMENTS = AlaLoucheOps/AlaLoucheOps.entitlements;
 			};
 			name = Debug;
 		};
@@ -286,11 +288,13 @@
 					"-ObjC",
 					"-lc++",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = org.name.AlaLoucheOps;
-				PRODUCT_NAME = AlaLoucheOps;
+				PRODUCT_BUNDLE_IDENTIFIER = "ch.alalouche.operations";
+				PRODUCT_NAME = "AlaLoucheOps";
 				SWIFT_OBJC_BRIDGING_HEADER = "AlaLoucheOps/AlaLoucheOps-Bridging-Header.h";
 				SWIFT_VERSION = 5.0;
 				VERSIONING_SYSTEM = "apple-generic";
+				TARGETED_DEVICE_FAMILY = "1";
+				CODE_SIGN_ENTITLEMENTS = AlaLoucheOps/AlaLoucheOps.entitlements;
 			};
 			name = Release;
 		};
