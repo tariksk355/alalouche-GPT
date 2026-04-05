@@ -16,6 +16,8 @@ import {
   View,
 } from 'react-native';
 import {
+  hideOrder,
+  hideReservation,
   listOrders,
   listReservations,
   loginAdmin,
@@ -32,6 +34,18 @@ const ORDER_STATUS_MAP = {
   accepted: 'accepted',
   ready: 'ready',
   completed: 'completed',
+};
+const ORDER_STATUS_LABELS = {
+  new: 'Nouveau',
+  accepted: 'Acceptée',
+  ready: 'Prête',
+  completed: 'Terminée',
+  cancelled: 'Annulée',
+};
+const RESERVATION_STATUS_LABELS = {
+  pending: 'En attente',
+  confirmed: 'Confirmée',
+  cancelled: 'Annulée',
 };
 
 function formatDate(value) {
@@ -70,6 +84,16 @@ function formatOrderType(value) {
   return textOrDash(value);
 }
 
+function formatOrderStatus(value) {
+  const normalized = compactText(value).toLowerCase();
+  return ORDER_STATUS_LABELS[normalized] || textOrDash(value);
+}
+
+function formatReservationStatus(value) {
+  const normalized = compactText(value).toLowerCase();
+  return RESERVATION_STATUS_LABELS[normalized] || textOrDash(value);
+}
+
 function renderItemOptionLabel(option) {
   if (!option || typeof option !== 'object') return '';
   const label = compactText(option.optionLabel);
@@ -91,6 +115,7 @@ export default function App() {
   const [reservations, setReservations] = useState([]);
   const [loadingData, setLoadingData] = useState(false);
   const [loadError, setLoadError] = useState('');
+  const [successMessage, setSuccessMessage] = useState('');
 
   const [selectedOrderId, setSelectedOrderId] = useState(null);
   const [selectedReservationId, setSelectedReservationId] = useState(null);
@@ -142,6 +167,14 @@ export default function App() {
     return () => clearInterval(id);
   }, [session?.token]);
 
+  useEffect(() => {
+    if (!successMessage) return undefined;
+    const timeoutId = setTimeout(() => {
+      setSuccessMessage('');
+    }, 1800);
+    return () => clearTimeout(timeoutId);
+  }, [successMessage]);
+
   const selectedOrder = useMemo(
     () => orders.find((order) => order.id === selectedOrderId) || null,
     [orders, selectedOrderId],
@@ -151,6 +184,13 @@ export default function App() {
     () => reservations.find((reservation) => reservation.id === selectedReservationId) || null,
     [reservations, selectedReservationId],
   );
+  const sortedReservations = useMemo(() => (
+    [...reservations].sort((a, b) => {
+      const aTs = new Date(a?.createdAt || a?.reservationDate || 0).getTime() || 0;
+      const bTs = new Date(b?.createdAt || b?.reservationDate || 0).getTime() || 0;
+      return bTs - aTs;
+    })
+  ), [reservations]);
 
   useEffect(() => {
     if (!selectedOrder) return;
@@ -202,7 +242,7 @@ export default function App() {
         : { status: normalizedStatus };
       await updateOrderStatus(session.token, selectedOrder.id, payload);
       await refreshData();
-      Alert.alert('Succès', 'Statut commande mis à jour.');
+      setSuccessMessage('Statut commande mis à jour.');
     } catch (error) {
       Alert.alert('Erreur', error?.message || 'Impossible de mettre à jour la commande.');
     } finally {
@@ -216,9 +256,39 @@ export default function App() {
     try {
       await updateReservationStatus(session.token, selectedReservation.id, { status });
       await refreshData();
-      Alert.alert('Succès', 'Statut réservation mis à jour.');
+      setSuccessMessage('Statut réservation mis à jour.');
     } catch (error) {
       Alert.alert('Erreur', error?.message || 'Impossible de mettre à jour la réservation.');
+    } finally {
+      setActionInFlight(false);
+    }
+  };
+
+  const handleHideOrder = async () => {
+    if (!selectedOrder || actionInFlight) return;
+    setActionInFlight(true);
+    try {
+      await hideOrder(session.token, selectedOrder.id);
+      setSelectedOrderId(null);
+      await refreshData();
+      setSuccessMessage('Commande masquée.');
+    } catch (error) {
+      Alert.alert('Erreur', error?.message || 'Impossible de masquer la commande.');
+    } finally {
+      setActionInFlight(false);
+    }
+  };
+
+  const handleHideReservation = async () => {
+    if (!selectedReservation || actionInFlight) return;
+    setActionInFlight(true);
+    try {
+      await hideReservation(session.token, selectedReservation.id);
+      setSelectedReservationId(null);
+      await refreshData();
+      setSuccessMessage('Réservation masquée.');
+    } catch (error) {
+      Alert.alert('Erreur', error?.message || 'Impossible de masquer la réservation.');
     } finally {
       setActionInFlight(false);
     }
@@ -314,6 +384,11 @@ export default function App() {
           <Text style={styles.infoBannerLabel}>Actualisation...</Text>
         </View>
       ) : null}
+      {successMessage ? (
+        <View style={styles.successBanner}>
+          <Text style={styles.successBannerLabel}>{successMessage}</Text>
+        </View>
+      ) : null}
       {loadError ? <Text style={styles.errorText}>{loadError}</Text> : null}
 
       {tab === 'orders' ? (
@@ -325,7 +400,7 @@ export default function App() {
 
             <View style={styles.sectionCard}>
               <Text style={styles.detailTitle}>Commande #{selectedOrder.orderNumber}</Text>
-              <Text style={styles.detailPrimary}>Statut: {selectedOrder.status}</Text>
+              <Text style={styles.detailPrimary}>Statut: {formatOrderStatus(selectedOrder.status)}</Text>
               <View style={styles.semanticBlock}>
                 <Text style={styles.semanticLabel}>Client:</Text>
                 <Text style={styles.semanticValue}>{selectedOrder.customerName || '—'}</Text>
@@ -424,9 +499,16 @@ export default function App() {
                     style={styles.primaryButton}
                     onPress={() => handleOrderAction(status)}
                   >
-                    <Text style={styles.primaryButtonLabel}>{status}</Text>
+                    <Text style={styles.primaryButtonLabel}>{formatOrderStatus(status)}</Text>
                   </Pressable>
                 ))}
+                <Pressable
+                  disabled={actionInFlight}
+                  style={styles.secondaryButton}
+                  onPress={handleHideOrder}
+                >
+                  <Text style={styles.secondaryButtonLabel}>Masquer</Text>
+                </Pressable>
               </View>
             </View>
           </ScrollView>
@@ -442,10 +524,10 @@ export default function App() {
                 <View style={styles.cardTopRow}>
                   <Text style={styles.cardTitle}>#{item.orderNumber}</Text>
                   <View style={styles.statusBadge}>
-                    <Text style={styles.statusBadgeLabel}>{item.status}</Text>
+                    <Text style={styles.statusBadgeLabel}>{formatOrderStatus(item.status)}</Text>
                   </View>
                 </View>
-                <Text style={styles.cardMeta}>{textOrDash(item.orderType || extractOrderPayload(item).orderType)}</Text>
+                <Text style={styles.cardMeta}>{formatOrderType(item.orderType || extractOrderPayload(item).orderType)}</Text>
                 <Text style={styles.cardPrimary}>{item.customerName || 'Client inconnu'}</Text>
                 <Text style={styles.cardSecondary}>{textOrDash(item.customerPhone || extractOrderPayload(item).customerPhone)}</Text>
                 <Text style={styles.cardSecondaryStrong}>CHF {Number(item.totalAmount || 0).toFixed(2)}</Text>
@@ -472,7 +554,7 @@ export default function App() {
           </Pressable>
           <View style={styles.sectionCard}>
             <Text style={styles.detailTitle}>Réservation</Text>
-            <Text style={styles.detailPrimary}>Statut: {selectedReservation.status}</Text>
+            <Text style={styles.detailPrimary}>Statut: {formatReservationStatus(selectedReservation.status)}</Text>
             <Text style={styles.detailItem}>Nom: {selectedReservation.customerName || '—'}</Text>
             <Text style={styles.detailItem}>Email: {selectedReservation.customerEmail || '—'}</Text>
             <Text style={styles.detailItem}>Téléphone: {selectedReservation.customerPhone || '—'}</Text>
@@ -491,15 +573,22 @@ export default function App() {
                   style={styles.primaryButton}
                   onPress={() => handleReservationAction(status)}
                 >
-                  <Text style={styles.primaryButtonLabel}>{status}</Text>
+                  <Text style={styles.primaryButtonLabel}>{formatReservationStatus(status)}</Text>
                 </Pressable>
               ))}
+              <Pressable
+                disabled={actionInFlight}
+                style={styles.secondaryButton}
+                onPress={handleHideReservation}
+              >
+                <Text style={styles.secondaryButtonLabel}>Masquer</Text>
+              </Pressable>
             </View>
           </View>
         </ScrollView>
       ) : (
         <FlatList
-          data={reservations}
+          data={sortedReservations}
           keyExtractor={(item) => item.id}
           contentContainerStyle={styles.listContent}
           refreshing={loadingData}
@@ -509,7 +598,7 @@ export default function App() {
               <View style={styles.cardTopRow}>
                 <Text style={styles.cardTitle}>{item.customerName || 'Réservation'}</Text>
                 <View style={styles.statusBadge}>
-                  <Text style={styles.statusBadgeLabel}>{item.status}</Text>
+                  <Text style={styles.statusBadgeLabel}>{formatReservationStatus(item.status)}</Text>
                 </View>
               </View>
               <Text style={styles.cardPrimary}>{item.guestCount} couvert(s)</Text>
@@ -556,6 +645,8 @@ const styles = StyleSheet.create({
   loginButtonLabel: { color: '#fff', textAlign: 'center', fontWeight: '700', fontSize: 16 },
   primaryButton: { backgroundColor: '#b5122a', borderRadius: 10, minHeight: 48, justifyContent: 'center', paddingHorizontal: 12, marginTop: 8 },
   primaryButtonLabel: { color: '#fff', textAlign: 'center', fontWeight: '600' },
+  secondaryButton: { backgroundColor: '#f3f4f6', borderWidth: 1, borderColor: '#d1d5db', borderRadius: 10, minHeight: 48, justifyContent: 'center', paddingHorizontal: 12, marginTop: 8 },
+  secondaryButtonLabel: { color: '#111827', textAlign: 'center', fontWeight: '600' },
   errorText: { color: '#b91c1c', marginTop: 8, backgroundColor: '#fef2f2', borderWidth: 1, borderColor: '#fecaca', borderRadius: 8, padding: 10 },
   headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
   link: { color: '#1d4ed8', marginVertical: 10, fontWeight: '600' },
@@ -577,6 +668,16 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   infoBannerLabel: { color: '#374151', fontWeight: '600' },
+  successBanner: {
+    backgroundColor: '#ecfdf5',
+    borderWidth: 1,
+    borderColor: '#a7f3d0',
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    marginBottom: 8,
+  },
+  successBannerLabel: { color: '#065f46', fontWeight: '600' },
   listContent: { gap: 10, paddingBottom: 32, paddingTop: 2 },
   card: { borderWidth: 1, borderColor: '#e5e7eb', borderRadius: 12, padding: 16, backgroundColor: '#fff', minHeight: 150, justifyContent: 'center' },
   cardTopRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 8 },

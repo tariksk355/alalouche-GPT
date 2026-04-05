@@ -554,7 +554,7 @@ export class OrdersService {
 
   async listOpenOrders(restaurantId: string) {
     const orders = await this.prisma.order.findMany({
-      where: { restaurantId, status: { in: ['new', 'accepted', 'ready'] } },
+      where: { restaurantId, status: { in: ['new', 'accepted', 'ready', 'completed'] } },
       orderBy: { createdAt: 'desc' },
       take: 100,
     });
