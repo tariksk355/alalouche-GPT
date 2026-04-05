@@ -68,4 +68,20 @@ export async function updateReservationStatus(token, reservationId, payload) {
   return data.reservation;
 }
 
+export async function hideOrder(token, orderId) {
+  const data = await request(`/admin/orders/${orderId}/hide`, {
+    method: 'POST',
+    headers: authHeader(token),
+  });
+  return data.order;
+}
+
+export async function hideReservation(token, reservationId) {
+  const data = await request(`/admin/reservations/${reservationId}/hide`, {
+    method: 'POST',
+    headers: authHeader(token),
+  });
+  return data.reservation;
+}
+
 export { API_BASE_URL };
