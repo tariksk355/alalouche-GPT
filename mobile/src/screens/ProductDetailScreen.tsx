@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { Image, Pressable, Text, View } from 'react-native';
+import { Image, Modal, Pressable, ScrollView, Text, View } from 'react-native';
 import { Screen } from '../components/Screen';
 import { BrandButton } from '../components/BrandButton';
 import { useCart } from '../contexts/CartContext';
@@ -9,6 +9,7 @@ export function ProductDetailScreen({ route, navigation }: any) {
   const item = route?.params?.item;
   const { addLine } = useCart();
   const [selected, setSelected] = useState<Record<string, string[]>>({});
+  const [imageViewerOpen, setImageViewerOpen] = useState(false);
 
   if (!item) {
     return (
@@ -35,7 +36,9 @@ export function ProductDetailScreen({ route, navigation }: any) {
     <Screen>
       <View style={{ borderWidth: 1, borderColor: '#ece7e2', borderRadius: 18, backgroundColor: '#fff', overflow: 'hidden' }}>
         {item.imageUrl ? (
-          <Image source={{ uri: item.imageUrl }} style={{ width: '100%', height: 220, backgroundColor: '#f3f4f6' }} resizeMode="cover" />
+          <Pressable onPress={() => setImageViewerOpen(true)}>
+            <Image source={{ uri: item.imageUrl }} style={{ width: '100%', height: 220, backgroundColor: '#f3f4f6' }} resizeMode="cover" />
+          </Pressable>
         ) : (
           <View style={{ height: 220, backgroundColor: '#f4f1ed', alignItems: 'center', justifyContent: 'center' }}>
             <Text style={{ color: '#9b9188', fontWeight: '700' }}>À la Louche</Text>
@@ -46,11 +49,8 @@ export function ProductDetailScreen({ route, navigation }: any) {
           <Text style={{ color: '#6b625a', marginTop: 6, lineHeight: 21, fontSize: 15 }}>
             {item.description?.trim() || 'Préparation maison, faite à la commande.'}
           </Text>
-          <View style={{ marginTop: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+          <View style={{ marginTop: 12 }}>
             <Text style={{ color: theme.colors.primary, fontSize: 29, fontWeight: '900' }}>CHF {total.toFixed(2)}</Text>
-            <View style={{ backgroundColor: '#eef3f0', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6 }}>
-              <Text style={{ color: '#476255', fontWeight: '700', fontSize: 12 }}>Prix actuel</Text>
-            </View>
           </View>
         </View>
       </View>
@@ -131,7 +131,7 @@ export function ProductDetailScreen({ route, navigation }: any) {
                   </View>
 
                   <Text style={{ color: '#6b625a', fontWeight: '700', fontSize: 13 }}>
-                    {Number(opt.priceDelta || 0) > 0 ? `+CHF ${Number(opt.priceDelta).toFixed(2)}` : 'Inclus'}
+                    {Number(opt.priceDelta || 0) > 0 ? `+CHF ${Number(opt.priceDelta).toFixed(2)}` : ''}
                   </Text>
                 </View>
               </Pressable>
@@ -150,6 +150,31 @@ export function ProductDetailScreen({ route, navigation }: any) {
           }}
         />
       </View>
+
+      <Modal visible={imageViewerOpen} animationType="fade" transparent onRequestClose={() => setImageViewerOpen(false)}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.94)' }}>
+          <Pressable
+            onPress={() => setImageViewerOpen(false)}
+            style={{ position: 'absolute', top: 48, right: 18, zIndex: 20, backgroundColor: 'rgba(255,255,255,0.14)', borderRadius: 18, paddingHorizontal: 12, paddingVertical: 7 }}
+          >
+            <Text style={{ color: '#fff', fontWeight: '700' }}>Fermer</Text>
+          </Pressable>
+          <ScrollView
+            contentContainerStyle={{ flexGrow: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 12, paddingVertical: 54 }}
+            maximumZoomScale={3}
+            minimumZoomScale={1}
+            pinchGestureEnabled
+          >
+            {item.imageUrl ? (
+              <Image
+                source={{ uri: item.imageUrl }}
+                style={{ width: '100%', height: 420, borderRadius: 14, backgroundColor: '#111' }}
+                resizeMode="contain"
+              />
+            ) : null}
+          </ScrollView>
+        </View>
+      </Modal>
     </Screen>
   );
 }
