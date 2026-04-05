@@ -65,6 +65,7 @@ export function ProductDetailScreen({ route, navigation }: any) {
           </View>
           {(group.options || []).map((opt: any) => {
             const checked = (selected[group.id] || []).includes(opt.id);
+            const isSingle = group.selectionType === 'single';
             return (
               <Pressable
                 key={opt.id}
@@ -76,19 +77,59 @@ export function ProductDetailScreen({ route, navigation }: any) {
                   });
                 }}
                 style={{
-                  paddingVertical: 10,
-                  paddingHorizontal: 10,
-                  borderRadius: 12,
+                  paddingVertical: 11,
+                  paddingHorizontal: 11,
+                  borderRadius: 13,
                   borderWidth: 1,
-                  borderColor: checked ? '#1f1a17' : '#e8e2dc',
-                  backgroundColor: checked ? '#f5f2ef' : '#fff',
+                  borderColor: checked ? '#1f1a17' : '#e5dfd8',
+                  backgroundColor: checked ? '#f6f3f0' : '#fff',
                   marginTop: 8,
                 }}
               >
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
-                  <Text style={{ color: '#1f1a17', fontWeight: checked ? '700' : '600', flex: 1 }}>
-                    {opt.label}
-                  </Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1 }}>
+                    <View
+                      style={
+                        isSingle
+                          ? {
+                              width: 20,
+                              height: 20,
+                              borderRadius: 10,
+                              borderWidth: 2,
+                              borderColor: checked ? '#1f1a17' : '#b5aca3',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              backgroundColor: '#fff',
+                            }
+                          : {
+                              width: 20,
+                              height: 20,
+                              borderRadius: 6,
+                              borderWidth: 2,
+                              borderColor: checked ? '#1f1a17' : '#b5aca3',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              backgroundColor: '#fff',
+                            }
+                      }
+                    >
+                      {checked ? (
+                        isSingle ? (
+                          <View style={{ width: 9, height: 9, borderRadius: 4.5, backgroundColor: '#1f1a17' }} />
+                        ) : (
+                          <Text style={{ color: '#1f1a17', fontSize: 12, fontWeight: '900', lineHeight: 12 }}>✓</Text>
+                        )
+                      ) : null}
+                    </View>
+
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ color: '#1f1a17', fontWeight: checked ? '700' : '600' }}>{opt.label}</Text>
+                      <Text style={{ color: '#8a8077', fontSize: 11, marginTop: 2 }}>
+                        {isSingle ? 'Choix unique' : 'Choix multiple'}
+                      </Text>
+                    </View>
+                  </View>
+
                   <Text style={{ color: '#6b625a', fontWeight: '700', fontSize: 13 }}>
                     {Number(opt.priceDelta || 0) > 0 ? `+CHF ${Number(opt.priceDelta).toFixed(2)}` : 'Inclus'}
                   </Text>
