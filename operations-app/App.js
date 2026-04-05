@@ -16,6 +16,8 @@ import {
   View,
 } from 'react-native';
 import {
+  hideOrder,
+  hideReservation,
   listOrders,
   listReservations,
   loginAdmin,
@@ -182,6 +184,13 @@ export default function App() {
     () => reservations.find((reservation) => reservation.id === selectedReservationId) || null,
     [reservations, selectedReservationId],
   );
+  const sortedReservations = useMemo(() => (
+    [...reservations].sort((a, b) => {
+      const aTs = new Date(a?.createdAt || a?.reservationDate || 0).getTime() || 0;
+      const bTs = new Date(b?.createdAt || b?.reservationDate || 0).getTime() || 0;
+      return bTs - aTs;
+    })
+  ), [reservations]);
 
   useEffect(() => {
     if (!selectedOrder) return;
@@ -250,6 +259,36 @@ export default function App() {
       setSuccessMessage('Statut réservation mis à jour.');
     } catch (error) {
       Alert.alert('Erreur', error?.message || 'Impossible de mettre à jour la réservation.');
+    } finally {
+      setActionInFlight(false);
+    }
+  };
+
+  const handleHideOrder = async () => {
+    if (!selectedOrder || actionInFlight) return;
+    setActionInFlight(true);
+    try {
+      await hideOrder(session.token, selectedOrder.id);
+      setSelectedOrderId(null);
+      await refreshData();
+      setSuccessMessage('Commande masquée.');
+    } catch (error) {
+      Alert.alert('Erreur', error?.message || 'Impossible de masquer la commande.');
+    } finally {
+      setActionInFlight(false);
+    }
+  };
+
+  const handleHideReservation = async () => {
+    if (!selectedReservation || actionInFlight) return;
+    setActionInFlight(true);
+    try {
+      await hideReservation(session.token, selectedReservation.id);
+      setSelectedReservationId(null);
+      await refreshData();
+      setSuccessMessage('Réservation masquée.');
+    } catch (error) {
+      Alert.alert('Erreur', error?.message || 'Impossible de masquer la réservation.');
     } finally {
       setActionInFlight(false);
     }
@@ -463,6 +502,13 @@ export default function App() {
                     <Text style={styles.primaryButtonLabel}>{formatOrderStatus(status)}</Text>
                   </Pressable>
                 ))}
+                <Pressable
+                  disabled={actionInFlight}
+                  style={styles.secondaryButton}
+                  onPress={handleHideOrder}
+                >
+                  <Text style={styles.secondaryButtonLabel}>Masquer</Text>
+                </Pressable>
               </View>
             </View>
           </ScrollView>
@@ -530,12 +576,19 @@ export default function App() {
                   <Text style={styles.primaryButtonLabel}>{formatReservationStatus(status)}</Text>
                 </Pressable>
               ))}
+              <Pressable
+                disabled={actionInFlight}
+                style={styles.secondaryButton}
+                onPress={handleHideReservation}
+              >
+                <Text style={styles.secondaryButtonLabel}>Masquer</Text>
+              </Pressable>
             </View>
           </View>
         </ScrollView>
       ) : (
         <FlatList
-          data={reservations}
+          data={sortedReservations}
           keyExtractor={(item) => item.id}
           contentContainerStyle={styles.listContent}
           refreshing={loadingData}
@@ -592,6 +645,8 @@ const styles = StyleSheet.create({
   loginButtonLabel: { color: '#fff', textAlign: 'center', fontWeight: '700', fontSize: 16 },
   primaryButton: { backgroundColor: '#b5122a', borderRadius: 10, minHeight: 48, justifyContent: 'center', paddingHorizontal: 12, marginTop: 8 },
   primaryButtonLabel: { color: '#fff', textAlign: 'center', fontWeight: '600' },
+  secondaryButton: { backgroundColor: '#f3f4f6', borderWidth: 1, borderColor: '#d1d5db', borderRadius: 10, minHeight: 48, justifyContent: 'center', paddingHorizontal: 12, marginTop: 8 },
+  secondaryButtonLabel: { color: '#111827', textAlign: 'center', fontWeight: '600' },
   errorText: { color: '#b91c1c', marginTop: 8, backgroundColor: '#fef2f2', borderWidth: 1, borderColor: '#fecaca', borderRadius: 8, padding: 10 },
   headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
   link: { color: '#1d4ed8', marginVertical: 10, fontWeight: '600' },
