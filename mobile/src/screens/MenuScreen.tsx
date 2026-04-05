@@ -56,25 +56,39 @@ export function MenuScreen({ navigation }: any) {
     <Screen>
       <View
         style={{
-          borderRadius: 18,
+          borderRadius: 20,
           borderWidth: 1,
-          borderColor: '#f1d4d9',
-          backgroundColor: '#fff8f9',
-          padding: 16,
+          borderColor: '#ebe7e3',
+          backgroundColor: '#f8f6f3',
+          padding: 18,
         }}
       >
-        <Text style={{ color: theme.colors.primary, fontSize: 13, fontWeight: '800', letterSpacing: 0.6 }}>À LA LOUCHE</Text>
-        <Text style={{ fontSize: 30, fontWeight: '800', color: theme.colors.text, marginTop: 4 }}>Notre menu</Text>
-        <Text style={{ color: '#4b5563', marginTop: 6, lineHeight: 20 }}>
-          Cuisine artisanale, préparée minute. Choisissez votre plat et personnalisez-le facilement.
-        </Text>
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 12 }}>
-          <View style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999, backgroundColor: '#f3f4f6' }}>
-            <Text style={{ color: '#374151', fontWeight: '700', fontSize: 12 }}>Commande rapide</Text>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
+          <View style={{ flex: 1 }}>
+            <Text style={{ color: '#1f1a17', fontSize: 37, fontWeight: '800', letterSpacing: -0.5 }}>À la Louche</Text>
+            <Text style={{ color: '#716960', marginTop: 4, fontSize: 17 }}>French Bistro · Homemade & Seasonal</Text>
           </View>
-          <View style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999, backgroundColor: '#f3f4f6' }}>
-            <Text style={{ color: '#374151', fontWeight: '700', fontSize: 12 }}>{items.length} plats</Text>
+          <View
+            style={{
+              width: 38,
+              height: 38,
+              borderRadius: 19,
+              backgroundColor: '#efeae5',
+              borderWidth: 1,
+              borderColor: '#e3dcd5',
+              alignItems: 'center',
+              justifyContent: 'center',
+              marginTop: 2,
+            }}
+          >
+            <Text style={{ color: '#5f5750', fontSize: 16 }}>⌕</Text>
           </View>
+        </View>
+        <View style={{ marginTop: 12, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          <View style={{ paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8, backgroundColor: '#e4ece7' }}>
+            <Text style={{ color: '#35594a', fontWeight: '700', fontSize: 12 }}>Menu live</Text>
+          </View>
+          <Text style={{ color: '#6b625a', fontSize: 13 }}>{items.length} article(s) disponibles</Text>
         </View>
       </View>
 
@@ -128,8 +142,8 @@ export function MenuScreen({ navigation }: any) {
           <ScrollView
             horizontal
             showsHorizontalScrollIndicator={false}
-            contentContainerStyle={{ gap: 8, paddingVertical: 2 }}
-            style={{ marginTop: 2 }}
+            contentContainerStyle={{ gap: 8, paddingVertical: 2, paddingHorizontal: 2 }}
+            style={{ marginTop: 4 }}
           >
             {categories.map((category) => {
               const isActive = category === visibleCategory;
@@ -141,12 +155,12 @@ export function MenuScreen({ navigation }: any) {
                     paddingHorizontal: 14,
                     paddingVertical: 9,
                     borderRadius: 999,
-                    backgroundColor: isActive ? '#1f1a17' : '#f3f4f6',
+                    backgroundColor: isActive ? '#25201d' : '#f3f1ee',
                     borderWidth: 1,
-                    borderColor: isActive ? '#1f1a17' : '#e5e7eb',
+                    borderColor: isActive ? '#25201d' : '#e7e2dc',
                   }}
                 >
-                  <Text style={{ color: isActive ? '#fff' : '#374151', fontWeight: '700', fontSize: 13 }}>{category}</Text>
+                  <Text style={{ color: isActive ? '#fff' : '#5f5750', fontWeight: '700', fontSize: 13 }}>{category}</Text>
                 </Pressable>
               );
             })}
@@ -163,9 +177,12 @@ export function MenuScreen({ navigation }: any) {
               marginTop: 8,
             }}
           >
-            <View style={{ marginBottom: 4, paddingHorizontal: 2 }}>
-              <Text style={{ fontSize: 21, fontWeight: '800', color: theme.colors.text }}>{visibleCategory}</Text>
-              <Text style={{ color: theme.colors.muted, fontSize: 12, marginTop: 2 }}>{visibleItems.length} article(s)</Text>
+            <View style={{ marginBottom: 6, paddingHorizontal: 2, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+              <View>
+                <Text style={{ fontSize: 21, fontWeight: '800', color: theme.colors.text }}>{visibleCategory}</Text>
+                <Text style={{ color: '#7b746d', fontSize: 14, marginTop: 2 }}>Sélection maison</Text>
+              </View>
+              <Text style={{ color: '#7b746d', fontSize: 14 }}>{visibleItems.length} items</Text>
             </View>
 
             {visibleItems.map((item) => (
@@ -174,47 +191,62 @@ export function MenuScreen({ navigation }: any) {
                 onPress={() => navigation.navigate('ProductDetail', { item })}
                 style={{
                   borderWidth: 1,
-                  borderColor: '#eceff3',
-                  borderRadius: 14,
-                  padding: 10,
+                  borderColor: '#ece7e2',
+                  borderRadius: 16,
+                  padding: 12,
                   marginTop: 10,
                   backgroundColor: '#fff',
                 }}
               >
                 <View style={{ flexDirection: 'row', gap: 12 }}>
-                  {item.imageUrl ? (
-                    <Image
-                      source={{ uri: item.imageUrl }}
-                      style={{ width: 84, height: 84, borderRadius: 12, backgroundColor: '#f3f4f6' }}
-                      resizeMode="cover"
-                    />
-                  ) : (
-                    <View
-                      style={{
-                        width: 84,
-                        height: 84,
-                        borderRadius: 12,
-                        backgroundColor: '#f3f4f6',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        borderWidth: 1,
-                        borderColor: '#e5e7eb',
-                      }}
-                    >
-                      <Text style={{ color: '#9ca3af', fontWeight: '700', fontSize: 12 }}>À la Louche</Text>
-                    </View>
-                  )}
-
                   <View style={{ flex: 1 }}>
-                    <Text style={{ color: theme.colors.text, fontWeight: '800', fontSize: 17 }}>{item.name}</Text>
-                    <Text style={{ color: theme.colors.muted, fontSize: 13, marginTop: 3 }} numberOfLines={2}>
+                    <Text style={{ color: '#1f1a17', fontWeight: '800', fontSize: 19 }}>{item.name}</Text>
+                    <Text style={{ color: '#6b625a', fontSize: 15, marginTop: 4, lineHeight: 20 }} numberOfLines={2}>
                       {item.description?.trim() || 'Préparation maison.'}
                     </Text>
-                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 10 }}>
-                      <Text style={{ color: theme.colors.primary, fontWeight: '900', fontSize: 16 }}>
+                    <View style={{ marginTop: 10, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                      <Text style={{ color: '#111111', fontWeight: '900', fontSize: 22 }}>
                         CHF {Number(item.price || 0).toFixed(2)}
                       </Text>
-                      <Text style={{ color: '#111827', fontSize: 12, fontWeight: '700' }}>Détails</Text>
+                    </View>
+                  </View>
+
+                  <View style={{ alignItems: 'flex-end', justifyContent: 'space-between' }}>
+                    {item.imageUrl ? (
+                      <Image
+                        source={{ uri: item.imageUrl }}
+                        style={{ width: 95, height: 95, borderRadius: 12, backgroundColor: '#f3f4f6' }}
+                        resizeMode="cover"
+                      />
+                    ) : (
+                      <View
+                        style={{
+                          width: 95,
+                          height: 95,
+                          borderRadius: 12,
+                          backgroundColor: '#f2efea',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          borderWidth: 1,
+                          borderColor: '#e7e2dc',
+                        }}
+                      >
+                        <Text style={{ color: '#938a80', fontWeight: '700', fontSize: 12 }}>À la Louche</Text>
+                      </View>
+                    )}
+
+                    <View
+                      style={{
+                        width: 30,
+                        height: 30,
+                        borderRadius: 15,
+                        backgroundColor: '#211c19',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        marginTop: 8,
+                      }}
+                    >
+                      <Text style={{ color: '#fff', fontSize: 18, lineHeight: 18 }}>+</Text>
                     </View>
                   </View>
                 </View>
