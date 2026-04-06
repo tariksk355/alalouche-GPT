@@ -88,13 +88,24 @@ export function MenuScreen({ navigation }: any) {
           borderRadius: 20,
           borderWidth: 1,
           borderColor: '#ebe7e3',
-          backgroundColor: '#f8f6f3',
-          paddingVertical: 10,
-          paddingHorizontal: 14,
+          backgroundColor: '#f9f7f4',
+          paddingVertical: 12,
+          paddingHorizontal: 16,
         }}
       >
         <View style={{ alignItems: 'center', justifyContent: 'center' }}>
-          <Text style={{ color: '#1f1a17', fontSize: 22, fontWeight: '800', letterSpacing: -0.3 }}>{t('menu_brand_name')}</Text>
+          <Text
+            style={{
+              color: '#1f1a17',
+              fontSize: 34,
+              fontFamily: 'serif',
+              fontStyle: 'italic',
+              fontWeight: '500',
+              letterSpacing: 0.4,
+            }}
+          >
+            {t('menu_brand_name')}
+          </Text>
         </View>
       </View>
 
