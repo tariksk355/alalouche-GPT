@@ -1,6 +1,13 @@
+import Constants from 'expo-constants';
+
 let hasWarnedOneSignalUnavailable = false;
 
 function getOneSignal() {
+  // Expo Go runtime does not include native OneSignal module.
+  if (Constants.appOwnership === 'expo') {
+    return null;
+  }
+
   try {
     // Loaded lazily so Expo Go can run even when native OneSignal module
     // is not present in the runtime binary.
@@ -21,12 +28,16 @@ export function initOneSignal() {
   if (!appId) return;
   const oneSignal = getOneSignal();
   if (!oneSignal) return;
-  oneSignal.Debug.setLogLevel(0);
-  oneSignal.initialize(appId);
-  oneSignal.Notifications.requestPermission(true);
-  oneSignal.Notifications.addEventListener('click', (event) => {
-    console.log('[onesignal] opened', event.notification?.notificationId);
-  });
+  try {
+    oneSignal.Debug?.setLogLevel?.(0);
+    oneSignal.initialize?.(appId);
+    oneSignal.Notifications?.requestPermission?.(true);
+    oneSignal.Notifications?.addEventListener?.('click', (event: any) => {
+      console.log('[onesignal] opened', event.notification?.notificationId);
+    });
+  } catch {
+    // keep safe for unsupported runtime (e.g. Expo Go)
+  }
 }
 
 export function setOneSignalCustomerIdentity(customerId?: string) {
