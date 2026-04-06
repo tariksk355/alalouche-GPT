@@ -35,4 +35,8 @@ export const authApi = {
     headers: { Authorization: `Bearer ${token}` },
     body: JSON.stringify(payload),
   }),
+  deleteMe: (token: string) => apiRequest<{ deleted: boolean }>('/auth/me', {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${token}` },
+  }),
 };

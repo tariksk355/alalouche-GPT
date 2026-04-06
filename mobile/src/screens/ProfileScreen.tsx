@@ -28,10 +28,13 @@ function buildFormState(customer?: CustomerProfile): ProfileFormState {
 }
 
 export function ProfileScreen({ navigation }: any) {
-  const { session, logout, updateProfile } = useAuth();
+  const { session, logout, updateProfile, deleteAccount } = useAuth();
   const customer = session?.customer;
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleteError, setDeleteError] = useState('');
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [form, setForm] = useState<ProfileFormState>(() => buildFormState(customer));
   const isSignedIn = Boolean(session?.token && customer);
@@ -67,6 +70,20 @@ export function ProfileScreen({ navigation }: any) {
       setFeedback({ type: 'error', message: err?.message || 'Mise à jour impossible.' });
     } finally {
       setSaving(false);
+    }
+  };
+
+  const onDeleteAccount = async () => {
+    if (deleting) return;
+    setDeleting(true);
+    setDeleteError('');
+    try {
+      await deleteAccount();
+      setConfirmDelete(false);
+    } catch (err: any) {
+      setDeleteError(err?.message || 'Suppression du compte impossible.');
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -201,6 +218,33 @@ export function ProfileScreen({ navigation }: any) {
           <Text style={helperText}>Vous êtes connecté(e). Vous pouvez vous déconnecter à tout moment.</Text>
           <BrandButton label="Se déconnecter" onPress={() => logout()} />
         </View>
+
+        <View style={dangerCard}>
+          <Text style={dangerTitle}>Supprimer mon compte</Text>
+          <Text style={dangerText}>
+            Cette action désactive votre accès client et retire vos informations de profil.
+          </Text>
+          {!!deleteError && (
+            <View style={[notice, errorNotice, { marginTop: 8 }]}>
+              <Text style={errorText}>{deleteError}</Text>
+            </View>
+          )}
+          {!confirmDelete ? (
+            <Pressable style={[dangerButton, deleting && { opacity: 0.6 }]} onPress={() => { setDeleteError(''); setConfirmDelete(true); }} disabled={deleting}>
+              <Text style={dangerButtonLabel}>Supprimer mon compte</Text>
+            </Pressable>
+          ) : (
+            <View style={{ gap: 8, marginTop: 8 }}>
+              <Text style={dangerConfirmText}>Confirmez-vous la suppression définitive de votre compte ?</Text>
+              <Pressable style={[dangerButton, deleting && { opacity: 0.6 }]} onPress={onDeleteAccount} disabled={deleting}>
+                <Text style={dangerButtonLabel}>{deleting ? 'Suppression…' : 'Confirmer la suppression'}</Text>
+              </Pressable>
+              <Pressable style={secondaryButton} onPress={() => { if (!deleting) setConfirmDelete(false); }} disabled={deleting}>
+                <Text style={secondaryButtonLabel}>Annuler</Text>
+              </Pressable>
+            </View>
+          )}
+        </View>
       </>
     ) : (
       <View style={sectionCard}>
@@ -241,6 +285,12 @@ const successNotice = { borderColor: '#cde8d2', backgroundColor: '#f1faf3' } as 
 const errorNotice = { borderColor: '#f2c7c7', backgroundColor: '#fff3f3' } as const;
 const successText = { color: '#195b26', fontWeight: '600' } as const;
 const errorText = { color: '#8f1f1f', fontWeight: '600' } as const;
+const dangerCard = { borderWidth: 1, borderColor: '#f1cdcd', borderRadius: 16, backgroundColor: '#fff7f7', padding: 12 } as const;
+const dangerTitle = { color: '#8f1f1f', fontSize: 16, fontWeight: '800' } as const;
+const dangerText = { color: '#7a5a5a', marginTop: 4, lineHeight: 19 } as const;
+const dangerConfirmText = { color: '#7a5a5a', fontWeight: '600' } as const;
+const dangerButton = { borderWidth: 1, borderColor: '#d35656', backgroundColor: '#b53030', borderRadius: 12, paddingVertical: 12, alignItems: 'center', marginTop: 8 } as const;
+const dangerButtonLabel = { color: '#fff', fontWeight: '800' } as const;
 
 const secondaryButton = { borderWidth: 1, borderColor: '#d9d3cd', borderRadius: 12, paddingVertical: 12, alignItems: 'center', backgroundColor: '#f8f6f3' } as const;
 const secondaryButtonLabel = { color: '#1f1a17', fontWeight: '700' } as const;

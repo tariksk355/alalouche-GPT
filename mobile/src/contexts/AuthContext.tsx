@@ -11,6 +11,7 @@ type AuthContextValue = {
   signup: (payload: { email: string; password: string; fullName: string; phone: string }) => Promise<void>;
   refreshProfile: () => Promise<void>;
   updateProfile: (payload: UpdateCustomerProfilePayload) => Promise<void>;
+  deleteAccount: () => Promise<void>;
   logout: () => Promise<void>;
   loading: boolean;
 };
@@ -68,6 +69,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
       const data = await authApi.updateMe(session.token, payload);
       await persist({ ...session, customer: data.customer });
+    },
+    deleteAccount: async () => {
+      if (!session?.token) {
+        throw new Error('Session introuvable. Veuillez vous reconnecter.');
+      }
+      await authApi.deleteMe(session.token);
+      await persist(null);
     },
     logout: async () => persist(null),
   }), [session, loading]);
