@@ -29,10 +29,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setSession(next);
     if (next) {
       await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(next));
-      setOneSignalCustomerIdentity(next.customer?.id);
+      try {
+        setOneSignalCustomerIdentity(next.customer?.id);
+      } catch {
+        // oneSignal integration must never block auth persistence
+      }
     } else {
       await AsyncStorage.removeItem(STORAGE_KEY);
-      clearOneSignalCustomerIdentity();
+      try {
+        clearOneSignalCustomerIdentity();
+      } catch {
+        // oneSignal integration must never block auth persistence
+      }
     }
   };
 

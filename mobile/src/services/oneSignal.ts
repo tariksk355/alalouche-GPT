@@ -21,12 +21,16 @@ export function initOneSignal() {
   if (!appId) return;
   const oneSignal = getOneSignal();
   if (!oneSignal) return;
-  oneSignal.Debug.setLogLevel(0);
-  oneSignal.initialize(appId);
-  oneSignal.Notifications.requestPermission(true);
-  oneSignal.Notifications.addEventListener('click', (event) => {
-    console.log('[onesignal] opened', event.notification?.notificationId);
-  });
+  try {
+    oneSignal.Debug?.setLogLevel?.(0);
+    oneSignal.initialize?.(appId);
+    oneSignal.Notifications?.requestPermission?.(true);
+    oneSignal.Notifications?.addEventListener?.('click', (event: any) => {
+      console.log('[onesignal] opened', event.notification?.notificationId);
+    });
+  } catch {
+    // keep safe for unsupported runtime (e.g. Expo Go)
+  }
 }
 
 export function setOneSignalCustomerIdentity(customerId?: string) {
