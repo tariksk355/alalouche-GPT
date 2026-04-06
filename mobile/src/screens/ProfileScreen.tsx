@@ -28,11 +28,10 @@ function buildFormState(customer?: CustomerProfile): ProfileFormState {
 }
 
 export function ProfileScreen({ navigation }: any) {
-  const { session, logout, refreshProfile, updateProfile } = useAuth();
+  const { session, logout, updateProfile } = useAuth();
   const customer = session?.customer;
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [refreshingProfile, setRefreshingProfile] = useState(false);
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [form, setForm] = useState<ProfileFormState>(() => buildFormState(customer));
   const isSignedIn = Boolean(session?.token && customer);
@@ -47,24 +46,6 @@ export function ProfileScreen({ navigation }: any) {
   useEffect(() => {
     setForm(buildFormState(customer));
   }, [customer?.fullName, customer?.phone, customer?.addressLine1, customer?.addressLine2, customer?.postalCode, customer?.city, customer?.deliveryInstructions]);
-
-  useEffect(() => {
-    if (!session?.token) return;
-    let cancelled = false;
-    setRefreshingProfile(true);
-    refreshProfile()
-      .catch(() => {
-        if (!cancelled) {
-          setFeedback({ type: 'error', message: 'Impossible de charger votre profil.' });
-        }
-      })
-      .finally(() => {
-        if (!cancelled) setRefreshingProfile(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [refreshProfile, session?.token]);
 
   const onSave = async () => {
     if (disableSave) return;
@@ -196,13 +177,13 @@ export function ProfileScreen({ navigation }: any) {
         </View>
 
         <View style={sectionCard}>
-          {refreshingProfile && (
+          {saving && (
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 }}>
               <ActivityIndicator size="small" color="#4f463f" />
               <Text style={helperText}>Mise à jour du profil…</Text>
             </View>
           )}
-          {feedback && (
+          {!saving && feedback && (
             <View style={[notice, feedback.type === 'success' ? successNotice : errorNotice]}>
               <Text style={feedback.type === 'success' ? successText : errorText}>{feedback.message}</Text>
             </View>
