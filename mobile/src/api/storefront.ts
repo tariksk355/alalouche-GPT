@@ -1,7 +1,6 @@
 import { apiRequest } from './client';
 import { CartLine, MenuItem } from '../types/models';
-// @ts-expect-error Shared storefront delivery-zone helpers currently live in frontend JS module.
-import { getDeliveryRuleForPostalCode, normalizePostalCode } from '../../../frontend/src/lib/deliveryZones';
+import { getDeliveryRuleForPostalCode, normalizePostalCode } from '../../../shared/deliveryZones';
 
 export type DeliveryRule = {
   minimumOrder: number;
