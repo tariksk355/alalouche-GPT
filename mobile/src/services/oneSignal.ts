@@ -1,6 +1,13 @@
+import Constants from 'expo-constants';
+
 let hasWarnedOneSignalUnavailable = false;
 
 function getOneSignal() {
+  // Expo Go runtime does not include native OneSignal module.
+  if (Constants.appOwnership === 'expo') {
+    return null;
+  }
+
   try {
     // Loaded lazily so Expo Go can run even when native OneSignal module
     // is not present in the runtime binary.
