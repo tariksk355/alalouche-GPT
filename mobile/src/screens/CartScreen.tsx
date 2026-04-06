@@ -127,7 +127,11 @@ export function CartScreen({ navigation }: any) {
               <View style={{ flex: 1 }}>
                 <Text style={lineName}>{line.name}</Text>
                 {line.selectedOptions.map((opt, idx) => (
-                  <Text key={`${line.lineKey}-${idx}`} style={lineModifier}>{opt.groupName}: {opt.optionLabel}</Text>
+                  <View key={`${line.lineKey}-${idx}`} style={modifierPill}>
+                    <Text style={lineModifier}>{opt.groupName}</Text>
+                    <Text style={modifierSep}>•</Text>
+                    <Text style={lineModifierValue}>{opt.optionLabel}</Text>
+                  </View>
                 ))}
               </View>
               <Text style={lineTotal}>CHF {(line.price * line.quantity).toFixed(2)}</Text>
@@ -153,7 +157,7 @@ export function CartScreen({ navigation }: any) {
       </View>
     )}
 
-    <View style={sectionCard}>
+    <View style={[sectionCard, { backgroundColor: '#fcfbf9' }]}>
       <Text style={sectionTitle}>Code promo</Text>
       <TextInput
         placeholder="Saisir un code"
@@ -229,6 +233,9 @@ const segmentLabelActive = { color: '#fff' } as const;
 const lineCard = { borderWidth: 1, borderColor: '#ece7e2', borderRadius: 16, backgroundColor: '#fff', padding: 12 } as const;
 const lineName = { color: '#1f1a17', fontWeight: '800', fontSize: 17 } as const;
 const lineModifier = { color: '#7b746d', marginTop: 2, fontSize: 12 } as const;
+const lineModifierValue = { color: '#5f5750', fontSize: 12, fontWeight: '600' } as const;
+const modifierPill = { marginTop: 4, alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: 5, borderWidth: 1, borderColor: '#eee7e0', backgroundColor: '#faf8f5', borderRadius: 999, paddingHorizontal: 8, paddingVertical: 3 } as const;
+const modifierSep = { color: '#a89f95', fontSize: 11 } as const;
 const lineTotal = { color: '#151210', fontWeight: '900', fontSize: 17 } as const;
 const unitPrice = { color: '#7b746d', fontSize: 12 } as const;
 
@@ -236,15 +243,15 @@ const qtyButton = { width: 30, height: 30, borderRadius: 15, borderWidth: 1, bor
 const qtyButtonDark = { backgroundColor: '#1f1a17', borderColor: '#1f1a17' } as const;
 const qtyButtonText = { color: '#1f1a17', fontSize: 16, fontWeight: '800', lineHeight: 17 } as const;
 const qtyValue = { width: 22, textAlign: 'center', color: '#1f1a17', fontSize: 15, fontWeight: '700' } as const;
-const removeButton = { marginLeft: 6, paddingHorizontal: 8, paddingVertical: 6 } as const;
-const removeLabel = { color: '#b91c1c', fontWeight: '700', fontSize: 12 } as const;
+const removeButton = { marginLeft: 6, paddingHorizontal: 8, paddingVertical: 6, borderRadius: 8, backgroundColor: '#fff7ed' } as const;
+const removeLabel = { color: '#7c2d12', fontWeight: '600', fontSize: 12 } as const;
 
 const successBadge = { borderRadius: 10, backgroundColor: '#edf7f0', borderWidth: 1, borderColor: '#cae9d4', paddingHorizontal: 10, paddingVertical: 8 } as const;
 const successText = { color: '#166534', fontSize: 12, fontWeight: '600', marginTop: 6 } as const;
 const infoText = { color: '#6b625a', fontSize: 12, fontWeight: '500', marginTop: 6 } as const;
 const errorText = { color: '#b91c1c', fontSize: 12, fontWeight: '600' } as const;
 
-const inputStyle = { borderWidth: 1, borderColor: '#e5dfd8', borderRadius: 12, paddingHorizontal: 12, paddingVertical: 11, backgroundColor: '#fff', color: '#1f1a17' } as const;
+const inputStyle = { borderWidth: 1, borderColor: '#e5dfd8', borderRadius: 13, paddingHorizontal: 12, paddingVertical: 12, backgroundColor: '#fcfbf9', color: '#1f1a17' } as const;
 
 const secondaryAction = { borderWidth: 1, borderColor: '#d9d3cd', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, backgroundColor: '#f8f6f3' } as const;
 const secondaryActionLabel = { color: '#1f1a17', fontWeight: '700' } as const;
@@ -259,7 +266,7 @@ const totalLabel = { color: '#1f1a17', fontSize: 17, fontWeight: '800' } as cons
 const totalValue = { color: '#1f1a17', fontSize: 20, fontWeight: '900' } as const;
 
 const checkoutButton = { borderRadius: 14, backgroundColor: '#b5122a', paddingVertical: 14, alignItems: 'center' } as const;
-const checkoutButtonDisabled = { opacity: 0.55 } as const;
+const checkoutButtonDisabled = { backgroundColor: '#d8d0c8', borderWidth: 1, borderColor: '#c9beb4' } as const;
 const checkoutButtonText = { color: '#fff', fontWeight: '800', fontSize: 16 } as const;
 
 const emptyTitle = { color: '#1f1a17', fontWeight: '800', fontSize: 17 } as const;
