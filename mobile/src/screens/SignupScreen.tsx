@@ -10,6 +10,7 @@ export function SignupScreen({ navigation }: any) {
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [subscribedEmail, setSubscribedEmail] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState('');
 
@@ -18,7 +19,7 @@ export function SignupScreen({ navigation }: any) {
     setSubmitError('');
     setSubmitting(true);
     try {
-      await signup({ fullName, phone, email, password });
+      await signup({ fullName, phone, email, password, subscribedEmail });
       if (navigation.canGoBack()) {
         navigation.goBack();
       } else {
@@ -47,6 +48,16 @@ export function SignupScreen({ navigation }: any) {
       <Text style={fieldLabel}>Mot de passe</Text>
       <TextInput placeholder="Choisissez un mot de passe" secureTextEntry value={password} onChangeText={setPassword} style={inputStyle} placeholderTextColor="#8b837b" editable={!submitting} />
 
+      <Pressable style={consentCard} onPress={() => !submitting && setSubscribedEmail((prev) => !prev)} disabled={submitting}>
+        <View style={[checkboxBase, subscribedEmail && checkboxChecked, submitting && { opacity: 0.6 }]}>
+          {subscribedEmail && <Text style={checkboxTick}>✓</Text>}
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={consentTitle}>Je souhaite recevoir les offres et actualités par email</Text>
+          <Text style={consentHint}>Optionnel. Vous pouvez laisser cette case décochée et créer votre compte normalement.</Text>
+        </View>
+      </Pressable>
+
       {!!submitError && <Text style={errorText}>{submitError}</Text>}
 
       <View style={{ marginTop: 10, gap: 8 }}>
@@ -66,6 +77,12 @@ const headerSubtitle = { color: '#6f675f', marginTop: 4, fontSize: 14, lineHeigh
 const sectionCard = { borderWidth: 1, borderColor: '#ece7e2', borderRadius: 16, backgroundColor: '#fff', padding: 12 } as const;
 const fieldLabel = { color: '#6f675f', fontSize: 12, fontWeight: '700', marginTop: 8 } as const;
 const inputStyle = { borderWidth: 1, borderColor: '#e5dfd8', borderRadius: 13, paddingHorizontal: 12, paddingVertical: 12, backgroundColor: '#fcfbf9', color: '#1f1a17', marginTop: 6 } as const;
+const consentCard = { marginTop: 12, borderWidth: 1, borderColor: '#e6dfd8', borderRadius: 13, backgroundColor: '#f8f6f3', padding: 12, flexDirection: 'row', gap: 10, alignItems: 'flex-start' } as const;
+const checkboxBase = { width: 20, height: 20, borderRadius: 6, borderWidth: 1.5, borderColor: '#c2b9b1', backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center', marginTop: 1 } as const;
+const checkboxChecked = { backgroundColor: '#b5122a', borderColor: '#b5122a' } as const;
+const checkboxTick = { color: '#fff', fontSize: 12, fontWeight: '800' } as const;
+const consentTitle = { color: '#1f1a17', fontSize: 13, fontWeight: '700' } as const;
+const consentHint = { color: '#6f675f', fontSize: 12, marginTop: 3, lineHeight: 17 } as const;
 const errorText = { color: '#b91c1c', fontSize: 12, fontWeight: '600', marginTop: 10 } as const;
 
 const secondaryButton = { borderWidth: 1, borderColor: '#d9d3cd', borderRadius: 12, paddingVertical: 12, alignItems: 'center', backgroundColor: '#f8f6f3' } as const;

@@ -8,7 +8,7 @@ const STORAGE_KEY = 'mobile_customer_session_v1';
 type AuthContextValue = {
   session: CustomerSession | null;
   login: (email: string, password: string) => Promise<void>;
-  signup: (payload: { email: string; password: string; fullName: string; phone: string }) => Promise<void>;
+  signup: (payload: { email: string; password: string; fullName: string; phone: string; subscribedEmail?: boolean }) => Promise<void>;
   refreshProfile: () => Promise<void>;
   updateProfile: (payload: UpdateCustomerProfilePayload) => Promise<void>;
   deleteAccount: () => Promise<void>;
