@@ -88,25 +88,24 @@ export function MenuScreen({ navigation }: any) {
           borderRadius: 20,
           borderWidth: 1,
           borderColor: '#ebe7e3',
-          backgroundColor: '#f8f6f3',
-          padding: 18,
+          backgroundColor: '#f9f7f4',
+          paddingVertical: 12,
+          paddingHorizontal: 16,
         }}
       >
         <View style={{ alignItems: 'center', justifyContent: 'center' }}>
-          <View
+          <Text
             style={{
-              width: 58,
-              height: 58,
-              borderRadius: 29,
-              backgroundColor: '#efeae5',
-              borderWidth: 1,
-              borderColor: '#e3dcd5',
-              alignItems: 'center',
-              justifyContent: 'center',
+              color: '#1f1a17',
+              fontSize: 34,
+              fontFamily: 'serif',
+              fontStyle: 'italic',
+              fontWeight: '500',
+              letterSpacing: 0.4,
             }}
           >
-            <Text style={{ color: '#3f3731', fontSize: 30, fontWeight: '800' }}>À</Text>
-          </View>
+            {t('menu_brand_name')}
+          </Text>
         </View>
       </View>
 
