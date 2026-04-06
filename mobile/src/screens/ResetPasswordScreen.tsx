@@ -3,27 +3,29 @@ import { Pressable, Text, TextInput, View } from 'react-native';
 import { authApi } from '../api/auth';
 import { Screen } from '../components/Screen';
 import { BrandButton } from '../components/BrandButton';
+import { useLanguage } from '../contexts/LanguageContext';
 
 export function ResetPasswordScreen({ navigation }: any) {
+  const { t } = useLanguage();
   const [token, setToken] = useState('');
   const [password, setPassword] = useState('');
 
   return <Screen>
     <View style={headerCard}>
-      <Text style={headerTitle}>Réinitialiser</Text>
-      <Text style={headerSubtitle}>Saisissez le token reçu et choisissez un nouveau mot de passe.</Text>
+      <Text style={headerTitle}>{t('reset_title')}</Text>
+      <Text style={headerSubtitle}>{t('reset_subtitle')}</Text>
     </View>
 
     <View style={sectionCard}>
-      <Text style={fieldLabel}>Token</Text>
-      <TextInput placeholder="Code de réinitialisation" value={token} onChangeText={setToken} style={inputStyle} autoCapitalize="none" placeholderTextColor="#8b837b" />
-      <Text style={fieldLabel}>Nouveau mot de passe</Text>
-      <TextInput placeholder="Votre nouveau mot de passe" value={password} onChangeText={setPassword} style={inputStyle} secureTextEntry placeholderTextColor="#8b837b" />
+      <Text style={fieldLabel}>{t('reset_token_label')}</Text>
+      <TextInput placeholder={t('reset_token_placeholder')} value={token} onChangeText={setToken} style={inputStyle} autoCapitalize="none" placeholderTextColor="#8b837b" />
+      <Text style={fieldLabel}>{t('reset_new_password_label')}</Text>
+      <TextInput placeholder={t('reset_new_password_placeholder')} value={password} onChangeText={setPassword} style={inputStyle} secureTextEntry placeholderTextColor="#8b837b" />
 
       <View style={{ marginTop: 10, gap: 8 }}>
-        <BrandButton label="Réinitialiser" onPress={() => authApi.resetPassword({ token, password })} />
+        <BrandButton label={t('reset_cta')} onPress={() => authApi.resetPassword({ token, password })} />
         <Pressable style={secondaryButton} onPress={() => navigation.navigate('Login')}>
-          <Text style={secondaryButtonLabel}>Retour à la connexion</Text>
+          <Text style={secondaryButtonLabel}>{t('forgot_back_login')}</Text>
         </Pressable>
       </View>
     </View>

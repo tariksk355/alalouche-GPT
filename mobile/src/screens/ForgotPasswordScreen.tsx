@@ -3,24 +3,26 @@ import { Pressable, Text, TextInput, View } from 'react-native';
 import { authApi } from '../api/auth';
 import { Screen } from '../components/Screen';
 import { BrandButton } from '../components/BrandButton';
+import { useLanguage } from '../contexts/LanguageContext';
 
 export function ForgotPasswordScreen({ navigation }: any) {
+  const { t } = useLanguage();
   const [email, setEmail] = useState('');
 
   return <Screen>
     <View style={headerCard}>
-      <Text style={headerTitle}>Mot de passe oublié</Text>
-      <Text style={headerSubtitle}>Entrez votre email et nous vous enverrons les instructions de réinitialisation.</Text>
+      <Text style={headerTitle}>{t('forgot_title')}</Text>
+      <Text style={headerSubtitle}>{t('forgot_subtitle')}</Text>
     </View>
 
     <View style={sectionCard}>
-      <Text style={fieldLabel}>Email</Text>
-      <TextInput placeholder="vous@email.com" value={email} onChangeText={setEmail} style={inputStyle} autoCapitalize="none" placeholderTextColor="#8b837b" />
+      <Text style={fieldLabel}>{t('common_email')}</Text>
+      <TextInput placeholder={t('placeholder_email')} value={email} onChangeText={setEmail} style={inputStyle} autoCapitalize="none" placeholderTextColor="#8b837b" />
 
       <View style={{ marginTop: 10, gap: 8 }}>
-        <BrandButton label="Envoyer" onPress={() => authApi.forgotPassword({ email })} />
+        <BrandButton label={t('forgot_send')} onPress={() => authApi.forgotPassword({ email })} />
         <Pressable style={secondaryButton} onPress={() => navigation.navigate('Login')}>
-          <Text style={secondaryButtonLabel}>Retour à la connexion</Text>
+          <Text style={secondaryButtonLabel}>{t('forgot_back_login')}</Text>
         </Pressable>
       </View>
     </View>

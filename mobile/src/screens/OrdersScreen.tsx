@@ -3,9 +3,11 @@ import { ActivityIndicator, Text, View } from 'react-native';
 import { Screen } from '../components/Screen';
 import { storefrontApi } from '../api/storefront';
 import { useAuth } from '../contexts/AuthContext';
+import { useLanguage } from '../contexts/LanguageContext';
 
 export function OrdersScreen() {
   const { session } = useAuth();
+  const { t } = useLanguage();
   const [orders, setOrders] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState('');
@@ -30,7 +32,7 @@ export function OrdersScreen() {
       .catch(() => {
         if (!mounted) return;
         setOrders([]);
-        setLoadError('Impossible de charger votre historique pour le moment.');
+        setLoadError(t('orders_load_error'));
       })
       .finally(() => {
         if (!mounted) return;
@@ -43,46 +45,46 @@ export function OrdersScreen() {
   }, [session?.token]);
 
   const statusUI = useMemo(() => ({
-    new: { label: 'Reçue', bg: '#fff7e6', color: '#92400e' },
-    accepted: { label: 'Acceptée', bg: '#eff6ff', color: '#1d4ed8' },
-    ready: { label: 'Prête', bg: '#ecfdf5', color: '#047857' },
-    completed: { label: 'Terminée', bg: '#f3f4f6', color: '#374151' },
-    cancelled: { label: 'Annulée', bg: '#fef2f2', color: '#b91c1c' },
-  } as Record<string, { label: string; bg: string; color: string }>), []);
+    new: { label: t('orders_status_new'), bg: '#fff7e6', color: '#92400e' },
+    accepted: { label: t('orders_status_accepted'), bg: '#eff6ff', color: '#1d4ed8' },
+    ready: { label: t('orders_status_ready'), bg: '#ecfdf5', color: '#047857' },
+    completed: { label: t('orders_status_completed'), bg: '#f3f4f6', color: '#374151' },
+    cancelled: { label: t('orders_status_cancelled'), bg: '#fef2f2', color: '#b91c1c' },
+  } as Record<string, { label: string; bg: string; color: string }>), [t]);
 
   return <Screen>
     <View style={headerCard}>
-      <Text style={headerTitle}>Mes commandes</Text>
-      <Text style={headerSubtitle}>Suivez l’historique de vos dernières commandes.</Text>
+      <Text style={headerTitle}>{t('orders_title')}</Text>
+      <Text style={headerSubtitle}>{t('orders_subtitle')}</Text>
     </View>
 
     {loading ? (
       <View style={stateCard}>
         <ActivityIndicator color="#b5122a" />
-        <Text style={stateTitle}>Chargement de vos commandes...</Text>
+        <Text style={stateTitle}>{t('orders_loading')}</Text>
       </View>
     ) : loadError ? (
       <View style={[stateCard, { borderColor: '#fecaca', backgroundColor: '#fff5f5' }]}>
-        <Text style={[stateTitle, { color: '#991b1b' }]}>Oups</Text>
+        <Text style={[stateTitle, { color: '#991b1b' }]}>{t('orders_oops')}</Text>
         <Text style={stateCopy}>{loadError}</Text>
       </View>
     ) : orders.length === 0 ? (
       <View style={stateCard}>
-        <Text style={stateTitle}>Aucune commande pour l’instant</Text>
-        <Text style={stateCopy}>Après votre première commande, vous la retrouverez ici.</Text>
+        <Text style={stateTitle}>{t('orders_empty_title')}</Text>
+        <Text style={stateCopy}>{t('orders_empty_subtitle')}</Text>
       </View>
     ) : (
       <View style={{ gap: 10 }}>
         {orders.map((order) => {
           const key = String(order?.status || '').toLowerCase();
-          const status = statusUI[key] || { label: order?.status || 'En cours', bg: '#f3f4f6', color: '#374151' };
+          const status = statusUI[key] || { label: order?.status || t('orders_status_in_progress'), bg: '#f3f4f6', color: '#374151' };
 
           return (
             <View key={order.id} style={orderCard}>
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10 }}>
                 <View style={{ flex: 1 }}>
-                  <Text style={orderNumber}>Commande #{order.orderNumber}</Text>
-                  <Text style={orderMeta}>Merci pour votre confiance ✨</Text>
+                  <Text style={orderNumber}>{`${t('orders_order')} #${order.orderNumber}`}</Text>
+                  <Text style={orderMeta}>{t('orders_thanks')}</Text>
                 </View>
                 <View style={[statusBadge, { backgroundColor: status.bg }]}>
                   <Text style={[statusLabel, { color: status.color }]}>{status.label}</Text>
@@ -92,7 +94,7 @@ export function OrdersScreen() {
               <View style={divider} />
 
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                <Text style={amountLabel}>Total payé</Text>
+                <Text style={amountLabel}>{t('orders_total_paid')}</Text>
                 <Text style={amountValue}>CHF {Number(order.totalAmount || 0).toFixed(2)}</Text>
               </View>
             </View>

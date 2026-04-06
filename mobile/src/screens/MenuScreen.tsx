@@ -4,8 +4,10 @@ import { storefrontApi } from '../api/storefront';
 import { MenuItem } from '../types/models';
 import { Screen } from '../components/Screen';
 import { theme } from '../theme/theme';
+import { useLanguage } from '../contexts/LanguageContext';
 
 export function MenuScreen({ navigation }: any) {
+  const { t } = useLanguage();
   const [items, setItems] = useState<MenuItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -23,7 +25,7 @@ export function MenuScreen({ navigation }: any) {
       .catch(() => {
         if (!mounted) return;
         setItems([]);
-        setError('Impossible de charger le menu pour le moment.');
+        setError(t('menu_load_error'));
       })
       .finally(() => {
         if (!mounted) return;
@@ -66,7 +68,7 @@ export function MenuScreen({ navigation }: any) {
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
           <View style={{ flex: 1 }}>
             <Text style={{ color: '#1f1a17', fontSize: 37, fontWeight: '800', letterSpacing: -0.5 }}>À la Louche</Text>
-            <Text style={{ color: '#716960', marginTop: 4, fontSize: 17 }}>French Bistro · Homemade & Seasonal</Text>
+            <Text style={{ color: '#716960', marginTop: 4, fontSize: 17 }}>{t('menu_brand_subtitle')}</Text>
           </View>
           <View
             style={{
@@ -86,9 +88,9 @@ export function MenuScreen({ navigation }: any) {
         </View>
         <View style={{ marginTop: 12, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
           <View style={{ paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8, backgroundColor: '#e4ece7' }}>
-            <Text style={{ color: '#35594a', fontWeight: '700', fontSize: 12 }}>Menu live</Text>
+            <Text style={{ color: '#35594a', fontWeight: '700', fontSize: 12 }}>{t('menu_live')}</Text>
           </View>
-          <Text style={{ color: '#6b625a', fontSize: 13 }}>{items.length} article(s) disponibles</Text>
+          <Text style={{ color: '#6b625a', fontSize: 13 }}>{t('menu_items_available').replace('{count}', String(items.length))}</Text>
         </View>
       </View>
 
@@ -107,7 +109,7 @@ export function MenuScreen({ navigation }: any) {
           }}
         >
           <ActivityIndicator color={theme.colors.primary} />
-          <Text style={{ color: theme.colors.muted, fontWeight: '600' }}>Chargement du menu...</Text>
+          <Text style={{ color: theme.colors.muted, fontWeight: '600' }}>{t('menu_loading')}</Text>
         </View>
       ) : error ? (
         <View
@@ -120,7 +122,7 @@ export function MenuScreen({ navigation }: any) {
             padding: 14,
           }}
         >
-          <Text style={{ color: '#b91c1c', fontWeight: '800', marginBottom: 4 }}>Erreur de chargement</Text>
+          <Text style={{ color: '#b91c1c', fontWeight: '800', marginBottom: 4 }}>{t('menu_load_error_title')}</Text>
           <Text style={{ color: '#7f1d1d' }}>{error}</Text>
         </View>
       ) : categories.length === 0 ? (
@@ -134,8 +136,8 @@ export function MenuScreen({ navigation }: any) {
             padding: 14,
           }}
         >
-          <Text style={{ color: theme.colors.text, fontWeight: '800', marginBottom: 4 }}>Menu indisponible</Text>
-          <Text style={{ color: theme.colors.muted }}>Aucun article n’est disponible pour le moment.</Text>
+          <Text style={{ color: theme.colors.text, fontWeight: '800', marginBottom: 4 }}>{t('menu_unavailable_title')}</Text>
+          <Text style={{ color: theme.colors.muted }}>{t('menu_unavailable_copy')}</Text>
         </View>
       ) : (
         <>
@@ -180,9 +182,9 @@ export function MenuScreen({ navigation }: any) {
             <View style={{ marginBottom: 6, paddingHorizontal: 2, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
               <View>
                 <Text style={{ fontSize: 21, fontWeight: '800', color: theme.colors.text }}>{visibleCategory}</Text>
-                <Text style={{ color: '#7b746d', fontSize: 14, marginTop: 2 }}>Sélection maison</Text>
+                <Text style={{ color: '#7b746d', fontSize: 14, marginTop: 2 }}>{t('menu_home_selection')}</Text>
               </View>
-              <Text style={{ color: '#7b746d', fontSize: 14 }}>{visibleItems.length} items</Text>
+              <Text style={{ color: '#7b746d', fontSize: 14 }}>{t('menu_items_count').replace('{count}', String(visibleItems.length))}</Text>
             </View>
 
             {visibleItems.map((item) => (
@@ -202,7 +204,7 @@ export function MenuScreen({ navigation }: any) {
                   <View style={{ flex: 1 }}>
                     <Text style={{ color: '#1f1a17', fontWeight: '800', fontSize: 19 }}>{item.name}</Text>
                     <Text style={{ color: '#6b625a', fontSize: 15, marginTop: 4, lineHeight: 20 }} numberOfLines={2}>
-                      {item.description?.trim() || 'Préparation maison.'}
+                      {item.description?.trim() || t('menu_default_description')}
                     </Text>
                     <View style={{ marginTop: 10, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                       <Text style={{ color: '#111111', fontWeight: '900', fontSize: 22 }}>
@@ -231,7 +233,7 @@ export function MenuScreen({ navigation }: any) {
                           borderColor: '#e7e2dc',
                         }}
                       >
-                        <Text style={{ color: '#938a80', fontWeight: '700', fontSize: 12 }}>À la Louche</Text>
+                        <Text style={{ color: '#938a80', fontWeight: '700', fontSize: 12 }}>{t('menu_brand_name')}</Text>
                       </View>
                     )}
 

@@ -3,9 +3,11 @@ import { Pressable, Text, TextInput, View } from 'react-native';
 import { Screen } from '../components/Screen';
 import { BrandButton } from '../components/BrandButton';
 import { useAuth } from '../contexts/AuthContext';
+import { useLanguage } from '../contexts/LanguageContext';
 
 export function SignupScreen({ navigation }: any) {
   const { signup } = useAuth();
+  const { t } = useLanguage();
   const [fullName, setFullName] = useState('');
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
@@ -26,7 +28,7 @@ export function SignupScreen({ navigation }: any) {
         navigation.navigate('Main');
       }
     } catch (error: any) {
-      setSubmitError(error?.message || 'Impossible de créer le compte avec ces informations.');
+      setSubmitError(error?.message || t('signup_error'));
     } finally {
       setSubmitting(false);
     }
@@ -34,36 +36,36 @@ export function SignupScreen({ navigation }: any) {
 
   return <Screen>
     <View style={headerCard}>
-      <Text style={headerTitle}>Créer un compte</Text>
-      <Text style={headerSubtitle}>Rejoignez-nous pour commander plus vite et suivre vos commandes.</Text>
+      <Text style={headerTitle}>{t('signup_title')}</Text>
+      <Text style={headerSubtitle}>{t('signup_subtitle')}</Text>
     </View>
 
     <View style={sectionCard}>
-      <Text style={fieldLabel}>Nom complet</Text>
-      <TextInput placeholder="Votre nom" value={fullName} onChangeText={setFullName} style={inputStyle} placeholderTextColor="#8b837b" editable={!submitting} />
-      <Text style={fieldLabel}>Téléphone</Text>
-      <TextInput placeholder="Votre numéro" value={phone} onChangeText={setPhone} style={inputStyle} placeholderTextColor="#8b837b" keyboardType="phone-pad" editable={!submitting} />
-      <Text style={fieldLabel}>Email</Text>
-      <TextInput placeholder="vous@email.com" autoCapitalize="none" value={email} onChangeText={setEmail} style={inputStyle} placeholderTextColor="#8b837b" editable={!submitting} />
-      <Text style={fieldLabel}>Mot de passe</Text>
-      <TextInput placeholder="Choisissez un mot de passe" secureTextEntry value={password} onChangeText={setPassword} style={inputStyle} placeholderTextColor="#8b837b" editable={!submitting} />
+      <Text style={fieldLabel}>{t('common_full_name')}</Text>
+      <TextInput placeholder={t('signup_name_placeholder')} value={fullName} onChangeText={setFullName} style={inputStyle} placeholderTextColor="#8b837b" editable={!submitting} />
+      <Text style={fieldLabel}>{t('common_phone')}</Text>
+      <TextInput placeholder={t('signup_phone_placeholder')} value={phone} onChangeText={setPhone} style={inputStyle} placeholderTextColor="#8b837b" keyboardType="phone-pad" editable={!submitting} />
+      <Text style={fieldLabel}>{t('common_email')}</Text>
+      <TextInput placeholder={t('placeholder_email')} autoCapitalize="none" value={email} onChangeText={setEmail} style={inputStyle} placeholderTextColor="#8b837b" editable={!submitting} />
+      <Text style={fieldLabel}>{t('common_password')}</Text>
+      <TextInput placeholder={t('signup_password_placeholder')} secureTextEntry value={password} onChangeText={setPassword} style={inputStyle} placeholderTextColor="#8b837b" editable={!submitting} />
 
       <Pressable style={consentCard} onPress={() => !submitting && setSubscribedEmail((prev) => !prev)} disabled={submitting}>
         <View style={[checkboxBase, subscribedEmail && checkboxChecked, submitting && { opacity: 0.6 }]}>
           {subscribedEmail && <Text style={checkboxTick}>✓</Text>}
         </View>
         <View style={{ flex: 1 }}>
-          <Text style={consentTitle}>Je souhaite recevoir les offres et actualités par email</Text>
-          <Text style={consentHint}>Optionnel. Vous pouvez laisser cette case décochée et créer votre compte normalement.</Text>
+          <Text style={consentTitle}>{t('signup_marketing_title')}</Text>
+          <Text style={consentHint}>{t('signup_marketing_hint')}</Text>
         </View>
       </Pressable>
 
       {!!submitError && <Text style={errorText}>{submitError}</Text>}
 
       <View style={{ marginTop: 10, gap: 8 }}>
-        <BrandButton label={submitting ? 'Création...' : "S'inscrire"} onPress={handleSignup} disabled={submitting} />
+        <BrandButton label={submitting ? t('signup_loading') : t('signup_cta')} onPress={handleSignup} disabled={submitting} />
         <Pressable style={[secondaryButton, submitting && { opacity: 0.6 }]} onPress={() => navigation.navigate('Login')} disabled={submitting}>
-          <Text style={secondaryButtonLabel}>J'ai déjà un compte</Text>
+          <Text style={secondaryButtonLabel}>{t('signup_have_account')}</Text>
         </Pressable>
       </View>
     </View>

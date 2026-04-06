@@ -4,6 +4,7 @@ import { Screen } from '../components/Screen';
 import { useAuth } from '../contexts/AuthContext';
 import { BrandButton } from '../components/BrandButton';
 import { CustomerProfile } from '../api/auth';
+import { useLanguage } from '../contexts/LanguageContext';
 
 type ProfileFormState = {
   fullName: string;
@@ -29,6 +30,7 @@ function buildFormState(customer?: CustomerProfile): ProfileFormState {
 
 export function ProfileScreen({ navigation }: any) {
   const { session, logout, updateProfile, deleteAccount } = useAuth();
+  const { t } = useLanguage();
   const customer = session?.customer;
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -65,9 +67,9 @@ export function ProfileScreen({ navigation }: any) {
         deliveryInstructions: form.deliveryInstructions.trim(),
       });
       setEditing(false);
-      setFeedback({ type: 'success', message: 'Profil mis à jour.' });
+      setFeedback({ type: 'success', message: t('profile_updated') });
     } catch (err: any) {
-      setFeedback({ type: 'error', message: err?.message || 'Mise à jour impossible.' });
+      setFeedback({ type: 'error', message: err?.message || t('profile_update_error') });
     } finally {
       setSaving(false);
     }
@@ -81,7 +83,7 @@ export function ProfileScreen({ navigation }: any) {
       await deleteAccount();
       setConfirmDelete(false);
     } catch (err: any) {
-      setDeleteError(err?.message || 'Suppression du compte impossible.');
+      setDeleteError(err?.message || t('profile_delete_error'));
     } finally {
       setDeleting(false);
     }
@@ -89,8 +91,8 @@ export function ProfileScreen({ navigation }: any) {
 
   return <Screen>
     <View style={headerCard}>
-      <Text style={headerTitle}>Profil</Text>
-      <Text style={headerSubtitle}>Votre espace personnel pour gérer votre compte client.</Text>
+      <Text style={headerTitle}>{t('profile_title')}</Text>
+      <Text style={headerSubtitle}>{t('profile_subtitle')}</Text>
     </View>
 
     {isSignedIn ? (
@@ -101,37 +103,37 @@ export function ProfileScreen({ navigation }: any) {
               <Text style={avatarText}>{initials}</Text>
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={welcomeTitle}>Bonjour {customerData.fullName || 'à vous'} 👋</Text>
-              <Text style={helperText}>Connecté avec votre compte client.</Text>
+              <Text style={welcomeTitle}>{`${t('profile_hello')} ${customerData.fullName || t('profile_hello_fallback')} 👋`}</Text>
+              <Text style={helperText}>{t('profile_connected')}</Text>
             </View>
           </View>
 
           {!editing ? (
             <>
               <View style={infoRow}>
-                <Text style={label}>Nom</Text>
+                <Text style={label}>{t('common_full_name')}</Text>
                 <Text style={value}>{customerData.fullName || '-'}</Text>
               </View>
               <View style={divider} />
               <View style={infoRow}>
-                <Text style={label}>Email</Text>
+                <Text style={label}>{t('common_email')}</Text>
                 <Text style={value}>{customerData.email || '-'}</Text>
               </View>
               <View style={divider} />
               <View style={infoRow}>
-                <Text style={label}>Téléphone</Text>
+                <Text style={label}>{t('common_phone')}</Text>
                 <Text style={value}>{customerData.phone || '-'}</Text>
               </View>
               <View style={divider} />
               <View style={infoRow}>
-                <Text style={label}>Adresse de livraison</Text>
-                <Text style={value}>{profileSummary || 'Non renseignée'}</Text>
+                <Text style={label}>{t('profile_delivery_address')}</Text>
+                <Text style={value}>{profileSummary || t('profile_not_set')}</Text>
               </View>
               {!!customerData.deliveryInstructions && (
                 <>
                   <View style={divider} />
                   <View style={infoRow}>
-                    <Text style={label}>Instructions</Text>
+                    <Text style={label}>{t('profile_instructions')}</Text>
                     <Text style={value}>{customerData.deliveryInstructions}</Text>
                   </View>
                 </>
@@ -140,42 +142,42 @@ export function ProfileScreen({ navigation }: any) {
           ) : (
             <View style={{ gap: 8 }}>
               <View style={inputGroup}>
-                <Text style={label}>Nom complet</Text>
-                <TextInput style={input} value={form.fullName} onChangeText={(v) => setForm((prev) => ({ ...prev, fullName: v }))} placeholder="Nom complet" />
+                <Text style={label}>{t('common_full_name')}</Text>
+                <TextInput style={input} value={form.fullName} onChangeText={(v) => setForm((prev) => ({ ...prev, fullName: v }))} placeholder={t('common_full_name')} />
               </View>
               <View style={inputGroup}>
-                <Text style={label}>Email (lecture seule)</Text>
+                <Text style={label}>{t('profile_email_readonly')}</Text>
                 <Text style={readOnlyValue}>{customerData.email || '-'}</Text>
               </View>
               <View style={inputGroup}>
-                <Text style={label}>Téléphone</Text>
-                <TextInput style={input} value={form.phone} onChangeText={(v) => setForm((prev) => ({ ...prev, phone: v }))} placeholder="Téléphone" keyboardType="phone-pad" />
+                <Text style={label}>{t('common_phone')}</Text>
+                <TextInput style={input} value={form.phone} onChangeText={(v) => setForm((prev) => ({ ...prev, phone: v }))} placeholder={t('common_phone')} keyboardType="phone-pad" />
               </View>
               <View style={inputGroup}>
-                <Text style={label}>Adresse ligne 1</Text>
-                <TextInput style={input} value={form.addressLine1} onChangeText={(v) => setForm((prev) => ({ ...prev, addressLine1: v }))} placeholder="Adresse ligne 1" />
+                <Text style={label}>{t('profile_address_line1')}</Text>
+                <TextInput style={input} value={form.addressLine1} onChangeText={(v) => setForm((prev) => ({ ...prev, addressLine1: v }))} placeholder={t('profile_address_line1')} />
               </View>
               <View style={inputGroup}>
-                <Text style={label}>Adresse ligne 2</Text>
-                <TextInput style={input} value={form.addressLine2} onChangeText={(v) => setForm((prev) => ({ ...prev, addressLine2: v }))} placeholder="Adresse ligne 2 (optionnel)" />
+                <Text style={label}>{t('profile_address_line2')}</Text>
+                <TextInput style={input} value={form.addressLine2} onChangeText={(v) => setForm((prev) => ({ ...prev, addressLine2: v }))} placeholder={t('profile_address_line2_optional')} />
               </View>
               <View style={{ flexDirection: 'row', gap: 8 }}>
                 <View style={[inputGroup, { flex: 1 }]}>
-                  <Text style={label}>Code postal</Text>
+                  <Text style={label}>{t('checkout_postal_code')}</Text>
                   <TextInput style={input} value={form.postalCode} onChangeText={(v) => setForm((prev) => ({ ...prev, postalCode: v }))} placeholder="Code postal" />
                 </View>
                 <View style={[inputGroup, { flex: 1 }]}>
-                  <Text style={label}>Ville</Text>
-                  <TextInput style={input} value={form.city} onChangeText={(v) => setForm((prev) => ({ ...prev, city: v }))} placeholder="Ville" />
+                  <Text style={label}>{t('profile_city')}</Text>
+                  <TextInput style={input} value={form.city} onChangeText={(v) => setForm((prev) => ({ ...prev, city: v }))} placeholder={t('profile_city')} />
                 </View>
               </View>
               <View style={inputGroup}>
-                <Text style={label}>Instructions de livraison</Text>
+                <Text style={label}>{t('profile_delivery_instructions')}</Text>
                 <TextInput
                   style={[input, { minHeight: 74, textAlignVertical: 'top', paddingTop: 10 }]}
                   value={form.deliveryInstructions}
                   onChangeText={(v) => setForm((prev) => ({ ...prev, deliveryInstructions: v }))}
-                  placeholder="Digicode, étage, précisions…"
+                  placeholder={t('profile_delivery_instructions_placeholder')}
                   multiline
                 />
               </View>
@@ -186,7 +188,7 @@ export function ProfileScreen({ navigation }: any) {
             <>
               <View style={divider} />
               <View style={infoRow}>
-                <Text style={label}>Compte</Text>
+                <Text style={label}>{t('profile_account')}</Text>
                 <Text style={value}>#{customerData.id.slice(0, 8).toUpperCase()}</Text>
               </View>
             </>
@@ -197,7 +199,7 @@ export function ProfileScreen({ navigation }: any) {
           {saving && (
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 }}>
               <ActivityIndicator size="small" color="#4f463f" />
-              <Text style={helperText}>Mise à jour du profil…</Text>
+              <Text style={helperText}>{t('profile_updating')}</Text>
             </View>
           )}
           {!saving && feedback && (
@@ -206,23 +208,23 @@ export function ProfileScreen({ navigation }: any) {
             </View>
           )}
           {!editing ? (
-            <BrandButton label="Modifier mon profil" onPress={() => { setFeedback(null); setForm(buildFormState(customer)); setEditing(true); }} />
+            <BrandButton label={t('profile_edit')} onPress={() => { setFeedback(null); setForm(buildFormState(customer)); setEditing(true); }} />
           ) : (
             <View style={{ gap: 8 }}>
-              <BrandButton label={saving ? 'Enregistrement…' : 'Enregistrer'} disabled={disableSave} onPress={onSave} />
+              <BrandButton label={saving ? t('profile_saving') : t('profile_save')} disabled={disableSave} onPress={onSave} />
               <Pressable style={secondaryButton} onPress={() => { setEditing(false); setFeedback(null); setForm(buildFormState(customer)); }}>
-                <Text style={secondaryButtonLabel}>Annuler</Text>
+                <Text style={secondaryButtonLabel}>{t('common_cancel')}</Text>
               </Pressable>
             </View>
           )}
-          <Text style={helperText}>Vous êtes connecté(e). Vous pouvez vous déconnecter à tout moment.</Text>
-          <BrandButton label="Se déconnecter" onPress={() => logout()} />
+          <Text style={helperText}>{t('profile_logout_hint')}</Text>
+          <BrandButton label={t('profile_logout')} onPress={() => logout()} />
         </View>
 
         <View style={dangerCard}>
-          <Text style={dangerTitle}>Supprimer mon compte</Text>
+          <Text style={dangerTitle}>{t('profile_delete_title')}</Text>
           <Text style={dangerText}>
-            Cette action désactive votre accès client et retire vos informations de profil.
+            {t('profile_delete_copy')}
           </Text>
           {!!deleteError && (
             <View style={[notice, errorNotice, { marginTop: 8 }]}>
@@ -231,16 +233,16 @@ export function ProfileScreen({ navigation }: any) {
           )}
           {!confirmDelete ? (
             <Pressable style={[dangerButton, deleting && { opacity: 0.6 }]} onPress={() => { setDeleteError(''); setConfirmDelete(true); }} disabled={deleting}>
-              <Text style={dangerButtonLabel}>Supprimer mon compte</Text>
+              <Text style={dangerButtonLabel}>{t('profile_delete_cta')}</Text>
             </Pressable>
           ) : (
             <View style={{ gap: 8, marginTop: 8 }}>
-              <Text style={dangerConfirmText}>Confirmez-vous la suppression définitive de votre compte ?</Text>
+              <Text style={dangerConfirmText}>{t('profile_delete_confirm')}</Text>
               <Pressable style={[dangerButton, deleting && { opacity: 0.6 }]} onPress={onDeleteAccount} disabled={deleting}>
-                <Text style={dangerButtonLabel}>{deleting ? 'Suppression…' : 'Confirmer la suppression'}</Text>
+                <Text style={dangerButtonLabel}>{deleting ? t('profile_deleting') : t('profile_delete_confirm_cta')}</Text>
               </Pressable>
               <Pressable style={secondaryButton} onPress={() => { if (!deleting) setConfirmDelete(false); }} disabled={deleting}>
-                <Text style={secondaryButtonLabel}>Annuler</Text>
+                <Text style={secondaryButtonLabel}>{t('common_cancel')}</Text>
               </Pressable>
             </View>
           )}
@@ -248,13 +250,13 @@ export function ProfileScreen({ navigation }: any) {
       </>
     ) : (
       <View style={sectionCard}>
-        <Text style={welcomeTitle}>Bienvenue</Text>
-        <Text style={helperText}>Connectez-vous pour retrouver vos commandes et gérer votre profil.</Text>
+        <Text style={welcomeTitle}>{t('common_welcome')}</Text>
+        <Text style={helperText}>{t('profile_guest_copy')}</Text>
 
         <View style={{ gap: 8 }}>
-          <BrandButton label="Se connecter" onPress={() => navigation.navigate('Login')} />
+          <BrandButton label={t('login_cta')} onPress={() => navigation.navigate('Login')} />
           <Pressable style={secondaryButton} onPress={() => navigation.navigate('Signup')}>
-            <Text style={secondaryButtonLabel}>Créer un compte</Text>
+            <Text style={secondaryButtonLabel}>{t('login_create_account')}</Text>
           </Pressable>
         </View>
       </View>

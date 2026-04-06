@@ -4,8 +4,10 @@ import { Screen } from '../components/Screen';
 import { BrandButton } from '../components/BrandButton';
 import { useCart } from '../contexts/CartContext';
 import { theme } from '../theme/theme';
+import { useLanguage } from '../contexts/LanguageContext';
 
 export function ProductDetailScreen({ route, navigation }: any) {
+  const { t } = useLanguage();
   const item = route?.params?.item;
   const { addLine } = useCart();
   const [selected, setSelected] = useState<Record<string, string[]>>({});
@@ -15,10 +17,10 @@ export function ProductDetailScreen({ route, navigation }: any) {
     return (
       <Screen>
         <View style={{ borderWidth: 1, borderColor: '#e5e7eb', borderRadius: 16, padding: 16, backgroundColor: '#fff' }}>
-          <Text style={{ fontSize: 24, fontWeight: '800', color: '#1f1a17' }}>Produit introuvable</Text>
-          <Text style={{ color: '#6b625a', marginTop: 6 }}>Impossible d’afficher les détails de ce produit.</Text>
+          <Text style={{ fontSize: 24, fontWeight: '800', color: '#1f1a17' }}>{t('product_not_found_title')}</Text>
+          <Text style={{ color: '#6b625a', marginTop: 6 }}>{t('product_not_found_copy')}</Text>
         </View>
-        <BrandButton label="Retour au menu" onPress={() => navigation.goBack()} />
+        <BrandButton label={t('product_back_to_menu')} onPress={() => navigation.goBack()} />
       </Screen>
     );
   }
@@ -41,13 +43,13 @@ export function ProductDetailScreen({ route, navigation }: any) {
           </Pressable>
         ) : (
           <View style={{ height: 220, backgroundColor: '#f4f1ed', alignItems: 'center', justifyContent: 'center' }}>
-            <Text style={{ color: '#9b9188', fontWeight: '700' }}>À la Louche</Text>
+            <Text style={{ color: '#9b9188', fontWeight: '700' }}>{t('menu_brand_name')}</Text>
           </View>
         )}
         <View style={{ padding: 16 }}>
           <Text style={{ color: '#1f1a17', fontSize: 31, fontWeight: '800', letterSpacing: -0.3 }}>{item.name}</Text>
           <Text style={{ color: '#6b625a', marginTop: 6, lineHeight: 21, fontSize: 15 }}>
-            {item.description?.trim() || 'Préparation maison, faite à la commande.'}
+            {item.description?.trim() || t('product_default_description')}
           </Text>
           <View style={{ marginTop: 12 }}>
             <Text style={{ color: theme.colors.primary, fontSize: 29, fontWeight: '900' }}>CHF {total.toFixed(2)}</Text>
@@ -60,7 +62,7 @@ export function ProductDetailScreen({ route, navigation }: any) {
           <View style={{ marginBottom: 8 }}>
             <Text style={{ color: '#1f1a17', fontWeight: '800', fontSize: 17 }}>{group.name}</Text>
             <Text style={{ color: '#7b746d', marginTop: 2, fontSize: 12 }}>
-              {group.required ? 'Obligatoire' : 'Optionnel'} · {group.selectionType === 'single' ? '1 choix' : 'Choix multiples'}
+              {group.required ? t('product_required') : t('product_optional')} · {group.selectionType === 'single' ? t('product_single_choice') : t('product_multiple_choice')}
             </Text>
           </View>
           {(group.options || []).map((opt: any) => {
@@ -125,7 +127,7 @@ export function ProductDetailScreen({ route, navigation }: any) {
                     <View style={{ flex: 1 }}>
                       <Text style={{ color: '#1f1a17', fontWeight: checked ? '700' : '600' }}>{opt.label}</Text>
                       <Text style={{ color: '#8a8077', fontSize: 11, marginTop: 2 }}>
-                        {isSingle ? 'Choix unique' : 'Choix multiple'}
+                        {isSingle ? t('product_single_label') : t('product_multi_label')}
                       </Text>
                     </View>
                   </View>
@@ -141,9 +143,9 @@ export function ProductDetailScreen({ route, navigation }: any) {
       ))}
 
       <View style={{ borderWidth: 1, borderColor: '#ece7e2', borderRadius: 16, backgroundColor: '#fff', padding: 12 }}>
-        <Text style={{ color: '#6b625a', fontSize: 13, marginBottom: 10 }}>Finalisez votre sélection puis ajoutez au panier.</Text>
+        <Text style={{ color: '#6b625a', fontSize: 13, marginBottom: 10 }}>{t('product_finalize_copy')}</Text>
         <BrandButton
-          label={`Ajouter au panier · CHF ${total.toFixed(2)}`}
+          label={`${t('product_add_to_cart')} · CHF ${total.toFixed(2)}`}
           onPress={() => {
             addLine({ lineKey, id: item.id, name: item.name, price: total, selectedOptions });
             navigation.navigate('Cart');
@@ -157,7 +159,7 @@ export function ProductDetailScreen({ route, navigation }: any) {
             onPress={() => setImageViewerOpen(false)}
             style={{ position: 'absolute', top: 48, right: 18, zIndex: 20, backgroundColor: 'rgba(255,255,255,0.14)', borderRadius: 18, paddingHorizontal: 12, paddingVertical: 7 }}
           >
-            <Text style={{ color: '#fff', fontWeight: '700' }}>Fermer</Text>
+            <Text style={{ color: '#fff', fontWeight: '700' }}>{t('common_close')}</Text>
           </Pressable>
           <ScrollView
             contentContainerStyle={{ flexGrow: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 12, paddingVertical: 54 }}

@@ -4,10 +4,12 @@ import { Screen } from '../components/Screen';
 import { useCart } from '../contexts/CartContext';
 import { storefrontApi, getDeliveryRuleForPostalCode, normalizePostalCode, PromotionPreview } from '../api/storefront';
 import { useAuth } from '../contexts/AuthContext';
+import { useLanguage } from '../contexts/LanguageContext';
 
 export function CartScreen({ navigation }: any) {
   const { lines, updateQty, removeLine } = useCart();
   const { session } = useAuth();
+  const { t } = useLanguage();
 
   const [orderType, setOrderType] = useState<'takeaway' | 'delivery'>('takeaway');
   const [postalCodeInput, setPostalCodeInput] = useState('');
@@ -28,11 +30,11 @@ export function CartScreen({ navigation }: any) {
   const deliveryBlockedMessage = orderType !== 'delivery'
     ? ''
     : !normalizedPostalCode
-      ? 'Veuillez saisir un code postal de livraison.'
+      ? t('cart_enter_postal')
       : !deliveryRule
-        ? 'Livraison indisponible pour ce code postal.'
+        ? t('cart_delivery_unavailable')
         : missingForMinimum > 0
-          ? `Minimum CHF ${minimumOrder.toFixed(2)} pour ${normalizedPostalCode}. Il manque CHF ${missingForMinimum.toFixed(2)}.`
+          ? t('cart_minimum_missing').replace('{minimum}', minimumOrder.toFixed(2)).replace('{postal}', normalizedPostalCode).replace('{missing}', missingForMinimum.toFixed(2))
           : '';
 
   const discountedSubtotal = appliedPromotion?.totalAmount ?? subtotal;
@@ -42,7 +44,7 @@ export function CartScreen({ navigation }: any) {
   useEffect(() => {
     if (!appliedPromotion) return;
     setAppliedPromotion(null);
-    setPromoFeedback('Le panier a changé. Veuillez réappliquer votre code promo.');
+    setPromoFeedback(t('cart_promo_cart_changed'));
   }, [lines]);
 
   const applyPromotion = async () => {
@@ -61,10 +63,10 @@ export function CartScreen({ navigation }: any) {
       });
       setAppliedPromotion(promotion);
       setPromoInput(promotion.promotionCode);
-      setPromoFeedback('Code promo appliqué.');
+      setPromoFeedback(t('cart_promo_applied'));
     } catch (error: any) {
       setAppliedPromotion(null);
-      setPromoFeedback(error?.message || 'Impossible d’appliquer ce code promo.');
+      setPromoFeedback(error?.message || t('cart_promo_apply_error'));
     } finally {
       setPromoLoading(false);
     }
@@ -73,32 +75,32 @@ export function CartScreen({ navigation }: any) {
   const removePromotion = () => {
     setAppliedPromotion(null);
     setPromoInput('');
-    setPromoFeedback('Code promo retiré.');
+    setPromoFeedback(t('cart_promo_removed'));
   };
 
   const canCheckout = lines.length > 0 && !deliveryBlockedMessage;
 
   return <Screen>
     <View style={headerCard}>
-      <Text style={headerTitle}>Panier</Text>
-      <Text style={headerSubtitle}>{lines.length} article(s) · prêt en quelques minutes</Text>
+      <Text style={headerTitle}>{t('cart_title')}</Text>
+      <Text style={headerSubtitle}>{t('cart_header_subtitle').replace('{count}', String(lines.length))}</Text>
     </View>
 
     <View style={sectionCard}>
-      <Text style={sectionTitle}>Type de commande</Text>
+      <Text style={sectionTitle}>{t('cart_order_type')}</Text>
       <View style={segmentedWrap}>
         <Pressable style={[segmentButton, orderType === 'takeaway' && segmentButtonActive]} onPress={() => setOrderType('takeaway')}>
-          <Text style={[segmentLabel, orderType === 'takeaway' && segmentLabelActive]}>À emporter</Text>
+          <Text style={[segmentLabel, orderType === 'takeaway' && segmentLabelActive]}>{t('order_type_takeaway')}</Text>
         </Pressable>
         <Pressable style={[segmentButton, orderType === 'delivery' && segmentButtonActive]} onPress={() => setOrderType('delivery')}>
-          <Text style={[segmentLabel, orderType === 'delivery' && segmentLabelActive]}>Livraison</Text>
+          <Text style={[segmentLabel, orderType === 'delivery' && segmentLabelActive]}>{t('order_type_delivery')}</Text>
         </Pressable>
       </View>
 
       {orderType === 'delivery' && (
         <View style={{ marginTop: 12, gap: 8 }}>
           <TextInput
-            placeholder="Code postal (ex: 1700)"
+            placeholder={t('cart_postal_placeholder')}
             value={postalCodeInput}
             onChangeText={setPostalCodeInput}
             keyboardType="numeric"
@@ -106,7 +108,7 @@ export function CartScreen({ navigation }: any) {
           />
           {!deliveryBlockedMessage && deliveryRule && (
             <View style={successBadge}>
-              <Text style={successText}>Zone {deliveryRule.postalCode} · min CHF {minimumOrder.toFixed(2)} · frais CHF {deliveryFee.toFixed(2)}</Text>
+              <Text style={successText}>{t('cart_zone_ok').replace('{postal}', deliveryRule.postalCode).replace('{minimum}', minimumOrder.toFixed(2)).replace('{fee}', deliveryFee.toFixed(2))}</Text>
             </View>
           )}
           {!!deliveryBlockedMessage && <Text style={errorText}>{deliveryBlockedMessage}</Text>}
@@ -116,8 +118,8 @@ export function CartScreen({ navigation }: any) {
 
     {lines.length === 0 ? (
       <View style={sectionCard}>
-        <Text style={emptyTitle}>Votre panier est vide</Text>
-        <Text style={emptySubtitle}>Ajoutez quelques plats depuis le menu pour continuer.</Text>
+        <Text style={emptyTitle}>{t('cart_empty_title')}</Text>
+        <Text style={emptySubtitle}>{t('cart_empty_copy')}</Text>
       </View>
     ) : (
       <View style={{ gap: 10 }}>
@@ -138,7 +140,7 @@ export function CartScreen({ navigation }: any) {
             </View>
 
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 10 }}>
-              <Text style={unitPrice}>CHF {line.price.toFixed(2)} / unité</Text>
+              <Text style={unitPrice}>{`CHF ${line.price.toFixed(2)} / ${t('cart_unit')}`}</Text>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                 <Pressable style={qtyButton} onPress={() => updateQty(line.lineKey, -1)}>
                   <Text style={qtyButtonText}>−</Text>
@@ -148,7 +150,7 @@ export function CartScreen({ navigation }: any) {
                   <Text style={[qtyButtonText, { color: '#fff' }]}>+</Text>
                 </Pressable>
                 <Pressable onPress={() => removeLine(line.lineKey)} style={removeButton}>
-                  <Text style={removeLabel}>Retirer</Text>
+                  <Text style={removeLabel}>{t('cart_remove')}</Text>
                 </Pressable>
               </View>
             </View>
@@ -158,9 +160,9 @@ export function CartScreen({ navigation }: any) {
     )}
 
     <View style={[sectionCard, { backgroundColor: '#fcfbf9' }]}>
-      <Text style={sectionTitle}>Code promo</Text>
+      <Text style={sectionTitle}>{t('cart_promo_title')}</Text>
       <TextInput
-        placeholder="Saisir un code"
+        placeholder={t('cart_promo_placeholder')}
         value={promoInput}
         onChangeText={setPromoInput}
         autoCapitalize="characters"
@@ -168,24 +170,24 @@ export function CartScreen({ navigation }: any) {
       />
       <View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}>
         <Pressable style={secondaryAction} onPress={applyPromotion}>
-          <Text style={secondaryActionLabel}>{promoLoading ? 'Application...' : 'Appliquer'}</Text>
+          <Text style={secondaryActionLabel}>{promoLoading ? t('cart_applying') : t('cart_apply')}</Text>
         </Pressable>
         {!!appliedPromotion && (
           <Pressable style={[secondaryAction, secondaryActionDanger]} onPress={removePromotion}>
-            <Text style={secondaryActionDangerLabel}>Retirer</Text>
+            <Text style={secondaryActionDangerLabel}>{t('cart_remove')}</Text>
           </Pressable>
         )}
       </View>
-      {!!promoFeedback && <Text style={promoFeedback.includes('appliqué') ? successText : infoText}>{promoFeedback}</Text>}
+      {!!promoFeedback && <Text style={promoFeedback === t('cart_promo_applied') ? successText : infoText}>{promoFeedback}</Text>}
     </View>
 
     <View style={summaryCard}>
-      <Text style={sectionTitle}>Résumé</Text>
-      <Row label="Sous-total" value={`CHF ${subtotal.toFixed(2)}`} />
-      {orderType === 'delivery' && deliveryRule && <Row label="Livraison" value={`CHF ${deliveryFee.toFixed(2)}`} />}
-      {!!appliedPromotion && <Row label={`Remise (${appliedPromotion.promotionCode})`} value={`- CHF ${discountAmount.toFixed(2)}`} valueStyle={{ color: '#15803d' }} />}
+      <Text style={sectionTitle}>{t('cart_summary')}</Text>
+      <Row label={t('cart_subtotal')} value={`CHF ${subtotal.toFixed(2)}`} />
+      {orderType === 'delivery' && deliveryRule && <Row label={t('order_type_delivery')} value={`CHF ${deliveryFee.toFixed(2)}`} />}
+      {!!appliedPromotion && <Row label={`${t('cart_discount')} (${appliedPromotion.promotionCode})`} value={`- CHF ${discountAmount.toFixed(2)}`} valueStyle={{ color: '#15803d' }} />}
       <View style={totalDivider} />
-      <Row label="Total" value={`CHF ${finalTotal.toFixed(2)}`} labelStyle={totalLabel} valueStyle={totalValue} />
+      <Row label={t('checkout_total')} value={`CHF ${finalTotal.toFixed(2)}`} labelStyle={totalLabel} valueStyle={totalValue} />
     </View>
 
     <Pressable
@@ -201,10 +203,10 @@ export function CartScreen({ navigation }: any) {
       })}
       disabled={!canCheckout}
     >
-      <Text style={checkoutButtonText}>Continuer vers le checkout</Text>
+      <Text style={checkoutButtonText}>{t('cart_continue_checkout')}</Text>
     </Pressable>
 
-    {!canCheckout && <Text style={errorText}>{lines.length === 0 ? 'Votre panier est vide.' : deliveryBlockedMessage}</Text>}
+    {!canCheckout && <Text style={errorText}>{lines.length === 0 ? t('cart_empty_short') : deliveryBlockedMessage}</Text>}
   </Screen>;
 }
 

@@ -4,10 +4,12 @@ import { Screen } from '../components/Screen';
 import { useCart } from '../contexts/CartContext';
 import { storefrontApi } from '../api/storefront';
 import { useAuth } from '../contexts/AuthContext';
+import { useLanguage } from '../contexts/LanguageContext';
 
 export function CheckoutScreen({ navigation, route }: any) {
   const { lines, clear } = useCart();
   const { session } = useAuth();
+  const { t } = useLanguage();
   const customer = session?.customer;
   const initialAddress = [customer?.addressLine1, customer?.addressLine2, customer?.postalCode, customer?.city].filter(Boolean).join(', ');
   const [name, setName] = useState(customer?.fullName || '');
@@ -31,23 +33,23 @@ export function CheckoutScreen({ navigation, route }: any) {
   return <Screen>
     <View style={headerCard}>
       <Pressable onPress={() => navigation.goBack()} style={backPill}>
-        <Text style={backPillLabel}>← Retour au panier</Text>
+        <Text style={backPillLabel}>{`← ${t('checkout_back_to_cart')}`}</Text>
       </Pressable>
-      <Text style={headerTitle}>Checkout</Text>
-      <Text style={headerSubtitle}>Finalisez votre commande en quelques secondes</Text>
+      <Text style={headerTitle}>{t('checkout_title')}</Text>
+      <Text style={headerSubtitle}>{t('checkout_subtitle')}</Text>
     </View>
 
     <View style={sectionCard}>
-      <Text style={sectionTitle}>Vos informations</Text>
-      <Text style={fieldLabel}>Nom</Text>
-      <TextInput placeholder="Votre nom" placeholderTextColor="#8b837b" value={name} onChangeText={setName} style={inputStyle} />
-      <Text style={fieldLabel}>Téléphone</Text>
-      <TextInput placeholder="Votre numéro" placeholderTextColor="#8b837b" value={phone} onChangeText={setPhone} style={inputStyle} keyboardType="phone-pad" />
+      <Text style={sectionTitle}>{t('checkout_info_title')}</Text>
+      <Text style={fieldLabel}>{t('common_full_name')}</Text>
+      <TextInput placeholder={t('signup_name_placeholder')} placeholderTextColor="#8b837b" value={name} onChangeText={setName} style={inputStyle} />
+      <Text style={fieldLabel}>{t('common_phone')}</Text>
+      <TextInput placeholder={t('signup_phone_placeholder')} placeholderTextColor="#8b837b" value={phone} onChangeText={setPhone} style={inputStyle} keyboardType="phone-pad" />
       {orderType === 'delivery' && (
         <>
-        <Text style={fieldLabel}>Adresse de livraison</Text>
+        <Text style={fieldLabel}>{t('checkout_delivery_address')}</Text>
         <TextInput
-          placeholder="Rue, numéro, ville"
+          placeholder={t('checkout_delivery_address_placeholder')}
           placeholderTextColor="#8b837b"
           value={address}
           onChangeText={setAddress}
@@ -58,13 +60,13 @@ export function CheckoutScreen({ navigation, route }: any) {
     </View>
 
     <View style={sectionCard}>
-      <Text style={sectionTitle}>Détails commande</Text>
-      <Row label="Type" value={orderType === 'delivery' ? 'Livraison' : 'À emporter'} />
-      {orderType === 'delivery' && <Row label="Code postal" value={customerPostalCode || '—'} />}
-      <Row label="Articles" value={`${totalItems}`} />
-      {!!promotionCode && <Row label="Promo" value={promotionCode} valueStyle={{ color: '#166534', fontWeight: '800' }} />}
+      <Text style={sectionTitle}>{t('checkout_order_details')}</Text>
+      <Row label={t('checkout_type')} value={orderType === 'delivery' ? t('order_type_delivery') : t('order_type_takeaway')} />
+      {orderType === 'delivery' && <Row label={t('checkout_postal_code')} value={customerPostalCode || '—'} />}
+      <Row label={t('checkout_items')} value={`${totalItems}`} />
+      {!!promotionCode && <Row label={t('checkout_promo')} value={promotionCode} valueStyle={{ color: '#166534', fontWeight: '800' }} />}
       <View style={totalDivider} />
-      <Row label="Total" value={`CHF ${totalAmount.toFixed(2)}`} labelStyle={totalLabel} valueStyle={totalValue} />
+      <Row label={t('checkout_total')} value={`CHF ${totalAmount.toFixed(2)}`} labelStyle={totalLabel} valueStyle={totalValue} />
     </View>
 
     <Pressable
@@ -86,7 +88,7 @@ export function CheckoutScreen({ navigation, route }: any) {
         navigation.navigate('Orders');
       }}
     >
-      <Text style={checkoutButtonText}>Commander maintenant</Text>
+      <Text style={checkoutButtonText}>{t('checkout_submit')}</Text>
     </Pressable>
   </Screen>;
 }

@@ -3,9 +3,11 @@ import { Pressable, Text, TextInput, View } from 'react-native';
 import { Screen } from '../components/Screen';
 import { BrandButton } from '../components/BrandButton';
 import { useAuth } from '../contexts/AuthContext';
+import { useLanguage } from '../contexts/LanguageContext';
 
 export function LoginScreen({ navigation }: any) {
   const { login } = useAuth();
+  const { t } = useLanguage();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -23,7 +25,7 @@ export function LoginScreen({ navigation }: any) {
         navigation.navigate('Main');
       }
     } catch (error: any) {
-      setSubmitError(error?.message || 'Impossible de vous connecter pour le moment.');
+      setSubmitError(error?.message || t('login_error'));
     } finally {
       setSubmitting(false);
     }
@@ -31,25 +33,25 @@ export function LoginScreen({ navigation }: any) {
 
   return <Screen>
     <View style={headerCard}>
-      <Text style={headerTitle}>Connexion</Text>
-      <Text style={headerSubtitle}>Heureux de vous revoir. Connectez-vous pour reprendre votre commande.</Text>
+      <Text style={headerTitle}>{t('login_title')}</Text>
+      <Text style={headerSubtitle}>{t('login_subtitle')}</Text>
     </View>
 
     <View style={sectionCard}>
-      <Text style={fieldLabel}>Email</Text>
-      <TextInput placeholder="vous@email.com" autoCapitalize="none" value={email} onChangeText={setEmail} style={inputStyle} placeholderTextColor="#8b837b" editable={!submitting} />
-      <Text style={fieldLabel}>Mot de passe</Text>
-      <TextInput placeholder="Votre mot de passe" secureTextEntry value={password} onChangeText={setPassword} style={inputStyle} placeholderTextColor="#8b837b" editable={!submitting} />
+      <Text style={fieldLabel}>{t('common_email')}</Text>
+      <TextInput placeholder={t('placeholder_email')} autoCapitalize="none" value={email} onChangeText={setEmail} style={inputStyle} placeholderTextColor="#8b837b" editable={!submitting} />
+      <Text style={fieldLabel}>{t('common_password')}</Text>
+      <TextInput placeholder={t('login_password_placeholder')} secureTextEntry value={password} onChangeText={setPassword} style={inputStyle} placeholderTextColor="#8b837b" editable={!submitting} />
 
       {!!submitError && <Text style={errorText}>{submitError}</Text>}
 
       <View style={{ marginTop: 10, gap: 8 }}>
-        <BrandButton label={submitting ? 'Connexion...' : 'Se connecter'} onPress={handleLogin} disabled={submitting} />
+        <BrandButton label={submitting ? t('login_loading') : t('login_cta')} onPress={handleLogin} disabled={submitting} />
         <Pressable style={[secondaryButton, submitting && { opacity: 0.6 }]} onPress={() => navigation.navigate('Signup')} disabled={submitting}>
-          <Text style={secondaryButtonLabel}>Créer un compte</Text>
+          <Text style={secondaryButtonLabel}>{t('login_create_account')}</Text>
         </Pressable>
         <Pressable onPress={() => navigation.navigate('ForgotPassword')} style={{ paddingVertical: 4, alignItems: 'center', opacity: submitting ? 0.6 : 1 }} disabled={submitting}>
-          <Text style={linkLabel}>Mot de passe oublié ?</Text>
+          <Text style={linkLabel}>{t('login_forgot_password')}</Text>
         </Pressable>
       </View>
     </View>
