@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Pressable, Text, TextInput, View } from 'react-native';
 import { Screen } from '../components/Screen';
 import { useCart } from '../contexts/CartContext';
@@ -8,9 +8,11 @@ import { useAuth } from '../contexts/AuthContext';
 export function CheckoutScreen({ navigation, route }: any) {
   const { lines, clear } = useCart();
   const { session } = useAuth();
-  const [name, setName] = useState('');
-  const [phone, setPhone] = useState('');
-  const [address, setAddress] = useState('');
+  const customer = session?.customer;
+  const initialAddress = [customer?.addressLine1, customer?.addressLine2, customer?.postalCode, customer?.city].filter(Boolean).join(', ');
+  const [name, setName] = useState(customer?.fullName || '');
+  const [phone, setPhone] = useState(customer?.phone || '');
+  const [address, setAddress] = useState(initialAddress);
 
   const orderType = route?.params?.orderType === 'delivery' ? 'delivery' : 'takeaway';
   const customerPostalCode = route?.params?.customerPostalCode;
@@ -18,6 +20,13 @@ export function CheckoutScreen({ navigation, route }: any) {
 
   const totalItems = useMemo(() => lines.reduce((sum, line) => sum + line.quantity, 0), [lines]);
   const totalAmount = Number(route?.params?.totalAmount || 0);
+
+  useEffect(() => {
+    if (!customer) return;
+    setName((prev) => prev || customer.fullName || '');
+    setPhone((prev) => prev || customer.phone || '');
+    setAddress((prev) => prev || [customer.addressLine1, customer.addressLine2, customer.postalCode, customer.city].filter(Boolean).join(', '));
+  }, [customer?.fullName, customer?.phone, customer?.addressLine1, customer?.addressLine2, customer?.postalCode, customer?.city]);
 
   return <Screen>
     <View style={headerCard}>
