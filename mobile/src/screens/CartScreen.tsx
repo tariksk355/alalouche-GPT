@@ -1,7 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Text, TextInput, View } from 'react-native';
+import { Pressable, Text, TextInput, View } from 'react-native';
 import { Screen } from '../components/Screen';
-import { BrandButton } from '../components/BrandButton';
 import { useCart } from '../contexts/CartContext';
 import { storefrontApi, getDeliveryRuleForPostalCode, normalizePostalCode, PromotionPreview } from '../api/storefront';
 import { useAuth } from '../contexts/AuthContext';
@@ -80,64 +79,113 @@ export function CartScreen({ navigation }: any) {
   const canCheckout = lines.length > 0 && !deliveryBlockedMessage;
 
   return <Screen>
-    <Text style={{ fontSize: 28, fontWeight: '700' }}>Panier</Text>
-
-    <View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}>
-      <BrandButton label="À emporter" onPress={() => setOrderType('takeaway')} />
-      <BrandButton label="Livraison" onPress={() => setOrderType('delivery')} />
+    <View style={headerCard}>
+      <Text style={headerTitle}>Panier</Text>
+      <Text style={headerSubtitle}>{lines.length} article(s) · prêt en quelques minutes</Text>
     </View>
-    <Text style={{ color: '#6b7280', marginTop: 6 }}>Type sélectionné: {orderType === 'delivery' ? 'Livraison' : 'À emporter'}</Text>
 
-    {orderType === 'delivery' && <View style={{ marginTop: 12, gap: 8 }}>
-      <TextInput
-        placeholder="Code postal (ex: 1700)"
-        value={postalCodeInput}
-        onChangeText={setPostalCodeInput}
-        keyboardType="numeric"
-        style={inputStyle}
-      />
-      {!deliveryBlockedMessage && deliveryRule && (
-        <Text style={{ color: '#065f46' }}>
-          Livraison {deliveryRule.postalCode}: min CHF {minimumOrder.toFixed(2)} · frais CHF {deliveryFee.toFixed(2)}
-        </Text>
-      )}
-      {!!deliveryBlockedMessage && <Text style={{ color: '#b91c1c' }}>{deliveryBlockedMessage}</Text>}
-    </View>}
-
-    {lines.map((line) => <View key={line.lineKey} style={{ borderBottomWidth: 1, borderBottomColor: '#eee', paddingVertical: 10 }}>
-      <Text style={{ fontWeight: '700' }}>{line.name}</Text>
-      {line.selectedOptions.map((opt, idx) => <Text key={`${line.lineKey}-${idx}`} style={{ color: '#6b7280' }}>- {opt.groupName}: {opt.optionLabel}</Text>)}
-      <Text>CHF {line.price.toFixed(2)} × {line.quantity}</Text>
-      <View style={{ flexDirection: 'row', gap: 8 }}>
-        <BrandButton label="-" onPress={() => updateQty(line.lineKey, -1)} />
-        <BrandButton label="+" onPress={() => updateQty(line.lineKey, 1)} />
-        <BrandButton label="Suppr" onPress={() => removeLine(line.lineKey)} />
+    <View style={sectionCard}>
+      <Text style={sectionTitle}>Type de commande</Text>
+      <View style={segmentedWrap}>
+        <Pressable style={[segmentButton, orderType === 'takeaway' && segmentButtonActive]} onPress={() => setOrderType('takeaway')}>
+          <Text style={[segmentLabel, orderType === 'takeaway' && segmentLabelActive]}>À emporter</Text>
+        </Pressable>
+        <Pressable style={[segmentButton, orderType === 'delivery' && segmentButtonActive]} onPress={() => setOrderType('delivery')}>
+          <Text style={[segmentLabel, orderType === 'delivery' && segmentLabelActive]}>Livraison</Text>
+        </Pressable>
       </View>
-    </View>)}
 
-    <View style={{ marginTop: 12, gap: 8 }}>
-      <Text style={{ fontSize: 16 }}>Sous-total CHF {subtotal.toFixed(2)}</Text>
-      {orderType === 'delivery' && deliveryRule && <Text style={{ fontSize: 16 }}>Frais de livraison CHF {deliveryFee.toFixed(2)}</Text>}
+      {orderType === 'delivery' && (
+        <View style={{ marginTop: 12, gap: 8 }}>
+          <TextInput
+            placeholder="Code postal (ex: 1700)"
+            value={postalCodeInput}
+            onChangeText={setPostalCodeInput}
+            keyboardType="numeric"
+            style={inputStyle}
+          />
+          {!deliveryBlockedMessage && deliveryRule && (
+            <View style={successBadge}>
+              <Text style={successText}>Zone {deliveryRule.postalCode} · min CHF {minimumOrder.toFixed(2)} · frais CHF {deliveryFee.toFixed(2)}</Text>
+            </View>
+          )}
+          {!!deliveryBlockedMessage && <Text style={errorText}>{deliveryBlockedMessage}</Text>}
+        </View>
+      )}
+    </View>
 
+    {lines.length === 0 ? (
+      <View style={sectionCard}>
+        <Text style={emptyTitle}>Votre panier est vide</Text>
+        <Text style={emptySubtitle}>Ajoutez quelques plats depuis le menu pour continuer.</Text>
+      </View>
+    ) : (
+      <View style={{ gap: 10 }}>
+        {lines.map((line) => (
+          <View key={line.lineKey} style={lineCard}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
+              <View style={{ flex: 1 }}>
+                <Text style={lineName}>{line.name}</Text>
+                {line.selectedOptions.map((opt, idx) => (
+                  <Text key={`${line.lineKey}-${idx}`} style={lineModifier}>{opt.groupName}: {opt.optionLabel}</Text>
+                ))}
+              </View>
+              <Text style={lineTotal}>CHF {(line.price * line.quantity).toFixed(2)}</Text>
+            </View>
+
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 10 }}>
+              <Text style={unitPrice}>CHF {line.price.toFixed(2)} / unité</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <Pressable style={qtyButton} onPress={() => updateQty(line.lineKey, -1)}>
+                  <Text style={qtyButtonText}>−</Text>
+                </Pressable>
+                <Text style={qtyValue}>{line.quantity}</Text>
+                <Pressable style={[qtyButton, qtyButtonDark]} onPress={() => updateQty(line.lineKey, 1)}>
+                  <Text style={[qtyButtonText, { color: '#fff' }]}>+</Text>
+                </Pressable>
+                <Pressable onPress={() => removeLine(line.lineKey)} style={removeButton}>
+                  <Text style={removeLabel}>Retirer</Text>
+                </Pressable>
+              </View>
+            </View>
+          </View>
+        ))}
+      </View>
+    )}
+
+    <View style={sectionCard}>
+      <Text style={sectionTitle}>Code promo</Text>
       <TextInput
-        placeholder="Code promo"
+        placeholder="Saisir un code"
         value={promoInput}
         onChangeText={setPromoInput}
         autoCapitalize="characters"
         style={inputStyle}
       />
-      <View style={{ flexDirection: 'row', gap: 8 }}>
-        <BrandButton label={promoLoading ? 'Application...' : 'Appliquer promo'} onPress={applyPromotion} />
-        {!!appliedPromotion && <BrandButton label="Retirer promo" onPress={removePromotion} />}
+      <View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}>
+        <Pressable style={secondaryAction} onPress={applyPromotion}>
+          <Text style={secondaryActionLabel}>{promoLoading ? 'Application...' : 'Appliquer'}</Text>
+        </Pressable>
+        {!!appliedPromotion && (
+          <Pressable style={[secondaryAction, secondaryActionDanger]} onPress={removePromotion}>
+            <Text style={secondaryActionDangerLabel}>Retirer</Text>
+          </Pressable>
+        )}
       </View>
-      {!!promoFeedback && <Text style={{ color: promoFeedback.includes('appliqué') ? '#065f46' : '#6b7280' }}>{promoFeedback}</Text>}
-      {!!appliedPromotion && <Text style={{ color: '#065f46' }}>Remise ({appliedPromotion.promotionCode}) - CHF {discountAmount.toFixed(2)}</Text>}
-
-      <Text style={{ fontSize: 18, fontWeight: '700' }}>Total CHF {finalTotal.toFixed(2)}</Text>
+      {!!promoFeedback && <Text style={promoFeedback.includes('appliqué') ? successText : infoText}>{promoFeedback}</Text>}
     </View>
 
-    <BrandButton
-      label="Passer au checkout"
+    <View style={summaryCard}>
+      <Text style={sectionTitle}>Résumé</Text>
+      <Row label="Sous-total" value={`CHF ${subtotal.toFixed(2)}`} />
+      {orderType === 'delivery' && deliveryRule && <Row label="Livraison" value={`CHF ${deliveryFee.toFixed(2)}`} />}
+      {!!appliedPromotion && <Row label={`Remise (${appliedPromotion.promotionCode})`} value={`- CHF ${discountAmount.toFixed(2)}`} valueStyle={{ color: '#15803d' }} />}
+      <View style={totalDivider} />
+      <Row label="Total" value={`CHF ${finalTotal.toFixed(2)}`} labelStyle={totalLabel} valueStyle={totalValue} />
+    </View>
+
+    <Pressable
+      style={[checkoutButton, !canCheckout && checkoutButtonDisabled]}
       onPress={() => navigation.navigate('Checkout', {
         orderType,
         customerPostalCode: orderType === 'delivery' ? normalizedPostalCode : undefined,
@@ -148,9 +196,71 @@ export function CartScreen({ navigation }: any) {
         totalAmount: finalTotal,
       })}
       disabled={!canCheckout}
-    />
-    {!canCheckout && <Text style={{ color: '#b91c1c', marginTop: 8 }}>{lines.length === 0 ? 'Votre panier est vide.' : deliveryBlockedMessage}</Text>}
+    >
+      <Text style={checkoutButtonText}>Continuer vers le checkout</Text>
+    </Pressable>
+
+    {!canCheckout && <Text style={errorText}>{lines.length === 0 ? 'Votre panier est vide.' : deliveryBlockedMessage}</Text>}
   </Screen>;
 }
 
-const inputStyle = { borderWidth: 1, borderColor: '#e5e7eb', borderRadius: 10, padding: 12 } as const;
+function Row({ label, value, labelStyle, valueStyle }: { label: string; value: string; labelStyle?: any; valueStyle?: any }) {
+  return (
+    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 }}>
+      <Text style={[summaryLabel, labelStyle]}>{label}</Text>
+      <Text style={[summaryValue, valueStyle]}>{value}</Text>
+    </View>
+  );
+}
+
+const headerCard = { borderWidth: 1, borderColor: '#ebe7e3', borderRadius: 18, backgroundColor: '#f8f6f3', padding: 16 } as const;
+const headerTitle = { color: '#1f1a17', fontSize: 31, fontWeight: '800', letterSpacing: -0.4 } as const;
+const headerSubtitle = { color: '#6f675f', marginTop: 4, fontSize: 14 } as const;
+
+const sectionCard = { borderWidth: 1, borderColor: '#ece7e2', borderRadius: 16, backgroundColor: '#fff', padding: 12 } as const;
+const sectionTitle = { color: '#1f1a17', fontSize: 16, fontWeight: '800', marginBottom: 8 } as const;
+
+const segmentedWrap = { flexDirection: 'row', backgroundColor: '#f3f1ee', padding: 4, borderRadius: 12, gap: 4 } as const;
+const segmentButton = { flex: 1, borderRadius: 10, paddingVertical: 9, alignItems: 'center' } as const;
+const segmentButtonActive = { backgroundColor: '#25201d' } as const;
+const segmentLabel = { color: '#6f675f', fontWeight: '700' } as const;
+const segmentLabelActive = { color: '#fff' } as const;
+
+const lineCard = { borderWidth: 1, borderColor: '#ece7e2', borderRadius: 16, backgroundColor: '#fff', padding: 12 } as const;
+const lineName = { color: '#1f1a17', fontWeight: '800', fontSize: 17 } as const;
+const lineModifier = { color: '#7b746d', marginTop: 2, fontSize: 12 } as const;
+const lineTotal = { color: '#151210', fontWeight: '900', fontSize: 17 } as const;
+const unitPrice = { color: '#7b746d', fontSize: 12 } as const;
+
+const qtyButton = { width: 30, height: 30, borderRadius: 15, borderWidth: 1, borderColor: '#d9d3cd', alignItems: 'center', justifyContent: 'center', backgroundColor: '#fff' } as const;
+const qtyButtonDark = { backgroundColor: '#1f1a17', borderColor: '#1f1a17' } as const;
+const qtyButtonText = { color: '#1f1a17', fontSize: 16, fontWeight: '800', lineHeight: 17 } as const;
+const qtyValue = { width: 22, textAlign: 'center', color: '#1f1a17', fontSize: 15, fontWeight: '700' } as const;
+const removeButton = { marginLeft: 6, paddingHorizontal: 8, paddingVertical: 6 } as const;
+const removeLabel = { color: '#b91c1c', fontWeight: '700', fontSize: 12 } as const;
+
+const successBadge = { borderRadius: 10, backgroundColor: '#edf7f0', borderWidth: 1, borderColor: '#cae9d4', paddingHorizontal: 10, paddingVertical: 8 } as const;
+const successText = { color: '#166534', fontSize: 12, fontWeight: '600', marginTop: 6 } as const;
+const infoText = { color: '#6b625a', fontSize: 12, fontWeight: '500', marginTop: 6 } as const;
+const errorText = { color: '#b91c1c', fontSize: 12, fontWeight: '600' } as const;
+
+const inputStyle = { borderWidth: 1, borderColor: '#e5dfd8', borderRadius: 12, paddingHorizontal: 12, paddingVertical: 11, backgroundColor: '#fff', color: '#1f1a17' } as const;
+
+const secondaryAction = { borderWidth: 1, borderColor: '#d9d3cd', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, backgroundColor: '#f8f6f3' } as const;
+const secondaryActionLabel = { color: '#1f1a17', fontWeight: '700' } as const;
+const secondaryActionDanger = { borderColor: '#fecaca', backgroundColor: '#fff5f5' } as const;
+const secondaryActionDangerLabel = { color: '#b91c1c', fontWeight: '700' } as const;
+
+const summaryCard = { borderWidth: 1, borderColor: '#e8e1da', borderRadius: 16, backgroundColor: '#fff', padding: 12 } as const;
+const summaryLabel = { color: '#6b625a', fontSize: 14 } as const;
+const summaryValue = { color: '#1f1a17', fontSize: 14, fontWeight: '700' } as const;
+const totalDivider = { height: 1, backgroundColor: '#efeae5', marginTop: 10 } as const;
+const totalLabel = { color: '#1f1a17', fontSize: 17, fontWeight: '800' } as const;
+const totalValue = { color: '#1f1a17', fontSize: 20, fontWeight: '900' } as const;
+
+const checkoutButton = { borderRadius: 14, backgroundColor: '#b5122a', paddingVertical: 14, alignItems: 'center' } as const;
+const checkoutButtonDisabled = { opacity: 0.55 } as const;
+const checkoutButtonText = { color: '#fff', fontWeight: '800', fontSize: 16 } as const;
+
+const emptyTitle = { color: '#1f1a17', fontWeight: '800', fontSize: 17 } as const;
+const emptySubtitle = { color: '#7b746d', marginTop: 3 } as const;
