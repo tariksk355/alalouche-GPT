@@ -15,11 +15,13 @@ import { CheckoutScreen } from '../screens/CheckoutScreen';
 import { OrdersScreen } from '../screens/OrdersScreen';
 import { ProfileScreen } from '../screens/ProfileScreen';
 import { SettingsScreen } from '../screens/SettingsScreen';
+import { useLanguage } from '../contexts/LanguageContext';
 
 const Stack = createNativeStackNavigator();
 const Tabs = createBottomTabNavigator();
 
 function MainTabs() {
+  const { t } = useLanguage();
   const tabIconByRoute: Record<string, keyof typeof Ionicons.glyphMap> = {
     Menu: 'restaurant-outline',
     Cart: 'bag-handle-outline',
@@ -63,29 +65,30 @@ function MainTabs() {
         };
       }}
     >
-      <Tabs.Screen name="Menu" component={MenuScreen} />
-      <Tabs.Screen name="Cart" component={CartScreen} options={{ title: 'Panier' }} />
-      <Tabs.Screen name="Orders" component={OrdersScreen} options={{ title: 'Commandes' }} />
-      <Tabs.Screen name="Profile" component={ProfileScreen} options={{ title: 'Profil' }} />
-      <Tabs.Screen name="Settings" component={SettingsScreen} options={{ title: 'Réglages' }} />
+      <Tabs.Screen name="Menu" component={MenuScreen} options={{ title: t('tab_menu') }} />
+      <Tabs.Screen name="Cart" component={CartScreen} options={{ title: t('tab_cart') }} />
+      <Tabs.Screen name="Orders" component={OrdersScreen} options={{ title: t('tab_orders') }} />
+      <Tabs.Screen name="Profile" component={ProfileScreen} options={{ title: t('tab_profile') }} />
+      <Tabs.Screen name="Settings" component={SettingsScreen} options={{ title: t('tab_settings') }} />
     </Tabs.Navigator>
   );
 }
 
 export function AppNavigator() {
   const { loading } = useAuth();
-  if (loading) return null;
+  const { t, ready } = useLanguage();
+  if (loading || !ready) return null;
 
   return (
     <NavigationContainer>
       <Stack.Navigator initialRouteName="Main">
         <Stack.Screen name="Main" component={MainTabs} options={{ headerShown: false }} />
-        <Stack.Screen name="ProductDetail" component={ProductDetailScreen} options={{ title: 'Produit' }} />
-        <Stack.Screen name="Checkout" component={CheckoutScreen} options={{ title: 'Checkout' }} />
-        <Stack.Screen name="Login" component={LoginScreen} options={{ title: 'Connexion' }} />
-        <Stack.Screen name="Signup" component={SignupScreen} options={{ title: 'Inscription' }} />
-        <Stack.Screen name="ForgotPassword" component={ForgotPasswordScreen} options={{ title: 'Mot de passe oublié' }} />
-        <Stack.Screen name="ResetPassword" component={ResetPasswordScreen} options={{ title: 'Réinitialiser' }} />
+        <Stack.Screen name="ProductDetail" component={ProductDetailScreen} options={{ title: t('screen_product') }} />
+        <Stack.Screen name="Checkout" component={CheckoutScreen} options={{ title: t('screen_checkout') }} />
+        <Stack.Screen name="Login" component={LoginScreen} options={{ title: t('screen_login') }} />
+        <Stack.Screen name="Signup" component={SignupScreen} options={{ title: t('screen_signup') }} />
+        <Stack.Screen name="ForgotPassword" component={ForgotPasswordScreen} options={{ title: t('screen_forgot') }} />
+        <Stack.Screen name="ResetPassword" component={ResetPasswordScreen} options={{ title: t('screen_reset') }} />
       </Stack.Navigator>
     </NavigationContainer>
   );
