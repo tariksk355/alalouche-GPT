@@ -91,14 +91,14 @@ export function MenuScreen({ navigation }: any) {
           borderWidth: 1,
           borderColor: '#ebe7e3',
           backgroundColor: '#f9f7f4',
-          paddingVertical: 8,
-          paddingHorizontal: 10,
+          paddingVertical: 5,
+          paddingHorizontal: 8,
         }}
       >
         <View style={{ alignItems: 'center', justifyContent: 'center' }}>
           <Image
             source={MENU_HERO_LOGO}
-            style={{ width: 280, height: 104 }}
+            style={{ width: 304, height: 112 }}
             resizeMode="contain"
           />
         </View>
