@@ -718,20 +718,15 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
-    AsyncStorage.getItem(STORAGE_KEY)
-      .then((saved) => {
-        if (saved === 'fr' || saved === 'de' || saved === 'en' || saved === 'tr') {
-          setLanguageState(saved);
-        }
-      })
+    AsyncStorage.setItem(STORAGE_KEY, 'fr')
       .finally(() => setReady(true));
   }, []);
 
   const value = useMemo<LanguageContextValue>(() => ({
     language,
-    setLanguage: async (next) => {
-      setLanguageState(next);
-      await AsyncStorage.setItem(STORAGE_KEY, next);
+    setLanguage: async (_next) => {
+      setLanguageState('fr');
+      await AsyncStorage.setItem(STORAGE_KEY, 'fr');
     },
     t: (key) => DICTIONARY[language][key] || DICTIONARY.en[key] || DICTIONARY.fr[key] || key,
     ready,
