@@ -5,6 +5,7 @@ import { useLanguage } from '../contexts/LanguageContext';
 
 export function SettingsScreen() {
   const { t } = useLanguage();
+  const supportPhone = '026 303 45 61';
 
   return <Screen>
     <View style={headerCard}>
@@ -17,6 +18,10 @@ export function SettingsScreen() {
       <Pressable style={settingsRow} onPress={() => Linking.openURL('mailto:alalouche.fr@gmail.com')}>
         <Text style={settingsRowLabel}>{t('settings_help_label')}</Text>
         <Text style={settingsRowValue}>{t('settings_help_value')}</Text>
+      </Pressable>
+      <Pressable style={settingsRow} onPress={() => Linking.openURL(`tel:${supportPhone.replace(/\s+/g, '')}`)}>
+        <Text style={settingsRowLabel}>{t('common_phone')}</Text>
+        <Text style={settingsRowValue}>{supportPhone}</Text>
       </Pressable>
     </View>
 

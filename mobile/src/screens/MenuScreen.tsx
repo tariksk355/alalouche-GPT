@@ -65,32 +65,21 @@ export function MenuScreen({ navigation }: any) {
           padding: 18,
         }}
       >
-        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
-          <View style={{ flex: 1 }}>
-            <Text style={{ color: '#1f1a17', fontSize: 37, fontWeight: '800', letterSpacing: -0.5 }}>À la Louche</Text>
-            <Text style={{ color: '#716960', marginTop: 4, fontSize: 17 }}>{t('menu_brand_subtitle')}</Text>
-          </View>
+        <View style={{ alignItems: 'center', justifyContent: 'center' }}>
           <View
             style={{
-              width: 38,
-              height: 38,
-              borderRadius: 19,
+              width: 58,
+              height: 58,
+              borderRadius: 29,
               backgroundColor: '#efeae5',
               borderWidth: 1,
               borderColor: '#e3dcd5',
               alignItems: 'center',
               justifyContent: 'center',
-              marginTop: 2,
             }}
           >
-            <Text style={{ color: '#5f5750', fontSize: 16 }}>⌕</Text>
+            <Text style={{ color: '#3f3731', fontSize: 30, fontWeight: '800' }}>À</Text>
           </View>
-        </View>
-        <View style={{ marginTop: 12, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-          <View style={{ paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8, backgroundColor: '#e4ece7' }}>
-            <Text style={{ color: '#35594a', fontWeight: '700', fontSize: 12 }}>{t('menu_live')}</Text>
-          </View>
-          <Text style={{ color: '#6b625a', fontSize: 13 }}>{t('menu_items_available').replace('{count}', String(items.length))}</Text>
         </View>
       </View>
 
