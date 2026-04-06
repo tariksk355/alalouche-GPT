@@ -6,6 +6,8 @@ import { Screen } from '../components/Screen';
 import { theme } from '../theme/theme';
 import { useLanguage } from '../contexts/LanguageContext';
 
+const MENU_HERO_LOGO = require('../assets/alalouche-logo.png');
+
 export function MenuScreen({ navigation }: any) {
   const { t } = useLanguage();
   const [items, setItems] = useState<MenuItem[]>([]);
@@ -94,18 +96,11 @@ export function MenuScreen({ navigation }: any) {
         }}
       >
         <View style={{ alignItems: 'center', justifyContent: 'center' }}>
-          <Text
-            style={{
-              color: '#1f1a17',
-              fontSize: 34,
-              fontFamily: 'serif',
-              fontStyle: 'italic',
-              fontWeight: '500',
-              letterSpacing: 0.4,
-            }}
-          >
-            {t('menu_brand_name')}
-          </Text>
+          <Image
+            source={MENU_HERO_LOGO}
+            style={{ width: 220, height: 82 }}
+            resizeMode="contain"
+          />
         </View>
       </View>
 
