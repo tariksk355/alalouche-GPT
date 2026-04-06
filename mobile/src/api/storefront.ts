@@ -14,10 +14,17 @@ export type PromotionPreview = {
   totalAmount: number;
 };
 
+export type OrderingSettings = {
+  categoryOrder?: string[];
+  productOrderByCategory?: Record<string, string[]>;
+};
+
 export { getDeliveryRuleForPostalCode, normalizePostalCode };
 
 export const storefrontApi = {
   listMenu: () => apiRequest<{ items: MenuItem[] }>('/public/menu-catalog').then((d) => d.items || []),
+  getOrderingSettings: () => apiRequest<{ restaurant?: { orderingSettings?: OrderingSettings } }>('/public/restaurant-config')
+    .then((d) => d.restaurant?.orderingSettings || {}),
   listOrderHistory: (token: string) => apiRequest<{ orders: any[] }>('/orders/me/history', { headers: { Authorization: `Bearer ${token}` } }).then((d) => d.orders || []),
   createOrder: (token: string | null, payload: any) => apiRequest<{ order: any }>('/orders', {
     method: 'POST',
