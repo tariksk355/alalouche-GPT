@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Image, Pressable, ScrollView, Text, View } from 'react-native';
-import { storefrontApi } from '../api/storefront';
+import { OrderingSettings, storefrontApi } from '../api/storefront';
 import { MenuItem } from '../types/models';
 import { Screen } from '../components/Screen';
 import { theme } from '../theme/theme';
@@ -9,6 +9,7 @@ import { useLanguage } from '../contexts/LanguageContext';
 export function MenuScreen({ navigation }: any) {
   const { t } = useLanguage();
   const [items, setItems] = useState<MenuItem[]>([]);
+  const [orderingSettings, setOrderingSettings] = useState<OrderingSettings>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -16,15 +17,19 @@ export function MenuScreen({ navigation }: any) {
     let mounted = true;
     setLoading(true);
     setError('');
-    storefrontApi
-      .listMenu()
-      .then((nextItems) => {
+    Promise.all([
+      storefrontApi.listMenu(),
+      storefrontApi.getOrderingSettings().catch(() => ({} as OrderingSettings)),
+    ])
+      .then(([nextItems, nextOrderingSettings]) => {
         if (!mounted) return;
         setItems(Array.isArray(nextItems) ? nextItems : []);
+        setOrderingSettings(nextOrderingSettings || {});
       })
       .catch(() => {
         if (!mounted) return;
         setItems([]);
+        setOrderingSettings({});
         setError(t('menu_load_error'));
       })
       .finally(() => {
@@ -35,7 +40,14 @@ export function MenuScreen({ navigation }: any) {
       mounted = false;
     };
   }, []);
-  const categories = useMemo(() => Array.from(new Set(items.map((i) => i.category))), [items]);
+  const categories = useMemo(() => {
+    const discovered = Array.from(new Set(items.map((i) => (typeof i.category === 'string' ? i.category.trim() : '')).filter(Boolean)));
+    const configuredOrder = Array.isArray(orderingSettings?.categoryOrder)
+      ? orderingSettings.categoryOrder.map((value) => (typeof value === 'string' ? value.trim() : '')).filter(Boolean)
+      : [];
+    const ordered = Array.from(new Set(configuredOrder));
+    return [...ordered, ...discovered.filter((category) => !ordered.includes(category))];
+  }, [items, orderingSettings?.categoryOrder]);
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
 
   useEffect(() => {
@@ -50,8 +62,23 @@ export function MenuScreen({ navigation }: any) {
 
   const visibleCategory = activeCategory && categories.includes(activeCategory) ? activeCategory : categories[0] || '';
   const visibleItems = useMemo(
-    () => items.filter((item) => item.category === visibleCategory),
-    [items, visibleCategory],
+    () => {
+      const categoryItems = items.filter((item) => item.category === visibleCategory);
+      const configuredOrder = Array.isArray(orderingSettings?.productOrderByCategory?.[visibleCategory])
+        ? orderingSettings.productOrderByCategory?.[visibleCategory]
+        : [];
+      if (!configuredOrder || configuredOrder.length === 0) {
+        return categoryItems;
+      }
+      const indexById = new Map(configuredOrder.map((id, index) => [id, index]));
+      return [...categoryItems].sort((a, b) => {
+        const aIndex = indexById.has(a.id) ? indexById.get(a.id) : Number.POSITIVE_INFINITY;
+        const bIndex = indexById.has(b.id) ? indexById.get(b.id) : Number.POSITIVE_INFINITY;
+        if (aIndex !== bIndex) return Number(aIndex) - Number(bIndex);
+        return 0;
+      });
+    },
+    [items, visibleCategory, orderingSettings?.productOrderByCategory],
   );
 
   return (
