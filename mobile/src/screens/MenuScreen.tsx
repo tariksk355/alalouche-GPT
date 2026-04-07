@@ -1,8 +1,7 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Image, ImageBackground, Pressable, ScrollView, Text, View } from 'react-native';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { ActivityIndicator, Animated, Image, ImageBackground, Pressable, SafeAreaView, ScrollView, Text, View } from 'react-native';
 import { OrderingSettings, storefrontApi } from '../api/storefront';
 import { MenuItem } from '../types/models';
-import { Screen } from '../components/Screen';
 import { theme } from '../theme/theme';
 import { useLanguage } from '../contexts/LanguageContext';
 
@@ -11,6 +10,7 @@ const MENU_HERO_BG = require('../assets/menu-hero-bg.png');
 
 export function MenuScreen({ navigation }: any) {
   const { t } = useLanguage();
+  const scrollY = useRef(new Animated.Value(0)).current;
   const [items, setItems] = useState<MenuItem[]>([]);
   const [orderingSettings, setOrderingSettings] = useState<OrderingSettings>({});
   const [loading, setLoading] = useState(true);
@@ -83,27 +83,47 @@ export function MenuScreen({ navigation }: any) {
     },
     [items, visibleCategory, orderingSettings?.productOrderByCategory],
   );
+  const heroHeight = scrollY.interpolate({
+    inputRange: [0, 140],
+    outputRange: [148, 108],
+    extrapolate: 'clamp',
+  });
+  const logoScale = scrollY.interpolate({
+    inputRange: [0, 140],
+    outputRange: [1, 0.88],
+    extrapolate: 'clamp',
+  });
 
   return (
-    <Screen>
-      <View
+    <SafeAreaView style={{ flex: 1, backgroundColor: '#fff' }}>
+      <Animated.ScrollView
+        onScroll={Animated.event(
+          [{ nativeEvent: { contentOffset: { y: scrollY } } }],
+          { useNativeDriver: false },
+        )}
+        scrollEventThrottle={16}
+        contentContainerStyle={{ padding: 16 }}
+      >
+        <View style={{ gap: 12 }}>
+      <Animated.View
         style={{
           borderRadius: 20,
           overflow: 'hidden',
           borderWidth: 1,
           borderColor: '#ebe7e3',
+          height: heroHeight,
         }}
       >
         <ImageBackground
           source={MENU_HERO_BG}
           resizeMode="cover"
-          style={{ minHeight: 148, justifyContent: 'center', alignItems: 'center', paddingVertical: 12, paddingHorizontal: 14 }}
+          style={{ flex: 1, justifyContent: 'center', alignItems: 'center', paddingVertical: 12, paddingHorizontal: 14 }}
         >
           <View
             pointerEvents="none"
-            style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, backgroundColor: 'rgba(0,0,0,0.12)' }}
+            style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, backgroundColor: 'rgba(0,0,0,0.16)' }}
           />
-          <Image
+          <Animated.Image
             source={MENU_HERO_LOGO}
             style={{
               width: 252,
@@ -112,11 +132,12 @@ export function MenuScreen({ navigation }: any) {
               shadowOpacity: 0.18,
               shadowRadius: 8,
               shadowOffset: { width: 0, height: 3 },
+              transform: [{ translateY: -4 }, { scale: logoScale }],
             }}
             resizeMode="contain"
           />
         </ImageBackground>
-      </View>
+      </Animated.View>
 
       {loading ? (
         <View
@@ -281,6 +302,8 @@ export function MenuScreen({ navigation }: any) {
           </View>
         </>
       )}
-    </Screen>
+        </View>
+      </Animated.ScrollView>
+    </SafeAreaView>
   );
 }
