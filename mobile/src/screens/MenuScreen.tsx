@@ -99,9 +99,20 @@ export function MenuScreen({ navigation }: any) {
           resizeMode="cover"
           style={{ minHeight: 148, justifyContent: 'center', alignItems: 'center', paddingVertical: 12, paddingHorizontal: 14 }}
         >
+          <View
+            pointerEvents="none"
+            style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, backgroundColor: 'rgba(0,0,0,0.12)' }}
+          />
           <Image
             source={MENU_HERO_LOGO}
-            style={{ width: 238, height: 92 }}
+            style={{
+              width: 252,
+              height: 98,
+              shadowColor: '#000',
+              shadowOpacity: 0.18,
+              shadowRadius: 8,
+              shadowOffset: { width: 0, height: 3 },
+            }}
             resizeMode="contain"
           />
         </ImageBackground>
