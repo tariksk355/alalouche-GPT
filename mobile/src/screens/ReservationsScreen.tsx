@@ -1,10 +1,7 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Alert, Button, SafeAreaView, ScrollView, Text, TextInput, View } from 'react-native';
 import { useAuth } from '../contexts/AuthContext';
 import { storefrontApi } from '../api/storefront';
-
-const DEFAULT_SLOTS = ['11:30', '12:00', '12:30', '13:00', '13:30', '18:00', '18:30', '19:00', '19:30', '20:00', '20:30', '21:00'];
-const MINIMUM_NOTICE_MINUTES = 30;
 
 function toLocalDateInputValue(date = new Date()) {
   const year = date.getFullYear();
@@ -17,7 +14,7 @@ export function ReservationsScreen() {
   const { session } = useAuth();
   const [loading, setLoading] = useState(false);
   const [loadingSlots, setLoadingSlots] = useState(false);
-  const [slots, setSlots] = useState<string[]>(DEFAULT_SLOTS);
+  const [slots, setSlots] = useState<string[]>([]);
   const [form, setForm] = useState({
     name: '',
     email: '',
@@ -46,12 +43,12 @@ export function ReservationsScreen() {
       try {
         const reservationSettings = await storefrontApi.getReservationSettings();
         const remoteSlots = reservationSettings.timeSlots || reservationSettings.slots || [];
-        if (!cancelled && Array.isArray(remoteSlots) && remoteSlots.length > 0) {
-          setSlots(remoteSlots.filter((slot) => typeof slot === 'string'));
+        if (!cancelled) {
+          setSlots(Array.isArray(remoteSlots) ? remoteSlots.filter((slot) => typeof slot === 'string') : []);
         }
       } catch {
         if (!cancelled) {
-          setSlots(DEFAULT_SLOTS);
+          setSlots([]);
         }
       } finally {
         if (!cancelled) {
@@ -66,29 +63,11 @@ export function ReservationsScreen() {
     };
   }, []);
 
-  const availableTimes = useMemo(() => {
-    if (!form.date) return slots;
-
-    const now = new Date();
-    const nowWithNotice = new Date(now.getTime() + MINIMUM_NOTICE_MINUTES * 60 * 1000);
-    const isSameDay = form.date === toLocalDateInputValue(now);
-
-    return slots.filter((slot) => {
-      if (!isSameDay) return true;
-      const [hours, minutes] = slot.split(':').map(Number);
-      if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return false;
-
-      const slotDate = new Date(now);
-      slotDate.setHours(hours, minutes, 0, 0);
-      return slotDate.getTime() > now.getTime() && slotDate.getTime() >= nowWithNotice.getTime();
-    });
-  }, [form.date, slots]);
-
   useEffect(() => {
-    if (form.time && !availableTimes.includes(form.time)) {
+    if (form.time && !slots.includes(form.time)) {
       setForm((prev) => ({ ...prev, time: '' }));
     }
-  }, [availableTimes, form.time]);
+  }, [slots, form.time]);
 
   const submit = async () => {
     if (!form.name || !form.email || !form.phone || !form.date || !form.time) {
@@ -142,7 +121,7 @@ export function ReservationsScreen() {
 
         <Text>Heure *</Text>
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-          {availableTimes.map((slot) => {
+          {slots.map((slot) => {
             const selected = form.time === slot;
             return (
               <Text
@@ -162,7 +141,7 @@ export function ReservationsScreen() {
               </Text>
             );
           })}
-          {!loadingSlots && availableTimes.length === 0 && <Text>Aucun créneau disponible.</Text>}
+          {!loadingSlots && slots.length === 0 && <Text>Aucun créneau disponible.</Text>}
           {loadingSlots && <Text>Chargement des créneaux…</Text>}
         </View>
 
