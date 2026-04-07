@@ -126,8 +126,8 @@ export function MenuScreen({ navigation }: any) {
           <Animated.Image
             source={MENU_HERO_LOGO}
             style={{
-              width: 252,
-              height: 98,
+              width: 264,
+              height: 102,
               shadowColor: '#000',
               shadowOpacity: 0.18,
               shadowRadius: 8,
