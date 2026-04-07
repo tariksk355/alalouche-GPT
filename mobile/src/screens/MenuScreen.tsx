@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Image, Pressable, ScrollView, Text, View } from 'react-native';
+import { ActivityIndicator, Image, ImageBackground, Pressable, ScrollView, Text, View } from 'react-native';
 import { OrderingSettings, storefrontApi } from '../api/storefront';
 import { MenuItem } from '../types/models';
 import { Screen } from '../components/Screen';
@@ -7,6 +7,7 @@ import { theme } from '../theme/theme';
 import { useLanguage } from '../contexts/LanguageContext';
 
 const MENU_HERO_LOGO = require('../assets/alalouche-logo.png');
+const MENU_HERO_BG = require('../assets/menu-hero-bg.png');
 
 export function MenuScreen({ navigation }: any) {
   const { t } = useLanguage();
@@ -88,20 +89,22 @@ export function MenuScreen({ navigation }: any) {
       <View
         style={{
           borderRadius: 20,
+          overflow: 'hidden',
           borderWidth: 1,
           borderColor: '#ebe7e3',
-          backgroundColor: '#f9f7f4',
-          paddingVertical: 5,
-          paddingHorizontal: 8,
         }}
       >
-        <View style={{ alignItems: 'center', justifyContent: 'center' }}>
+        <ImageBackground
+          source={MENU_HERO_BG}
+          resizeMode="cover"
+          style={{ minHeight: 148, justifyContent: 'center', alignItems: 'center', paddingVertical: 12, paddingHorizontal: 14 }}
+        >
           <Image
             source={MENU_HERO_LOGO}
-            style={{ width: 304, height: 112 }}
+            style={{ width: 238, height: 92 }}
             resizeMode="contain"
           />
-        </View>
+        </ImageBackground>
       </View>
 
       {loading ? (
