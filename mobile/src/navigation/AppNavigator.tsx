@@ -3,6 +3,7 @@ import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
+import { SafeAreaView, Text, View } from 'react-native';
 import { useAuth } from '../contexts/AuthContext';
 import { LoginScreen } from '../screens/LoginScreen';
 import { SignupScreen } from '../screens/SignupScreen';
@@ -20,14 +21,27 @@ import { useLanguage } from '../contexts/LanguageContext';
 const Stack = createNativeStackNavigator();
 const Tabs = createBottomTabNavigator();
 
+function ReservationsScreen() {
+  return (
+    <SafeAreaView style={{ flex: 1, backgroundColor: '#fff' }}>
+      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 20 }}>
+        <Text style={{ fontSize: 20, fontWeight: '800', color: '#1f1a17' }}>Réservations</Text>
+        <Text style={{ marginTop: 8, textAlign: 'center', color: '#6b625a' }}>
+          La gestion des réservations arrive bientôt sur mobile.
+        </Text>
+      </View>
+    </SafeAreaView>
+  );
+}
+
 function MainTabs() {
   const { t } = useLanguage();
   const tabIconByRoute: Record<string, keyof typeof Ionicons.glyphMap> = {
     Menu: 'restaurant-outline',
     Cart: 'bag-handle-outline',
     Orders: 'receipt-outline',
+    Reservations: 'calendar-outline',
     Profile: 'person-outline',
-    Settings: 'settings-outline',
   };
 
   return (
@@ -40,9 +54,10 @@ function MainTabs() {
           tabBarActiveTintColor: '#161210',
           tabBarInactiveTintColor: '#8b8178',
           tabBarLabelStyle: {
-            fontSize: 11,
+            fontSize: 10,
             fontWeight: '600',
             marginBottom: 4,
+            textAlign: 'center',
           },
           tabBarIcon: ({ color, size, focused }) => (
             <Ionicons
@@ -54,10 +69,15 @@ function MainTabs() {
           tabBarIconStyle: {
             marginTop: 6,
           },
+          tabBarItemStyle: {
+            minWidth: 0,
+            paddingHorizontal: 3,
+          },
           tabBarStyle: {
             height: 74,
             paddingTop: 6,
             paddingBottom: 8,
+            paddingHorizontal: 10,
             backgroundColor: '#f9f7f4',
             borderTopColor: '#e8e2dc',
             borderTopWidth: 1,
@@ -68,8 +88,8 @@ function MainTabs() {
       <Tabs.Screen name="Menu" component={MenuScreen} options={{ title: t('tab_menu') }} />
       <Tabs.Screen name="Cart" component={CartScreen} options={{ title: t('tab_cart') }} />
       <Tabs.Screen name="Orders" component={OrdersScreen} options={{ title: t('tab_orders') }} />
+      <Tabs.Screen name="Reservations" component={ReservationsScreen} options={{ title: 'Réservations' }} />
       <Tabs.Screen name="Profile" component={ProfileScreen} options={{ title: t('tab_profile') }} />
-      <Tabs.Screen name="Settings" component={SettingsScreen} options={{ title: t('tab_settings') }} />
     </Tabs.Navigator>
   );
 }
@@ -89,6 +109,7 @@ export function AppNavigator() {
         <Stack.Screen name="Signup" component={SignupScreen} options={{ title: t('screen_signup') }} />
         <Stack.Screen name="ForgotPassword" component={ForgotPasswordScreen} options={{ title: t('screen_forgot') }} />
         <Stack.Screen name="ResetPassword" component={ResetPasswordScreen} options={{ title: t('screen_reset') }} />
+        <Stack.Screen name="Settings" component={SettingsScreen} options={{ title: t('settings_title') }} />
       </Stack.Navigator>
     </NavigationContainer>
   );
