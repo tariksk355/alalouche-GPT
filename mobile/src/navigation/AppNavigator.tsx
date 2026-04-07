@@ -3,7 +3,6 @@ import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
-import { SafeAreaView, Text, View } from 'react-native';
 import { useAuth } from '../contexts/AuthContext';
 import { LoginScreen } from '../screens/LoginScreen';
 import { SignupScreen } from '../screens/SignupScreen';
@@ -15,24 +14,12 @@ import { CartScreen } from '../screens/CartScreen';
 import { CheckoutScreen } from '../screens/CheckoutScreen';
 import { OrdersScreen } from '../screens/OrdersScreen';
 import { ProfileScreen } from '../screens/ProfileScreen';
+import { ReservationsScreen } from '../screens/ReservationsScreen';
 import { SettingsScreen } from '../screens/SettingsScreen';
 import { useLanguage } from '../contexts/LanguageContext';
 
 const Stack = createNativeStackNavigator();
 const Tabs = createBottomTabNavigator();
-
-function ReservationsScreen() {
-  return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: '#fff' }}>
-      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 20 }}>
-        <Text style={{ fontSize: 20, fontWeight: '800', color: '#1f1a17' }}>Réservations</Text>
-        <Text style={{ marginTop: 8, textAlign: 'center', color: '#6b625a' }}>
-          La gestion des réservations arrive bientôt sur mobile.
-        </Text>
-      </View>
-    </SafeAreaView>
-  );
-}
 
 function MainTabs() {
   const { t } = useLanguage();
@@ -88,7 +75,7 @@ function MainTabs() {
       <Tabs.Screen name="Menu" component={MenuScreen} options={{ title: t('tab_menu') }} />
       <Tabs.Screen name="Cart" component={CartScreen} options={{ title: t('tab_cart') }} />
       <Tabs.Screen name="Orders" component={OrdersScreen} options={{ title: t('tab_orders') }} />
-      <Tabs.Screen name="Reservations" component={ReservationsScreen} options={{ title: 'Réservations' }} />
+      <Tabs.Screen name="Reservations" component={ReservationsScreen} options={{ title: t('tab_reservations') }} />
       <Tabs.Screen name="Profile" component={ProfileScreen} options={{ title: t('tab_profile') }} />
     </Tabs.Navigator>
   );
