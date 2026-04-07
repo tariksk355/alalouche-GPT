@@ -40,9 +40,10 @@ function MainTabs() {
           tabBarActiveTintColor: '#161210',
           tabBarInactiveTintColor: '#8b8178',
           tabBarLabelStyle: {
-            fontSize: 11,
+            fontSize: 10,
             fontWeight: '600',
-            marginBottom: 4,
+            marginBottom: 3,
+            textAlign: 'center',
           },
           tabBarIcon: ({ color, size, focused }) => (
             <Ionicons
@@ -54,10 +55,15 @@ function MainTabs() {
           tabBarIconStyle: {
             marginTop: 6,
           },
+          tabBarItemStyle: {
+            minWidth: 0,
+            paddingHorizontal: 2,
+          },
           tabBarStyle: {
             height: 74,
             paddingTop: 6,
             paddingBottom: 8,
+            paddingHorizontal: 6,
             backgroundColor: '#f9f7f4',
             borderTopColor: '#e8e2dc',
             borderTopWidth: 1,
