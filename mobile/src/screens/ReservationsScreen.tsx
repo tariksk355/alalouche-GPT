@@ -32,6 +32,40 @@ function buildDateOptions(startValue: string, count = 30) {
   });
 }
 
+
+function extractReservationSlots(reservationSettings: any): string[] {
+  const candidates = [
+    reservationSettings?.timeSlots,
+    reservationSettings?.slots,
+    reservationSettings?.availableSlots,
+  ];
+
+  for (const candidate of candidates) {
+    if (!Array.isArray(candidate)) continue;
+
+    const normalized = candidate
+      .map((slot) => {
+        if (typeof slot === 'string') return slot.trim();
+        if (slot && typeof slot === 'object') {
+          const row = slot as Record<string, unknown>;
+          const fromValue = typeof row.value === 'string' ? row.value : null;
+          const fromTime = typeof row.time === 'string' ? row.time : null;
+          const fromSlot = typeof row.slot === 'string' ? row.slot : null;
+          const fromStartTime = typeof row.startTime === 'string' ? row.startTime : null;
+          return (fromValue || fromTime || fromSlot || fromStartTime || '').trim();
+        }
+        return '';
+      })
+      .filter((slot): slot is string => Boolean(slot));
+
+    if (normalized.length > 0) {
+      return Array.from(new Set(normalized));
+    }
+  }
+
+  return [];
+}
+
 export function ReservationsScreen() {
   const { session } = useAuth();
   const [loading, setLoading] = useState(false);
@@ -68,9 +102,8 @@ export function ReservationsScreen() {
       setLoadingSlots(true);
       try {
         const reservationSettings = await storefrontApi.getReservationSettings();
-        const remoteSlots = reservationSettings.timeSlots || reservationSettings.slots || [];
         if (!cancelled) {
-          setSlots(Array.isArray(remoteSlots) ? remoteSlots.filter((slot) => typeof slot === 'string') : []);
+          setSlots(extractReservationSlots(reservationSettings));
         }
       } catch {
         if (!cancelled) {
