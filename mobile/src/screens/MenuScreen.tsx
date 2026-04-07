@@ -1,14 +1,18 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Image, Pressable, ScrollView, Text, View } from 'react-native';
-import { storefrontApi } from '../api/storefront';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { ActivityIndicator, Animated, Image, ImageBackground, Pressable, SafeAreaView, ScrollView, Text, View } from 'react-native';
+import { OrderingSettings, storefrontApi } from '../api/storefront';
 import { MenuItem } from '../types/models';
-import { Screen } from '../components/Screen';
 import { theme } from '../theme/theme';
 import { useLanguage } from '../contexts/LanguageContext';
 
+const MENU_HERO_LOGO = require('../assets/alalouche-logo.png');
+const MENU_HERO_BG = require('../assets/menu-hero-bg.png');
+
 export function MenuScreen({ navigation }: any) {
   const { t } = useLanguage();
+  const scrollY = useRef(new Animated.Value(0)).current;
   const [items, setItems] = useState<MenuItem[]>([]);
+  const [orderingSettings, setOrderingSettings] = useState<OrderingSettings>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -16,15 +20,19 @@ export function MenuScreen({ navigation }: any) {
     let mounted = true;
     setLoading(true);
     setError('');
-    storefrontApi
-      .listMenu()
-      .then((nextItems) => {
+    Promise.all([
+      storefrontApi.listMenu(),
+      storefrontApi.getOrderingSettings().catch(() => ({} as OrderingSettings)),
+    ])
+      .then(([nextItems, nextOrderingSettings]) => {
         if (!mounted) return;
         setItems(Array.isArray(nextItems) ? nextItems : []);
+        setOrderingSettings(nextOrderingSettings || {});
       })
       .catch(() => {
         if (!mounted) return;
         setItems([]);
+        setOrderingSettings({});
         setError(t('menu_load_error'));
       })
       .finally(() => {
@@ -35,7 +43,14 @@ export function MenuScreen({ navigation }: any) {
       mounted = false;
     };
   }, []);
-  const categories = useMemo(() => Array.from(new Set(items.map((i) => i.category))), [items]);
+  const categories = useMemo(() => {
+    const discovered = Array.from(new Set(items.map((i) => (typeof i.category === 'string' ? i.category.trim() : '')).filter(Boolean)));
+    const configuredOrder = Array.isArray(orderingSettings?.categoryOrder)
+      ? orderingSettings.categoryOrder.map((value) => (typeof value === 'string' ? value.trim() : '')).filter(Boolean)
+      : [];
+    const ordered = Array.from(new Set(configuredOrder));
+    return [...ordered, ...discovered.filter((category) => !ordered.includes(category))];
+  }, [items, orderingSettings?.categoryOrder]);
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
 
   useEffect(() => {
@@ -50,49 +65,79 @@ export function MenuScreen({ navigation }: any) {
 
   const visibleCategory = activeCategory && categories.includes(activeCategory) ? activeCategory : categories[0] || '';
   const visibleItems = useMemo(
-    () => items.filter((item) => item.category === visibleCategory),
-    [items, visibleCategory],
+    () => {
+      const categoryItems = items.filter((item) => item.category === visibleCategory);
+      const configuredOrder = Array.isArray(orderingSettings?.productOrderByCategory?.[visibleCategory])
+        ? orderingSettings.productOrderByCategory?.[visibleCategory]
+        : [];
+      if (!configuredOrder || configuredOrder.length === 0) {
+        return categoryItems;
+      }
+      const indexById = new Map(configuredOrder.map((id, index) => [id, index]));
+      return [...categoryItems].sort((a, b) => {
+        const aIndex = indexById.has(a.id) ? indexById.get(a.id) : Number.POSITIVE_INFINITY;
+        const bIndex = indexById.has(b.id) ? indexById.get(b.id) : Number.POSITIVE_INFINITY;
+        if (aIndex !== bIndex) return Number(aIndex) - Number(bIndex);
+        return 0;
+      });
+    },
+    [items, visibleCategory, orderingSettings?.productOrderByCategory],
   );
+  const heroHeight = scrollY.interpolate({
+    inputRange: [0, 140],
+    outputRange: [148, 108],
+    extrapolate: 'clamp',
+  });
+  const logoScale = scrollY.interpolate({
+    inputRange: [0, 140],
+    outputRange: [1, 0.88],
+    extrapolate: 'clamp',
+  });
 
   return (
-    <Screen>
-      <View
+    <SafeAreaView style={{ flex: 1, backgroundColor: '#fff' }}>
+      <Animated.ScrollView
+        onScroll={Animated.event(
+          [{ nativeEvent: { contentOffset: { y: scrollY } } }],
+          { useNativeDriver: false },
+        )}
+        scrollEventThrottle={16}
+        contentContainerStyle={{ padding: 16 }}
+      >
+        <View style={{ gap: 12 }}>
+      <Animated.View
         style={{
           borderRadius: 20,
+          overflow: 'hidden',
           borderWidth: 1,
           borderColor: '#ebe7e3',
-          backgroundColor: '#f8f6f3',
-          padding: 18,
+          height: heroHeight,
         }}
       >
-        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
-          <View style={{ flex: 1 }}>
-            <Text style={{ color: '#1f1a17', fontSize: 37, fontWeight: '800', letterSpacing: -0.5 }}>À la Louche</Text>
-            <Text style={{ color: '#716960', marginTop: 4, fontSize: 17 }}>{t('menu_brand_subtitle')}</Text>
-          </View>
+        <ImageBackground
+          source={MENU_HERO_BG}
+          resizeMode="cover"
+          style={{ flex: 1, justifyContent: 'center', alignItems: 'center', paddingVertical: 12, paddingHorizontal: 14 }}
+        >
           <View
+            pointerEvents="none"
+            style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, backgroundColor: 'rgba(0,0,0,0.16)' }}
+          />
+          <Animated.Image
+            source={MENU_HERO_LOGO}
             style={{
-              width: 38,
-              height: 38,
-              borderRadius: 19,
-              backgroundColor: '#efeae5',
-              borderWidth: 1,
-              borderColor: '#e3dcd5',
-              alignItems: 'center',
-              justifyContent: 'center',
-              marginTop: 2,
+              width: 264,
+              height: 102,
+              shadowColor: '#000',
+              shadowOpacity: 0.18,
+              shadowRadius: 8,
+              shadowOffset: { width: 0, height: 3 },
+              transform: [{ translateY: -4 }, { scale: logoScale }],
             }}
-          >
-            <Text style={{ color: '#5f5750', fontSize: 16 }}>⌕</Text>
-          </View>
-        </View>
-        <View style={{ marginTop: 12, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-          <View style={{ paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8, backgroundColor: '#e4ece7' }}>
-            <Text style={{ color: '#35594a', fontWeight: '700', fontSize: 12 }}>{t('menu_live')}</Text>
-          </View>
-          <Text style={{ color: '#6b625a', fontSize: 13 }}>{t('menu_items_available').replace('{count}', String(items.length))}</Text>
-        </View>
-      </View>
+            resizeMode="contain"
+          />
+        </ImageBackground>
+      </Animated.View>
 
       {loading ? (
         <View
@@ -257,6 +302,8 @@ export function MenuScreen({ navigation }: any) {
           </View>
         </>
       )}
-    </Screen>
+        </View>
+      </Animated.ScrollView>
+    </SafeAreaView>
   );
 }
