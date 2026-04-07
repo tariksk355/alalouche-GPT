@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from 'react';
-import { Alert, Button, SafeAreaView, ScrollView, Text, TextInput, View } from 'react-native';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Alert, Modal, Pressable, SafeAreaView, ScrollView, Text, TextInput, View } from 'react-native';
 import { useAuth } from '../contexts/AuthContext';
 import { storefrontApi } from '../api/storefront';
 
@@ -10,11 +10,35 @@ function toLocalDateInputValue(date = new Date()) {
   return `${year}-${month}-${day}`;
 }
 
+function fromDateInputValue(value: string) {
+  const [year, month, day] = value.split('-').map(Number);
+  if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) {
+    return new Date();
+  }
+  return new Date(year, month - 1, day);
+}
+
+function formatDisplayDate(value: string) {
+  const parsed = fromDateInputValue(value);
+  return parsed.toLocaleDateString('fr-CH', { weekday: 'short', day: '2-digit', month: '2-digit', year: 'numeric' });
+}
+
+function buildDateOptions(startValue: string, count = 30) {
+  const startDate = fromDateInputValue(startValue);
+  return Array.from({ length: count }).map((_, index) => {
+    const nextDate = new Date(startDate);
+    nextDate.setDate(startDate.getDate() + index);
+    return toLocalDateInputValue(nextDate);
+  });
+}
+
 export function ReservationsScreen() {
   const { session } = useAuth();
   const [loading, setLoading] = useState(false);
   const [loadingSlots, setLoadingSlots] = useState(false);
   const [slots, setSlots] = useState<string[]>([]);
+  const [showDatePicker, setShowDatePicker] = useState(false);
+  const [showTimePicker, setShowTimePicker] = useState(false);
   const [form, setForm] = useState({
     name: '',
     email: '',
@@ -24,6 +48,8 @@ export function ReservationsScreen() {
     guests: 2,
     notes: '',
   });
+
+  const dateOptions = useMemo(() => buildDateOptions(form.date), [form.date]);
 
   useEffect(() => {
     if (!session?.customer) return;
@@ -116,40 +142,31 @@ export function ReservationsScreen() {
         <Text>Téléphone *</Text>
         <TextInput value={form.phone} onChangeText={(phone) => setForm((prev) => ({ ...prev, phone }))} style={{ borderWidth: 1, borderColor: '#ddd', borderRadius: 8, padding: 10 }} />
 
-        <Text>Date (YYYY-MM-DD) *</Text>
-        <TextInput value={form.date} onChangeText={(date) => setForm((prev) => ({ ...prev, date }))} style={{ borderWidth: 1, borderColor: '#ddd', borderRadius: 8, padding: 10 }} />
+        <Text>Date *</Text>
+        <Pressable onPress={() => setShowDatePicker(true)} style={{ borderWidth: 1, borderColor: '#ddd', borderRadius: 8, padding: 12 }}>
+          <Text>{formatDisplayDate(form.date)}</Text>
+        </Pressable>
 
         <Text>Heure *</Text>
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-          {slots.map((slot) => {
-            const selected = form.time === slot;
-            return (
-              <Text
-                key={slot}
-                onPress={() => setForm((prev) => ({ ...prev, time: slot }))}
-                style={{
-                  borderWidth: 1,
-                  borderColor: selected ? '#111' : '#bbb',
-                  backgroundColor: selected ? '#111' : '#fff',
-                  color: selected ? '#fff' : '#111',
-                  borderRadius: 16,
-                  paddingHorizontal: 10,
-                  paddingVertical: 6,
-                }}
-              >
-                {slot}
-              </Text>
-            );
-          })}
-          {!loadingSlots && slots.length === 0 && <Text>Aucun créneau disponible.</Text>}
-          {loadingSlots && <Text>Chargement des créneaux…</Text>}
-        </View>
+        <Pressable
+          onPress={() => setShowTimePicker(true)}
+          disabled={loadingSlots || slots.length === 0}
+          style={{ borderWidth: 1, borderColor: '#ddd', borderRadius: 8, padding: 12, opacity: loadingSlots ? 0.6 : 1 }}
+        >
+          <Text>
+            {loadingSlots ? 'Chargement des créneaux…' : form.time || (slots.length === 0 ? 'Aucun créneau disponible' : 'Choisir une heure')}
+          </Text>
+        </Pressable>
 
         <Text>Nombre de personnes *</Text>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-          <Button title="-" onPress={() => setForm((prev) => ({ ...prev, guests: Math.max(1, prev.guests - 1) }))} />
+          <Pressable onPress={() => setForm((prev) => ({ ...prev, guests: Math.max(1, prev.guests - 1) }))} style={{ borderWidth: 1, borderColor: '#ddd', borderRadius: 6, paddingHorizontal: 12, paddingVertical: 6 }}>
+            <Text>-</Text>
+          </Pressable>
           <Text>{form.guests}</Text>
-          <Button title="+" onPress={() => setForm((prev) => ({ ...prev, guests: Math.min(20, prev.guests + 1) }))} />
+          <Pressable onPress={() => setForm((prev) => ({ ...prev, guests: Math.min(20, prev.guests + 1) }))} style={{ borderWidth: 1, borderColor: '#ddd', borderRadius: 6, paddingHorizontal: 12, paddingVertical: 6 }}>
+            <Text>+</Text>
+          </Pressable>
         </View>
 
         <Text>Notes (optionnel)</Text>
@@ -161,8 +178,78 @@ export function ReservationsScreen() {
           style={{ borderWidth: 1, borderColor: '#ddd', borderRadius: 8, padding: 10, minHeight: 80, textAlignVertical: 'top' }}
         />
 
-        <Button title={loading ? 'Envoi...' : 'Confirmer la réservation'} disabled={loading} onPress={submit} />
+        <Pressable
+          onPress={submit}
+          disabled={loading}
+          style={{
+            marginTop: 8,
+            backgroundColor: loading ? '#8b8178' : '#1f1a17',
+            borderRadius: 10,
+            alignItems: 'center',
+            justifyContent: 'center',
+            paddingVertical: 14,
+          }}
+        >
+          <Text style={{ color: '#fff', fontWeight: '700' }}>{loading ? 'Envoi...' : 'Confirmer la réservation'}</Text>
+        </Pressable>
       </ScrollView>
+
+      <Modal visible={showDatePicker} transparent animationType="slide" onRequestClose={() => setShowDatePicker(false)}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.35)', justifyContent: 'flex-end' }}>
+          <View style={{ backgroundColor: '#fff', borderTopLeftRadius: 16, borderTopRightRadius: 16, maxHeight: '60%', padding: 16 }}>
+            <Text style={{ fontSize: 16, fontWeight: '700', marginBottom: 10 }}>Choisir une date</Text>
+            <ScrollView>
+              {dateOptions.map((option) => {
+                const selected = option === form.date;
+                return (
+                  <Pressable
+                    key={option}
+                    onPress={() => {
+                      setForm((prev) => ({ ...prev, date: option }));
+                      setShowDatePicker(false);
+                    }}
+                    style={{ paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#eee' }}
+                  >
+                    <Text style={{ fontWeight: selected ? '700' : '400' }}>{formatDisplayDate(option)}</Text>
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+            <Pressable onPress={() => setShowDatePicker(false)} style={{ marginTop: 12, alignSelf: 'flex-end' }}>
+              <Text style={{ color: '#1f1a17', fontWeight: '600' }}>Fermer</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal visible={showTimePicker} transparent animationType="slide" onRequestClose={() => setShowTimePicker(false)}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.35)', justifyContent: 'flex-end' }}>
+          <View style={{ backgroundColor: '#fff', borderTopLeftRadius: 16, borderTopRightRadius: 16, maxHeight: '60%', padding: 16 }}>
+            <Text style={{ fontSize: 16, fontWeight: '700', marginBottom: 10 }}>Choisir une heure</Text>
+            <ScrollView>
+              {slots.map((slot) => {
+                const selected = slot === form.time;
+                return (
+                  <Pressable
+                    key={slot}
+                    onPress={() => {
+                      setForm((prev) => ({ ...prev, time: slot }));
+                      setShowTimePicker(false);
+                    }}
+                    style={{ paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#eee' }}
+                  >
+                    <Text style={{ fontWeight: selected ? '700' : '400' }}>{slot}</Text>
+                  </Pressable>
+                );
+              })}
+              {slots.length === 0 && <Text style={{ color: '#6b625a' }}>Aucun créneau disponible</Text>}
+            </ScrollView>
+            <Pressable onPress={() => setShowTimePicker(false)} style={{ marginTop: 12, alignSelf: 'flex-end' }}>
+              <Text style={{ color: '#1f1a17', fontWeight: '600' }}>Fermer</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
