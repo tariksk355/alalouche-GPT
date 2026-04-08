@@ -15,6 +15,7 @@ export function CheckoutScreen({ navigation, route }: any) {
   const [name, setName] = useState(customer?.fullName || '');
   const [phone, setPhone] = useState(customer?.phone || '');
   const [address, setAddress] = useState(initialAddress);
+  const [paymentMethod, setPaymentMethod] = useState<'cash' | 'card'>('cash');
 
   const orderType = route?.params?.orderType === 'delivery' ? 'delivery' : 'takeaway';
   const customerPostalCode = route?.params?.customerPostalCode;
@@ -69,6 +70,18 @@ export function CheckoutScreen({ navigation, route }: any) {
       <Row label={t('checkout_total')} value={`CHF ${totalAmount.toFixed(2)}`} labelStyle={totalLabel} valueStyle={totalValue} />
     </View>
 
+    <View style={sectionCard}>
+      <Text style={sectionTitle}>Paiement</Text>
+      <View style={segmentedWrap}>
+        <Pressable style={[segmentButton, paymentMethod === 'cash' && segmentButtonActive]} onPress={() => setPaymentMethod('cash')}>
+          <Text style={[segmentLabel, paymentMethod === 'cash' && segmentLabelActive]}>Espèces</Text>
+        </Pressable>
+        <Pressable style={[segmentButton, paymentMethod === 'card' && segmentButtonActive]} onPress={() => setPaymentMethod('card')}>
+          <Text style={[segmentLabel, paymentMethod === 'card' && segmentLabelActive]}>Carte</Text>
+        </Pressable>
+      </View>
+    </View>
+
     <Pressable
       style={[checkoutButton, (!name || !phone || (orderType === 'delivery' && !address)) && checkoutButtonDisabled]}
       disabled={!name || !phone || (orderType === 'delivery' && !address)}
@@ -77,7 +90,7 @@ export function CheckoutScreen({ navigation, route }: any) {
           customerName: name,
           customerPhone: phone,
           orderType,
-          paymentMethod: 'cash',
+          paymentMethod,
           customerAddress: orderType === 'delivery' ? address : undefined,
           customerPostalCode: orderType === 'delivery' ? customerPostalCode : undefined,
           promotionCode: promotionCode || undefined,
@@ -118,6 +131,11 @@ const summaryValue = { color: '#1f1a17', fontSize: 14, fontWeight: '700' } as co
 const totalDivider = { height: 1, backgroundColor: '#efeae5', marginTop: 10 } as const;
 const totalLabel = { color: '#1f1a17', fontSize: 17, fontWeight: '800' } as const;
 const totalValue = { color: '#1f1a17', fontSize: 20, fontWeight: '900' } as const;
+const segmentedWrap = { flexDirection: 'row', backgroundColor: '#f3f1ee', padding: 4, borderRadius: 12, gap: 4 } as const;
+const segmentButton = { flex: 1, borderRadius: 10, paddingVertical: 9, alignItems: 'center' } as const;
+const segmentButtonActive = { backgroundColor: '#25201d' } as const;
+const segmentLabel = { color: '#6f675f', fontWeight: '700' } as const;
+const segmentLabelActive = { color: '#fff' } as const;
 
 const checkoutButton = { borderRadius: 14, backgroundColor: '#1f1a17', paddingVertical: 14, alignItems: 'center' } as const;
 const checkoutButtonDisabled = { backgroundColor: '#d8d0c8', borderWidth: 1, borderColor: '#c9beb4' } as const;
