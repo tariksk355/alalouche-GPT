@@ -37,6 +37,7 @@ const TIMES = ['11:30', '12:00', '12:30', '13:00', '13:30', '18:00', '18:30', '1
 
 
 export function ReservationsScreen() {
+  const todayDate = useMemo(() => toLocalDateInputValue(), []);
   const { session } = useAuth();
   const [loading, setLoading] = useState(false);
   const [slots] = useState<string[]>(TIMES);
@@ -52,7 +53,7 @@ export function ReservationsScreen() {
     notes: '',
   });
 
-  const dateOptions = useMemo(() => buildDateOptions(form.date), [form.date]);
+  const dateOptions = useMemo(() => buildDateOptions(todayDate), [todayDate]);
 
   useEffect(() => {
     if (!session?.customer) return;
