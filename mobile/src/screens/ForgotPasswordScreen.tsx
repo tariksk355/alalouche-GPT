@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
-import { Keyboard, Pressable, SafeAreaView, ScrollView, Text, TextInput, View } from 'react-native';
+import { Keyboard, Pressable, Text, TextInput, View } from 'react-native';
 import { authApi } from '../api/auth';
 import { BrandButton } from '../components/BrandButton';
 import { useLanguage } from '../contexts/LanguageContext';
+import { Screen } from '../components/Screen';
 
 export function ForgotPasswordScreen({ navigation }: any) {
   const { t } = useLanguage();
@@ -33,51 +34,45 @@ export function ForgotPasswordScreen({ navigation }: any) {
     }
   };
 
-  return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: '#fff' }}>
-      <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: 16 }}>
-        <View style={{ gap: 12 }}>
-          <View style={headerCard}>
-            <Text style={headerTitle}>{t('forgot_title')}</Text>
-            <Text style={headerSubtitle}>{t('forgot_subtitle')}</Text>
-          </View>
+  return <Screen keyboardShouldPersistTaps="handled">
+    <View style={headerCard}>
+      <Text style={headerTitle}>{t('forgot_title')}</Text>
+      <Text style={headerSubtitle}>{t('forgot_subtitle')}</Text>
+    </View>
 
-          <View style={sectionCard}>
-            <Text style={fieldLabel}>{t('common_email')}</Text>
-            <TextInput
-              placeholder={t('placeholder_email')}
-              value={email}
-              onChangeText={(value) => {
-                setEmail(value);
-                if (feedback) setFeedback(null);
-              }}
-              style={inputStyle}
-              autoCapitalize="none"
-              autoCorrect={false}
-              keyboardType="email-address"
-              returnKeyType="send"
-              onSubmitEditing={handleSubmit}
-              placeholderTextColor="#8b837b"
-              editable={!submitting}
-            />
+    <View style={sectionCard}>
+      <Text style={fieldLabel}>{t('common_email')}</Text>
+      <TextInput
+        placeholder={t('placeholder_email')}
+        value={email}
+        onChangeText={(value) => {
+          setEmail(value);
+          if (feedback) setFeedback(null);
+        }}
+        style={inputStyle}
+        autoCapitalize="none"
+        autoCorrect={false}
+        keyboardType="email-address"
+        returnKeyType="send"
+        onSubmitEditing={handleSubmit}
+        placeholderTextColor="#8b837b"
+        editable={!submitting}
+      />
 
-            {!!feedback && (
-              <View style={[notice, feedback.type === 'success' ? successNotice : errorNotice]}>
-                <Text style={feedback.type === 'success' ? successText : errorText}>{feedback.message}</Text>
-              </View>
-            )}
-
-            <View style={{ marginTop: 10, gap: 8 }}>
-              <BrandButton label={submitting ? 'Envoi...' : t('forgot_send')} onPress={handleSubmit} disabled={submitting} />
-              <Pressable style={[secondaryButton, submitting && { opacity: 0.6 }]} onPress={() => navigation.navigate('Login')} disabled={submitting}>
-                <Text style={secondaryButtonLabel}>{t('forgot_back_login')}</Text>
-              </Pressable>
-            </View>
-          </View>
+      {!!feedback && (
+        <View style={[notice, feedback.type === 'success' ? successNotice : errorNotice]}>
+          <Text style={feedback.type === 'success' ? successText : errorText}>{feedback.message}</Text>
         </View>
-      </ScrollView>
-    </SafeAreaView>
-  );
+      )}
+
+      <View style={{ marginTop: 10, gap: 8 }}>
+        <BrandButton label={submitting ? 'Envoi...' : t('forgot_send')} onPress={handleSubmit} disabled={submitting} />
+        <Pressable style={[secondaryButton, submitting && { opacity: 0.6 }]} onPress={() => navigation.navigate('Login')} disabled={submitting}>
+          <Text style={secondaryButtonLabel}>{t('forgot_back_login')}</Text>
+        </Pressable>
+      </View>
+    </View>
+  </Screen>;
 }
 
 const headerCard = { borderWidth: 1, borderColor: '#ebe7e3', borderRadius: 18, backgroundColor: '#f8f6f3', padding: 16 } as const;
