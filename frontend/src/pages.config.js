@@ -58,6 +58,7 @@ import MesCommandes from './pages/MesCommandes';
 import Order from './pages/Order';
 import OrderReceiver from './pages/OrderReceiver';
 import Panier from './pages/Panier';
+import PolitiqueDeConfidentialite from './pages/PolitiqueDeConfidentialite';
 import Reservation from './pages/Reservation';
 import __Layout from './Layout.jsx';
 
@@ -74,6 +75,7 @@ export const PAGES = {
     "Order": Order,
     "OrderReceiver": OrderReceiver,
     "Panier": Panier,
+    "politique-de-confidentialite": PolitiqueDeConfidentialite,
     "Reservation": Reservation,
 }
 

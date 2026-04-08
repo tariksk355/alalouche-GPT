@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Alert, Linking, Pressable, Text, TextInput, View } from 'react-native';
 import { Screen } from '../components/Screen';
 import { useAuth } from '../contexts/AuthContext';
 import { BrandButton } from '../components/BrandButton';
@@ -15,6 +15,8 @@ type ProfileFormState = {
   city: string;
   deliveryInstructions: string;
 };
+
+const PRIVACY_POLICY_URL = 'https://www.alalouche.ch/politique-de-confidentialite';
 
 function buildFormState(customer?: CustomerProfile): ProfileFormState {
   return {
@@ -102,6 +104,14 @@ export function ProfileScreen({ navigation }: any) {
         },
       ],
     );
+  };
+
+  const openPrivacyPolicy = async () => {
+    try {
+      await Linking.openURL(PRIVACY_POLICY_URL);
+    } catch {
+      Alert.alert('Erreur', "Impossible d'ouvrir la politique de confidentialité.");
+    }
   };
 
   return <Screen>
@@ -264,6 +274,13 @@ export function ProfileScreen({ navigation }: any) {
         </View>
       </View>
     )}
+
+    <View style={sectionCard}>
+      <Text style={sectionTitle}>Légal</Text>
+      <Pressable style={secondaryButton} onPress={openPrivacyPolicy}>
+        <Text style={secondaryButtonLabel}>Politique de confidentialité</Text>
+      </Pressable>
+    </View>
   </Screen>;
 }
 
@@ -272,6 +289,7 @@ const headerTitle = { color: '#1f1a17', fontSize: 31, fontWeight: '800', letterS
 const headerSubtitle = { color: '#6f675f', marginTop: 4, fontSize: 14 } as const;
 
 const sectionCard = { borderWidth: 1, borderColor: '#ece7e2', borderRadius: 16, backgroundColor: '#fff', padding: 12 } as const;
+const sectionTitle = { color: '#1f1a17', fontSize: 16, fontWeight: '800', marginBottom: 8 } as const;
 
 const avatarBubble = { width: 42, height: 42, borderRadius: 21, backgroundColor: '#f3efea', borderWidth: 1, borderColor: '#e1dad3', alignItems: 'center', justifyContent: 'center' } as const;
 const avatarText = { color: '#4f463f', fontWeight: '800', fontSize: 16 } as const;
