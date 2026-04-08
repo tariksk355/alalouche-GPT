@@ -114,31 +114,6 @@ export function ProfileScreen({ navigation }: any) {
     }
   };
 
-  const confirmDeleteAccount = () => {
-    if (deleting) return;
-    setDeleteError('');
-    Alert.alert(
-      t('profile_delete_title'),
-      t('profile_delete_confirm'),
-      [
-        { text: t('common_cancel'), style: 'cancel' },
-        {
-          text: t('profile_delete_confirm_cta'),
-          style: 'destructive',
-          onPress: onDeleteAccount,
-        },
-      ],
-    );
-  };
-
-  const openPrivacyPolicy = async () => {
-    try {
-      await Linking.openURL(PRIVACY_POLICY_URL);
-    } catch {
-      Alert.alert('Erreur', "Impossible d'ouvrir la politique de confidentialité.");
-    }
-  };
-
   return <Screen>
     <View style={headerCard}>
       <Text style={headerTitle}>{t('profile_title')}</Text>
