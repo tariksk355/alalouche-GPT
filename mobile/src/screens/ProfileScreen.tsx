@@ -16,7 +16,7 @@ type ProfileFormState = {
   deliveryInstructions: string;
 };
 
-const PRIVACY_POLICY_URL = 'https://app.kodlantis-test.com';
+const PRIVACY_POLICY_URL = 'https://www.alalouche.ch/politique-de-confidentialite';
 
 function buildFormState(customer?: CustomerProfile): ProfileFormState {
   return {
