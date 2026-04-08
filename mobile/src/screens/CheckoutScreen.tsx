@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Pressable, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Alert, Pressable, Text, TextInput, View } from 'react-native';
 import { Screen } from '../components/Screen';
 import { useCart } from '../contexts/CartContext';
 import { storefrontApi } from '../api/storefront';
@@ -16,6 +16,7 @@ export function CheckoutScreen({ navigation, route }: any) {
   const [phone, setPhone] = useState(customer?.phone || '');
   const [address, setAddress] = useState(initialAddress);
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'card'>('cash');
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const orderType = route?.params?.orderType === 'delivery' ? 'delivery' : 'takeaway';
   const customerPostalCode = route?.params?.customerPostalCode;
@@ -83,25 +84,36 @@ export function CheckoutScreen({ navigation, route }: any) {
     </View>
 
     <Pressable
-      style={[checkoutButton, (!name || !phone || (orderType === 'delivery' && !address)) && checkoutButtonDisabled]}
-      disabled={!name || !phone || (orderType === 'delivery' && !address)}
+      style={[checkoutButton, (!name || !phone || (orderType === 'delivery' && !address) || isSubmitting) && checkoutButtonDisabled]}
+      disabled={!name || !phone || (orderType === 'delivery' && !address) || isSubmitting}
       onPress={async () => {
-        const payload = {
-          customerName: name,
-          customerPhone: phone,
-          orderType,
-          paymentMethod,
-          customerAddress: orderType === 'delivery' ? address : undefined,
-          customerPostalCode: orderType === 'delivery' ? customerPostalCode : undefined,
-          promotionCode: promotionCode || undefined,
-          ...storefrontApi.buildOrderPayload(lines),
-        };
-        await storefrontApi.createOrder(session?.token || null, payload);
-        clear();
-        navigation.navigate('Orders');
+        if (isSubmitting) return;
+        setIsSubmitting(true);
+        try {
+          const payload = {
+            customerName: name,
+            customerPhone: phone,
+            orderType,
+            paymentMethod,
+            customerAddress: orderType === 'delivery' ? address : undefined,
+            customerPostalCode: orderType === 'delivery' ? customerPostalCode : undefined,
+            promotionCode: promotionCode || undefined,
+            ...storefrontApi.buildOrderPayload(lines),
+          };
+          await storefrontApi.createOrder(session?.token || null, payload);
+          clear();
+          navigation.navigate('Orders');
+        } catch {
+          Alert.alert('Commande impossible', 'Une erreur est survenue. Veuillez réessayer.');
+        } finally {
+          setIsSubmitting(false);
+        }
       }}
     >
-      <Text style={checkoutButtonText}>{t('checkout_submit')}</Text>
+      <View style={checkoutButtonContent}>
+        {isSubmitting && <ActivityIndicator size="small" color="#fff" />}
+        <Text style={checkoutButtonText}>{isSubmitting ? 'Envoi...' : t('checkout_submit')}</Text>
+      </View>
     </Pressable>
   </Screen>;
 }
@@ -139,4 +151,5 @@ const segmentLabelActive = { color: '#fff' } as const;
 
 const checkoutButton = { borderRadius: 14, backgroundColor: '#1f1a17', paddingVertical: 14, alignItems: 'center' } as const;
 const checkoutButtonDisabled = { backgroundColor: '#d8d0c8', borderWidth: 1, borderColor: '#c9beb4' } as const;
+const checkoutButtonContent = { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 } as const;
 const checkoutButtonText = { color: '#fff', fontWeight: '800', fontSize: 16 } as const;

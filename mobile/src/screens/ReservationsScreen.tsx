@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Alert, Modal, Pressable, SafeAreaView, ScrollView, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Alert, Modal, Pressable, SafeAreaView, ScrollView, Text, TextInput, View } from 'react-native';
 import { useAuth } from '../contexts/AuthContext';
 import { storefrontApi } from '../api/storefront';
 
@@ -107,7 +107,13 @@ export function ReservationsScreen() {
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: '#fff' }}>
       <ScrollView contentContainerStyle={{ padding: 16, gap: 10 }}>
-        <Text style={{ fontSize: 20, fontWeight: '700' }}>Réservation</Text>
+        <View style={headerCard}>
+          <Text style={headerTitle}>Réservation</Text>
+          <Text style={headerSubtitle}>Réservez votre table en quelques instants.</Text>
+        </View>
+
+        <View style={sectionCard}>
+        <Text style={sectionTitle}>Informations</Text>
 
         <Text>Nom complet *</Text>
         <TextInput value={form.name} onChangeText={(name) => setForm((prev) => ({ ...prev, name }))} style={{ borderWidth: 1, borderColor: '#ddd', borderRadius: 8, padding: 10 }} />
@@ -166,8 +172,12 @@ export function ReservationsScreen() {
             paddingVertical: 14,
           }}
         >
-          <Text style={{ color: '#fff', fontWeight: '700' }}>{loading ? 'Envoi...' : 'Confirmer la réservation'}</Text>
+          <View style={submitButtonContent}>
+            {loading && <ActivityIndicator size="small" color="#fff" />}
+            <Text style={{ color: '#fff', fontWeight: '700' }}>{loading ? 'Envoi...' : 'Confirmer la réservation'}</Text>
+          </View>
         </Pressable>
+        </View>
       </ScrollView>
 
       <Modal visible={showDatePicker} transparent animationType="slide" onRequestClose={() => setShowDatePicker(false)}>
@@ -266,3 +276,10 @@ export function ReservationsScreen() {
     </SafeAreaView>
   );
 }
+
+const headerCard = { borderWidth: 1, borderColor: '#ebe7e3', borderRadius: 18, backgroundColor: '#f8f6f3', padding: 16 } as const;
+const headerTitle = { color: '#1f1a17', fontSize: 31, fontWeight: '800', letterSpacing: -0.4 } as const;
+const headerSubtitle = { color: '#6f675f', marginTop: 4, fontSize: 14 } as const;
+const sectionCard = { borderWidth: 1, borderColor: '#ece7e2', borderRadius: 16, backgroundColor: '#fff', padding: 12 } as const;
+const sectionTitle = { color: '#1f1a17', fontSize: 16, fontWeight: '800', marginBottom: 8 } as const;
+const submitButtonContent = { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 } as const;
