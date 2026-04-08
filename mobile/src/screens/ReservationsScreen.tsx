@@ -33,44 +33,13 @@ function buildDateOptions(startValue: string, count = 30) {
 }
 
 
-function extractReservationSlots(reservationSettings: any): string[] {
-  const candidates = [
-    reservationSettings?.timeSlots,
-    reservationSettings?.slots,
-    reservationSettings?.availableSlots,
-  ];
+const TIMES = ['11:30', '12:00', '12:30', '13:00', '13:30', '18:00', '18:30', '19:00', '19:30', '20:00', '20:30'];
 
-  for (const candidate of candidates) {
-    if (!Array.isArray(candidate)) continue;
-
-    const normalized = candidate
-      .map((slot) => {
-        if (typeof slot === 'string') return slot.trim();
-        if (slot && typeof slot === 'object') {
-          const row = slot as Record<string, unknown>;
-          const fromValue = typeof row.value === 'string' ? row.value : null;
-          const fromTime = typeof row.time === 'string' ? row.time : null;
-          const fromSlot = typeof row.slot === 'string' ? row.slot : null;
-          const fromStartTime = typeof row.startTime === 'string' ? row.startTime : null;
-          return (fromValue || fromTime || fromSlot || fromStartTime || '').trim();
-        }
-        return '';
-      })
-      .filter((slot): slot is string => Boolean(slot));
-
-    if (normalized.length > 0) {
-      return Array.from(new Set(normalized));
-    }
-  }
-
-  return [];
-}
 
 export function ReservationsScreen() {
   const { session } = useAuth();
   const [loading, setLoading] = useState(false);
-  const [loadingSlots, setLoadingSlots] = useState(false);
-  const [slots, setSlots] = useState<string[]>([]);
+  const [slots] = useState<string[]>(TIMES);
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [showTimePicker, setShowTimePicker] = useState(false);
   const [form, setForm] = useState({
@@ -94,33 +63,6 @@ export function ReservationsScreen() {
       phone: session.customer?.phone || prev.phone,
     }));
   }, [session]);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    async function bootstrapSlots() {
-      setLoadingSlots(true);
-      try {
-        const reservationSettings = await storefrontApi.getReservationSettings();
-        if (!cancelled) {
-          setSlots(extractReservationSlots(reservationSettings));
-        }
-      } catch {
-        if (!cancelled) {
-          setSlots([]);
-        }
-      } finally {
-        if (!cancelled) {
-          setLoadingSlots(false);
-        }
-      }
-    }
-
-    bootstrapSlots();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   useEffect(() => {
     if (form.time && !slots.includes(form.time)) {
@@ -183,11 +125,11 @@ export function ReservationsScreen() {
         <Text>Heure *</Text>
         <Pressable
           onPress={() => setShowTimePicker(true)}
-          disabled={loadingSlots || slots.length === 0}
-          style={{ borderWidth: 1, borderColor: '#ddd', borderRadius: 8, padding: 12, opacity: loadingSlots ? 0.6 : 1 }}
+          disabled={slots.length === 0}
+          style={{ borderWidth: 1, borderColor: '#ddd', borderRadius: 8, padding: 12 }}
         >
           <Text>
-            {loadingSlots ? 'Chargement des créneaux…' : form.time || (slots.length === 0 ? 'Aucun créneau disponible' : 'Choisir une heure')}
+            {form.time || (slots.length === 0 ? 'Aucun créneau disponible' : 'Choisir une heure')}
           </Text>
         </Pressable>
 
