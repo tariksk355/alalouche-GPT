@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Pressable, Text, TextInput, View } from 'react-native';
+import { Alert, Pressable, Text, TextInput, View } from 'react-native';
 import { Screen } from '../components/Screen';
 import { useCart } from '../contexts/CartContext';
 import { storefrontApi } from '../api/storefront';
@@ -16,6 +16,7 @@ export function CheckoutScreen({ navigation, route }: any) {
   const [phone, setPhone] = useState(customer?.phone || '');
   const [address, setAddress] = useState(initialAddress);
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'card'>('cash');
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const orderType = route?.params?.orderType === 'delivery' ? 'delivery' : 'takeaway';
   const customerPostalCode = route?.params?.customerPostalCode;
@@ -83,25 +84,33 @@ export function CheckoutScreen({ navigation, route }: any) {
     </View>
 
     <Pressable
-      style={[checkoutButton, (!name || !phone || (orderType === 'delivery' && !address)) && checkoutButtonDisabled]}
-      disabled={!name || !phone || (orderType === 'delivery' && !address)}
+      style={[checkoutButton, (!name || !phone || (orderType === 'delivery' && !address) || isSubmitting) && checkoutButtonDisabled]}
+      disabled={!name || !phone || (orderType === 'delivery' && !address) || isSubmitting}
       onPress={async () => {
-        const payload = {
-          customerName: name,
-          customerPhone: phone,
-          orderType,
-          paymentMethod,
-          customerAddress: orderType === 'delivery' ? address : undefined,
-          customerPostalCode: orderType === 'delivery' ? customerPostalCode : undefined,
-          promotionCode: promotionCode || undefined,
-          ...storefrontApi.buildOrderPayload(lines),
-        };
-        await storefrontApi.createOrder(session?.token || null, payload);
-        clear();
-        navigation.navigate('Orders');
+        if (isSubmitting) return;
+        setIsSubmitting(true);
+        try {
+          const payload = {
+            customerName: name,
+            customerPhone: phone,
+            orderType,
+            paymentMethod,
+            customerAddress: orderType === 'delivery' ? address : undefined,
+            customerPostalCode: orderType === 'delivery' ? customerPostalCode : undefined,
+            promotionCode: promotionCode || undefined,
+            ...storefrontApi.buildOrderPayload(lines),
+          };
+          await storefrontApi.createOrder(session?.token || null, payload);
+          clear();
+          navigation.navigate('Orders');
+        } catch {
+          Alert.alert('Commande impossible', 'Une erreur est survenue. Veuillez réessayer.');
+        } finally {
+          setIsSubmitting(false);
+        }
       }}
     >
-      <Text style={checkoutButtonText}>{t('checkout_submit')}</Text>
+      <Text style={checkoutButtonText}>{isSubmitting ? 'Envoi…' : t('checkout_submit')}</Text>
     </Pressable>
   </Screen>;
 }
