@@ -31,7 +31,7 @@ export function LoginScreen({ navigation }: any) {
     }
   };
 
-  return <Screen>
+  return <Screen keyboardShouldPersistTaps="handled">
     <View style={headerCard}>
       <Text style={headerTitle}>{t('login_title')}</Text>
       <Text style={headerSubtitle}>{t('login_subtitle')}</Text>
@@ -39,9 +39,9 @@ export function LoginScreen({ navigation }: any) {
 
     <View style={sectionCard}>
       <Text style={fieldLabel}>{t('common_email')}</Text>
-      <TextInput placeholder={t('placeholder_email')} autoCapitalize="none" value={email} onChangeText={setEmail} style={inputStyle} placeholderTextColor="#8b837b" editable={!submitting} />
+      <TextInput placeholder={t('placeholder_email')} autoCapitalize="none" value={email} onChangeText={setEmail} style={inputStyle} placeholderTextColor="#8b837b" editable={!submitting} keyboardType="email-address" returnKeyType="next" />
       <Text style={fieldLabel}>{t('common_password')}</Text>
-      <TextInput placeholder={t('login_password_placeholder')} secureTextEntry value={password} onChangeText={setPassword} style={inputStyle} placeholderTextColor="#8b837b" editable={!submitting} />
+      <TextInput placeholder={t('login_password_placeholder')} secureTextEntry value={password} onChangeText={setPassword} style={inputStyle} placeholderTextColor="#8b837b" editable={!submitting} returnKeyType="send" onSubmitEditing={handleLogin} />
 
       {!!submitError && <Text style={errorText}>{submitError}</Text>}
 

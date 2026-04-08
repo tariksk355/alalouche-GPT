@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Pressable, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Alert, Linking, Pressable, Text, TextInput, View } from 'react-native';
 import { Screen } from '../components/Screen';
 import { useAuth } from '../contexts/AuthContext';
 import { BrandButton } from '../components/BrandButton';
@@ -15,6 +15,8 @@ type ProfileFormState = {
   city: string;
   deliveryInstructions: string;
 };
+
+const PRIVACY_POLICY_URL = 'https://app.kodlantis-test.com';
 
 function buildFormState(customer?: CustomerProfile): ProfileFormState {
   return {
@@ -35,7 +37,6 @@ export function ProfileScreen({ navigation }: any) {
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
-  const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleteError, setDeleteError] = useState('');
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [form, setForm] = useState<ProfileFormState>(() => buildFormState(customer));
@@ -81,11 +82,35 @@ export function ProfileScreen({ navigation }: any) {
     setDeleteError('');
     try {
       await deleteAccount();
-      setConfirmDelete(false);
     } catch (err: any) {
       setDeleteError(err?.message || t('profile_delete_error'));
     } finally {
       setDeleting(false);
+    }
+  };
+
+  const confirmDeleteAccount = () => {
+    if (deleting) return;
+    setDeleteError('');
+    Alert.alert(
+      t('profile_delete_title'),
+      t('profile_delete_confirm'),
+      [
+        { text: t('common_cancel'), style: 'cancel' },
+        {
+          text: t('profile_delete_confirm_cta'),
+          style: 'destructive',
+          onPress: onDeleteAccount,
+        },
+      ],
+    );
+  };
+
+  const openPrivacyPolicy = async () => {
+    try {
+      await Linking.openURL(PRIVACY_POLICY_URL);
+    } catch {
+      Alert.alert('Erreur', "Impossible d'ouvrir la politique de confidentialité.");
     }
   };
 
@@ -231,21 +256,9 @@ export function ProfileScreen({ navigation }: any) {
               <Text style={errorText}>{deleteError}</Text>
             </View>
           )}
-          {!confirmDelete ? (
-            <Pressable style={[dangerButton, deleting && { opacity: 0.6 }]} onPress={() => { setDeleteError(''); setConfirmDelete(true); }} disabled={deleting}>
-              <Text style={dangerButtonLabel}>{t('profile_delete_cta')}</Text>
-            </Pressable>
-          ) : (
-            <View style={{ gap: 8, marginTop: 8 }}>
-              <Text style={dangerConfirmText}>{t('profile_delete_confirm')}</Text>
-              <Pressable style={[dangerButton, deleting && { opacity: 0.6 }]} onPress={onDeleteAccount} disabled={deleting}>
-                <Text style={dangerButtonLabel}>{deleting ? t('profile_deleting') : t('profile_delete_confirm_cta')}</Text>
-              </Pressable>
-              <Pressable style={secondaryButton} onPress={() => { if (!deleting) setConfirmDelete(false); }} disabled={deleting}>
-                <Text style={secondaryButtonLabel}>{t('common_cancel')}</Text>
-              </Pressable>
-            </View>
-          )}
+          <Pressable style={[dangerButton, deleting && { opacity: 0.6 }]} onPress={confirmDeleteAccount} disabled={deleting}>
+            <Text style={dangerButtonLabel}>{deleting ? t('profile_deleting') : t('profile_delete_cta')}</Text>
+          </Pressable>
         </View>
       </>
     ) : (
@@ -261,6 +274,13 @@ export function ProfileScreen({ navigation }: any) {
         </View>
       </View>
     )}
+
+    <View style={sectionCard}>
+      <Text style={sectionTitle}>Légal</Text>
+      <Pressable style={secondaryButton} onPress={openPrivacyPolicy}>
+        <Text style={secondaryButtonLabel}>Politique de confidentialité</Text>
+      </Pressable>
+    </View>
   </Screen>;
 }
 
@@ -269,6 +289,7 @@ const headerTitle = { color: '#1f1a17', fontSize: 31, fontWeight: '800', letterS
 const headerSubtitle = { color: '#6f675f', marginTop: 4, fontSize: 14 } as const;
 
 const sectionCard = { borderWidth: 1, borderColor: '#ece7e2', borderRadius: 16, backgroundColor: '#fff', padding: 12 } as const;
+const sectionTitle = { color: '#1f1a17', fontSize: 16, fontWeight: '800', marginBottom: 8 } as const;
 
 const avatarBubble = { width: 42, height: 42, borderRadius: 21, backgroundColor: '#f3efea', borderWidth: 1, borderColor: '#e1dad3', alignItems: 'center', justifyContent: 'center' } as const;
 const avatarText = { color: '#4f463f', fontWeight: '800', fontSize: 16 } as const;
@@ -290,7 +311,6 @@ const errorText = { color: '#8f1f1f', fontWeight: '600' } as const;
 const dangerCard = { borderWidth: 1, borderColor: '#f1cdcd', borderRadius: 16, backgroundColor: '#fff7f7', padding: 12 } as const;
 const dangerTitle = { color: '#8f1f1f', fontSize: 16, fontWeight: '800' } as const;
 const dangerText = { color: '#7a5a5a', marginTop: 4, lineHeight: 19 } as const;
-const dangerConfirmText = { color: '#7a5a5a', fontWeight: '600' } as const;
 const dangerButton = { borderWidth: 1, borderColor: '#d35656', backgroundColor: '#b53030', borderRadius: 12, paddingVertical: 12, alignItems: 'center', marginTop: 8 } as const;
 const dangerButtonLabel = { color: '#fff', fontWeight: '800' } as const;
 
