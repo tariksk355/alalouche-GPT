@@ -5,8 +5,10 @@
     "scheme": "alalouche",
     "version": "0.1.0",
     "orientation": "portrait",
+    "icon": "./src/assets/icon-ios.png",
     "ios": {
-      "bundleIdentifier": "com.alalouche.mobile"
+      "bundleIdentifier": "com.alalouche.mobile",
+      "icon": "./src/assets/icon-ios.png"
     },
     "android": {
       "package": "com.alalouche.mobile"
