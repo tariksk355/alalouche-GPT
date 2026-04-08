@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Alert, Modal, Pressable, SafeAreaView, ScrollView, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Alert, Modal, Pressable, SafeAreaView, ScrollView, Text, TextInput, View } from 'react-native';
 import { useAuth } from '../contexts/AuthContext';
 import { storefrontApi } from '../api/storefront';
 
@@ -107,23 +107,30 @@ export function ReservationsScreen() {
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: '#fff' }}>
       <ScrollView contentContainerStyle={{ padding: 16, gap: 10 }}>
-        <Text style={{ fontSize: 20, fontWeight: '700' }}>Réservation</Text>
+        <View style={headerCard}>
+          <Text style={headerTitle}>Réservation</Text>
+          <Text style={headerSubtitle}>Réservez votre table en quelques instants.</Text>
+        </View>
 
-        <Text>Nom complet *</Text>
-        <TextInput value={form.name} onChangeText={(name) => setForm((prev) => ({ ...prev, name }))} style={{ borderWidth: 1, borderColor: '#ddd', borderRadius: 8, padding: 10 }} />
+        <View style={sectionCard}>
+        <Text style={sectionTitle}>Informations</Text>
 
-        <Text>Email *</Text>
-        <TextInput value={form.email} keyboardType="email-address" autoCapitalize="none" onChangeText={(email) => setForm((prev) => ({ ...prev, email }))} style={{ borderWidth: 1, borderColor: '#ddd', borderRadius: 8, padding: 10 }} />
+        <View style={formStack}>
+        <Text style={fieldLabel}>Nom complet *</Text>
+        <TextInput value={form.name} onChangeText={(name) => setForm((prev) => ({ ...prev, name }))} style={fieldInput} />
 
-        <Text>Téléphone *</Text>
-        <TextInput value={form.phone} onChangeText={(phone) => setForm((prev) => ({ ...prev, phone }))} style={{ borderWidth: 1, borderColor: '#ddd', borderRadius: 8, padding: 10 }} />
+        <Text style={fieldLabel}>Email *</Text>
+        <TextInput value={form.email} keyboardType="email-address" autoCapitalize="none" onChangeText={(email) => setForm((prev) => ({ ...prev, email }))} style={fieldInput} />
 
-        <Text>Date *</Text>
+        <Text style={fieldLabel}>Téléphone *</Text>
+        <TextInput value={form.phone} onChangeText={(phone) => setForm((prev) => ({ ...prev, phone }))} style={fieldInput} />
+
+        <Text style={fieldLabel}>Date *</Text>
         <Pressable onPress={() => setShowDatePicker(true)} style={{ borderWidth: 1, borderColor: '#ddd', borderRadius: 8, padding: 12 }}>
           <Text>{formatDisplayDate(form.date)}</Text>
         </Pressable>
 
-        <Text>Heure *</Text>
+        <Text style={fieldLabel}>Heure *</Text>
         <Pressable
           onPress={() => setShowTimePicker(true)}
           disabled={slots.length === 0}
@@ -134,18 +141,20 @@ export function ReservationsScreen() {
           </Text>
         </Pressable>
 
-        <Text>Nombre de personnes *</Text>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-          <Pressable onPress={() => setForm((prev) => ({ ...prev, guests: Math.max(1, prev.guests - 1) }))} style={{ borderWidth: 1, borderColor: '#ddd', borderRadius: 6, paddingHorizontal: 12, paddingVertical: 6 }}>
-            <Text>-</Text>
+        <Text style={fieldLabel}>Nombre de personnes *</Text>
+        <View style={guestsRow}>
+          <Pressable onPress={() => setForm((prev) => ({ ...prev, guests: Math.max(1, prev.guests - 1) }))} style={guestsActionButton}>
+            <Text style={guestsActionLabel}>−</Text>
           </Pressable>
-          <Text>{form.guests}</Text>
-          <Pressable onPress={() => setForm((prev) => ({ ...prev, guests: Math.min(20, prev.guests + 1) }))} style={{ borderWidth: 1, borderColor: '#ddd', borderRadius: 6, paddingHorizontal: 12, paddingVertical: 6 }}>
-            <Text>+</Text>
+          <View style={guestsValuePill}>
+            <Text style={guestsValueLabel}>{form.guests}</Text>
+          </View>
+          <Pressable onPress={() => setForm((prev) => ({ ...prev, guests: Math.min(20, prev.guests + 1) }))} style={guestsActionButton}>
+            <Text style={guestsActionLabel}>+</Text>
           </Pressable>
         </View>
 
-        <Text>Notes (optionnel)</Text>
+        <Text style={fieldLabel}>Notes (optionnel)</Text>
         <TextInput
           value={form.notes}
           onChangeText={(notes) => setForm((prev) => ({ ...prev, notes }))}
@@ -153,6 +162,7 @@ export function ReservationsScreen() {
           numberOfLines={3}
           style={{ borderWidth: 1, borderColor: '#ddd', borderRadius: 8, padding: 10, minHeight: 80, textAlignVertical: 'top' }}
         />
+        </View>
 
         <Pressable
           onPress={submit}
@@ -166,8 +176,12 @@ export function ReservationsScreen() {
             paddingVertical: 14,
           }}
         >
-          <Text style={{ color: '#fff', fontWeight: '700' }}>{loading ? 'Envoi...' : 'Confirmer la réservation'}</Text>
+          <View style={submitButtonContent}>
+            {loading && <ActivityIndicator size="small" color="#fff" />}
+            <Text style={{ color: '#fff', fontWeight: '700' }}>{loading ? 'Envoi...' : 'Confirmer la réservation'}</Text>
+          </View>
         </Pressable>
+        </View>
       </ScrollView>
 
       <Modal visible={showDatePicker} transparent animationType="slide" onRequestClose={() => setShowDatePicker(false)}>
@@ -266,3 +280,18 @@ export function ReservationsScreen() {
     </SafeAreaView>
   );
 }
+
+const headerCard = { borderWidth: 1, borderColor: '#ebe7e3', borderRadius: 18, backgroundColor: '#f8f6f3', padding: 16 } as const;
+const headerTitle = { color: '#1f1a17', fontSize: 31, fontWeight: '800', letterSpacing: -0.4 } as const;
+const headerSubtitle = { color: '#6f675f', marginTop: 4, fontSize: 14 } as const;
+const sectionCard = { borderWidth: 1, borderColor: '#ece7e2', borderRadius: 16, backgroundColor: '#fff', padding: 12 } as const;
+const sectionTitle = { color: '#1f1a17', fontSize: 16, fontWeight: '800', marginBottom: 8 } as const;
+const submitButtonContent = { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 } as const;
+const formStack = { gap: 10 } as const;
+const fieldLabel = { color: '#6f675f', fontSize: 12, fontWeight: '700', marginTop: 2 } as const;
+const fieldInput = { borderWidth: 1, borderColor: '#ddd', borderRadius: 8, padding: 10 } as const;
+const guestsRow = { flexDirection: 'row', alignItems: 'center', gap: 8 } as const;
+const guestsActionButton = { minWidth: 36, borderWidth: 1, borderColor: '#d8d1ca', borderRadius: 10, paddingVertical: 7, alignItems: 'center', backgroundColor: '#f8f6f3' } as const;
+const guestsActionLabel = { color: '#1f1a17', fontWeight: '800', fontSize: 16 } as const;
+const guestsValuePill = { minWidth: 44, borderWidth: 1, borderColor: '#e2dbd4', borderRadius: 10, paddingVertical: 7, paddingHorizontal: 12, alignItems: 'center', backgroundColor: '#fff' } as const;
+const guestsValueLabel = { color: '#1f1a17', fontWeight: '700' } as const;
