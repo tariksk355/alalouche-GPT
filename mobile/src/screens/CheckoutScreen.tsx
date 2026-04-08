@@ -82,7 +82,6 @@ export function CheckoutScreen({ navigation, route }: any) {
         </Pressable>
       </View>
     </View>
-
     <Pressable
       style={[checkoutButton, (!name || !phone || (orderType === 'delivery' && !address) || isSubmitting) && checkoutButtonDisabled]}
       disabled={!name || !phone || (orderType === 'delivery' && !address) || isSubmitting}
