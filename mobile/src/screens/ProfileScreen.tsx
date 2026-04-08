@@ -18,8 +18,6 @@ type ProfileFormState = {
 
 const PRIVACY_POLICY_URL = 'https://www.alalouche.ch/politique-de-confidentialite';
 
-const PRIVACY_POLICY_URL = 'https://www.alalouche.ch/politique-de-confidentialite';
-
 function buildFormState(customer?: CustomerProfile): ProfileFormState {
   return {
     fullName: customer?.fullName || '',
@@ -88,31 +86,6 @@ export function ProfileScreen({ navigation }: any) {
       setDeleteError(err?.message || t('profile_delete_error'));
     } finally {
       setDeleting(false);
-    }
-  };
-
-  const confirmDeleteAccount = () => {
-    if (deleting) return;
-    setDeleteError('');
-    Alert.alert(
-      t('profile_delete_title'),
-      t('profile_delete_confirm'),
-      [
-        { text: t('common_cancel'), style: 'cancel' },
-        {
-          text: t('profile_delete_confirm_cta'),
-          style: 'destructive',
-          onPress: onDeleteAccount,
-        },
-      ],
-    );
-  };
-
-  const openPrivacyPolicy = async () => {
-    try {
-      await Linking.openURL(PRIVACY_POLICY_URL);
-    } catch {
-      Alert.alert('Erreur', "Impossible d'ouvrir la politique de confidentialité.");
     }
   };
 
