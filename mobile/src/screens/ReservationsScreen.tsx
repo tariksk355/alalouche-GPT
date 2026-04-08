@@ -183,16 +183,33 @@ export function ReservationsScreen() {
                       setForm((prev) => ({ ...prev, date: option }));
                       setShowDatePicker(false);
                     }}
-                    style={{ paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#eee' }}
+                    style={({ pressed }) => ({
+                      paddingVertical: 12,
+                      paddingHorizontal: 10,
+                      borderBottomWidth: 1,
+                      borderBottomColor: '#eee',
+                      borderRadius: 10,
+                      backgroundColor: selected ? '#f1efec' : (pressed ? '#f8f6f3' : '#fff'),
+                    })}
                   >
-                    <Text style={{ fontWeight: selected ? '700' : '400' }}>{formatDisplayDate(option)}</Text>
+                    <Text style={{ color: '#1f1a17', fontWeight: selected ? '700' : '500' }}>{formatDisplayDate(option)}</Text>
                   </Pressable>
                 );
               })}
             </ScrollView>
-            <Pressable onPress={() => setShowDatePicker(false)} style={{ marginTop: 12, alignSelf: 'flex-end' }}>
-              <Text style={{ color: '#1f1a17', fontWeight: '600' }}>Fermer</Text>
-            </Pressable>
+            <View style={{ paddingTop: 10, paddingBottom: 6, alignItems: 'flex-end' }}>
+              <Pressable
+                onPress={() => setShowDatePicker(false)}
+                style={({ pressed }) => ({
+                  paddingHorizontal: 12,
+                  paddingVertical: 8,
+                  borderRadius: 8,
+                  backgroundColor: pressed ? '#f3f1ee' : '#fff',
+                })}
+              >
+                <Text style={{ color: '#1f1a17', fontWeight: '700' }}>Fermer</Text>
+              </Pressable>
+            </View>
           </View>
         </View>
       </Modal>
@@ -211,17 +228,37 @@ export function ReservationsScreen() {
                       setForm((prev) => ({ ...prev, time: slot }));
                       setShowTimePicker(false);
                     }}
-                    style={{ paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#eee' }}
+                    style={({ pressed }) => ({
+                      paddingVertical: 12,
+                      paddingHorizontal: 10,
+                      borderBottomWidth: 1,
+                      borderBottomColor: '#eee',
+                      borderRadius: 10,
+                      backgroundColor: selected ? '#f1efec' : (pressed ? '#f8f6f3' : '#fff'),
+                    })}
                   >
-                    <Text style={{ fontWeight: selected ? '700' : '400' }}>{slot}</Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <Text style={{ color: '#1f1a17', fontWeight: selected ? '700' : '500' }}>{slot}</Text>
+                      {selected && <Text style={{ color: '#1f1a17', fontWeight: '700' }}>✓</Text>}
+                    </View>
                   </Pressable>
                 );
               })}
               {slots.length === 0 && <Text style={{ color: '#6b625a' }}>Aucun créneau disponible</Text>}
             </ScrollView>
-            <Pressable onPress={() => setShowTimePicker(false)} style={{ marginTop: 12, alignSelf: 'flex-end' }}>
-              <Text style={{ color: '#1f1a17', fontWeight: '600' }}>Fermer</Text>
-            </Pressable>
+            <View style={{ paddingTop: 10, paddingBottom: 6, alignItems: 'flex-end' }}>
+              <Pressable
+                onPress={() => setShowTimePicker(false)}
+                style={({ pressed }) => ({
+                  paddingHorizontal: 12,
+                  paddingVertical: 8,
+                  borderRadius: 8,
+                  backgroundColor: pressed ? '#f3f1ee' : '#fff',
+                })}
+              >
+                <Text style={{ color: '#1f1a17', fontWeight: '700' }}>Fermer</Text>
+              </Pressable>
+            </View>
           </View>
         </View>
       </Modal>

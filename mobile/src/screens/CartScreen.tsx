@@ -267,7 +267,7 @@ const totalDivider = { height: 1, backgroundColor: '#efeae5', marginTop: 10 } as
 const totalLabel = { color: '#1f1a17', fontSize: 17, fontWeight: '800' } as const;
 const totalValue = { color: '#1f1a17', fontSize: 20, fontWeight: '900' } as const;
 
-const checkoutButton = { borderRadius: 14, backgroundColor: '#b5122a', paddingVertical: 14, alignItems: 'center' } as const;
+const checkoutButton = { borderRadius: 14, backgroundColor: '#1f1a17', paddingVertical: 14, alignItems: 'center' } as const;
 const checkoutButtonDisabled = { backgroundColor: '#d8d0c8', borderWidth: 1, borderColor: '#c9beb4' } as const;
 const checkoutButtonText = { color: '#fff', fontWeight: '800', fontSize: 16 } as const;
 
