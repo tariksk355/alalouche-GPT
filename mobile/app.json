@@ -6,6 +6,11 @@
     "version": "0.1.0",
     "orientation": "portrait",
     "icon": "./src/assets/icon-ios.png",
+    "splash": {
+      "image": "./src/assets/alalouche-logo.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#ffffff"
+    },
     "ios": {
       "bundleIdentifier": "com.alalouche.mobile",
       "icon": "./src/assets/icon-ios.png"
