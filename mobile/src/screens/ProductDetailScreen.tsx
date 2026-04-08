@@ -30,6 +30,17 @@ export function ProductDetailScreen({ route, navigation }: any) {
     const byId = new Map((group.options || []).map((o: any) => [o.id, o]));
     return ids.map((id: string) => byId.get(id)).filter(Boolean).map((opt: any) => ({ groupId: group.id, optionId: opt.id, groupName: group.name, optionLabel: opt.label, priceDelta: Number(opt.priceDelta || 0) }));
   }), [item, selected]);
+  const missingRequiredSingleGroup = useMemo(
+    () =>
+      (item.optionGroups || []).some(
+        (group: any) =>
+          group.required &&
+          group.selectionType === 'single' &&
+          (!Array.isArray(selected[group.id]) || selected[group.id].length === 0),
+      ),
+    [item.optionGroups, selected],
+  );
+  const canAddToCart = !missingRequiredSingleGroup;
 
   const total = Number(item.price || 0) + selectedOptions.reduce((sum: number, o: any) => sum + Number(o.priceDelta || 0), 0);
   const lineKey = `${item.id}::${selectedOptions.map((o: any) => `${o.groupId}:${o.optionId}`).sort().join('|')}`;
@@ -144,9 +155,12 @@ export function ProductDetailScreen({ route, navigation }: any) {
 
       <View style={{ borderWidth: 1, borderColor: '#ece7e2', borderRadius: 16, backgroundColor: '#fff', padding: 12 }}>
         <Text style={{ color: '#6b625a', fontSize: 13, marginBottom: 10 }}>{t('product_finalize_copy')}</Text>
+        {!canAddToCart && <Text style={{ color: '#b91c1c', fontSize: 12, fontWeight: '600', marginBottom: 10 }}>Sélectionnez les options obligatoires.</Text>}
         <BrandButton
           label={`${t('product_add_to_cart')} · CHF ${total.toFixed(2)}`}
+          disabled={!canAddToCart}
           onPress={() => {
+            if (!canAddToCart) return;
             addLine({ lineKey, id: item.id, name: item.name, price: total, selectedOptions });
             navigation.navigate('Cart');
           }}
