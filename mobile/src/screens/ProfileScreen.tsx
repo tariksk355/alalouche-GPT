@@ -18,8 +18,6 @@ type ProfileFormState = {
 
 const PRIVACY_POLICY_URL = 'https://www.alalouche.ch/politique-de-confidentialite';
 
-const PRIVACY_POLICY_URL = 'https://www.alalouche.ch/politique-de-confidentialite';
-
 function buildFormState(customer?: CustomerProfile): ProfileFormState {
   return {
     fullName: customer?.fullName || '',
