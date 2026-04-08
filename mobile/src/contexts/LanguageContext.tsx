@@ -10,6 +10,7 @@ const DICTIONARY: Record<AppLanguage, Record<string, string>> = {
     tab_menu: 'Menu',
     tab_cart: 'Panier',
     tab_orders: 'Commandes',
+    tab_reservations: 'Réservations',
     tab_profile: 'Profil',
     tab_settings: 'Réglages',
     screen_product: 'Produit',
@@ -27,7 +28,7 @@ const DICTIONARY: Record<AppLanguage, Record<string, string>> = {
     settings_help_value: 'alalouche.fr@gmail.com',
     settings_info_title: 'Informations',
     settings_info_app: 'Application',
-    settings_info_name: 'Al A Louche',
+    settings_info_name: 'À la Louche',
     settings_info_version: 'Version',
     common_email: 'Email',
     common_password: 'Mot de passe',
@@ -184,6 +185,7 @@ const DICTIONARY: Record<AppLanguage, Record<string, string>> = {
     tab_menu: 'Menü',
     tab_cart: 'Warenkorb',
     tab_orders: 'Bestellungen',
+    tab_reservations: 'Reservierungen',
     tab_profile: 'Profil',
     tab_settings: 'Einstellungen',
     screen_product: 'Produkt',
@@ -201,7 +203,7 @@ const DICTIONARY: Record<AppLanguage, Record<string, string>> = {
     settings_help_value: 'alalouche.fr@gmail.com',
     settings_info_title: 'Informationen',
     settings_info_app: 'App',
-    settings_info_name: 'Al A Louche',
+    settings_info_name: 'À la Louche',
     settings_info_version: 'Version',
     common_email: 'E-Mail',
     common_password: 'Passwort',
@@ -358,6 +360,7 @@ const DICTIONARY: Record<AppLanguage, Record<string, string>> = {
     tab_menu: 'Menu',
     tab_cart: 'Cart',
     tab_orders: 'Orders',
+    tab_reservations: 'Reservations',
     tab_profile: 'Profile',
     tab_settings: 'Settings',
     screen_product: 'Product',
@@ -375,7 +378,7 @@ const DICTIONARY: Record<AppLanguage, Record<string, string>> = {
     settings_help_value: 'alalouche.fr@gmail.com',
     settings_info_title: 'Information',
     settings_info_app: 'App',
-    settings_info_name: 'Al A Louche',
+    settings_info_name: 'À la Louche',
     settings_info_version: 'Version',
     common_email: 'Email',
     common_password: 'Password',
@@ -532,6 +535,7 @@ const DICTIONARY: Record<AppLanguage, Record<string, string>> = {
     tab_menu: 'Menü',
     tab_cart: 'Sepet',
     tab_orders: 'Siparişler',
+    tab_reservations: 'Rezervasyonlar',
     tab_profile: 'Profil',
     tab_settings: 'Ayarlar',
     screen_product: 'Ürün',
@@ -549,7 +553,7 @@ const DICTIONARY: Record<AppLanguage, Record<string, string>> = {
     settings_help_value: 'alalouche.fr@gmail.com',
     settings_info_title: 'Bilgi',
     settings_info_app: 'Uygulama',
-    settings_info_name: 'Al A Louche',
+    settings_info_name: 'À la Louche',
     settings_info_version: 'Sürüm',
     common_email: 'E-posta',
     common_password: 'Şifre',
@@ -720,8 +724,8 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     AsyncStorage.getItem(STORAGE_KEY)
       .then((saved) => {
-        if (saved === 'fr' || saved === 'de' || saved === 'en' || saved === 'tr') {
-          setLanguageState(saved);
+        if (saved === 'fr') {
+          setLanguageState('fr');
         }
       })
       .finally(() => setReady(true));
