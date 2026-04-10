@@ -13,10 +13,22 @@
     },
     "ios": {
       "bundleIdentifier": "com.alalouche.mobile",
-      "icon": "./src/assets/icon-ios.png"
+      "icon": "./src/assets/icon-ios.png",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSLocationWhenInUseUsageDescription": "Votre position peut être utilisée pour améliorer certains services de l’application, uniquement lorsque vous utilisez l’app."
+      }
     },
     "android": {
       "package": "com.alalouche.mobile"
-    }
+    },
+    "extra": {
+      "eas": {
+        "projectId": "242a199c-58d8-4f86-8bdc-7262e61489fe"
+      }
+    },
+    "plugins": [
+      "@sentry/react-native"
+    ]
   }
 }
