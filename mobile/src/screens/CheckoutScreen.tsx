@@ -24,6 +24,14 @@ export function CheckoutScreen({ navigation, route }: any) {
 
   const totalItems = useMemo(() => lines.reduce((sum, line) => sum + line.quantity, 0), [lines]);
   const totalAmount = Number(route?.params?.totalAmount || 0);
+  const missingRequiredFields = [
+    !name ? t('common_full_name') : null,
+    !phone ? t('common_phone') : null,
+    orderType === 'delivery' && !address ? t('checkout_delivery_address') : null,
+  ].filter(Boolean) as string[];
+  const missingRequiredFieldsText = missingRequiredFields.join(', ');
+  const disabledByMissingRequiredFields = !name || !phone || (orderType === 'delivery' && !address);
+  const disableSubmit = disabledByMissingRequiredFields || isSubmitting;
 
   useEffect(() => {
     if (!customer) return;
@@ -45,11 +53,11 @@ export function CheckoutScreen({ navigation, route }: any) {
       <Text style={sectionTitle}>{t('checkout_info_title')}</Text>
       <Text style={fieldLabel}>{t('common_full_name')}</Text>
       <TextInput placeholder={t('signup_name_placeholder')} placeholderTextColor="#8b837b" value={name} onChangeText={setName} style={inputStyle} />
-      <Text style={fieldLabel}>{t('common_phone')}</Text>
+      <Text style={fieldLabel}>{`${t('common_phone')} *`}</Text>
       <TextInput placeholder={t('signup_phone_placeholder')} placeholderTextColor="#8b837b" value={phone} onChangeText={setPhone} style={inputStyle} keyboardType="phone-pad" />
       {orderType === 'delivery' && (
         <>
-        <Text style={fieldLabel}>{t('checkout_delivery_address')}</Text>
+        <Text style={fieldLabel}>{`${t('checkout_delivery_address')} *`}</Text>
         <TextInput
           placeholder={t('checkout_delivery_address_placeholder')}
           placeholderTextColor="#8b837b"
@@ -83,8 +91,8 @@ export function CheckoutScreen({ navigation, route }: any) {
       </View>
     </View>
     <Pressable
-      style={[checkoutButton, (!name || !phone || (orderType === 'delivery' && !address) || isSubmitting) && checkoutButtonDisabled]}
-      disabled={!name || !phone || (orderType === 'delivery' && !address) || isSubmitting}
+      style={[checkoutButton, disableSubmit && checkoutButtonDisabled]}
+      disabled={disableSubmit}
       onPress={async () => {
         if (isSubmitting) return;
         setIsSubmitting(true);
@@ -114,6 +122,12 @@ export function CheckoutScreen({ navigation, route }: any) {
         <Text style={checkoutButtonText}>{isSubmitting ? 'Envoi...' : t('checkout_submit')}</Text>
       </View>
     </Pressable>
+    {disabledByMissingRequiredFields && !isSubmitting && (
+      <Text style={requiredFieldsHint}>
+        {missingRequiredFields.length > 1 ? 'Champs obligatoires manquants : ' : 'Champ obligatoire manquant : '}
+        {missingRequiredFieldsText}
+      </Text>
+    )}
   </Screen>;
 }
 
@@ -152,3 +166,4 @@ const checkoutButton = { borderRadius: 14, backgroundColor: '#1f1a17', paddingVe
 const checkoutButtonDisabled = { backgroundColor: '#d8d0c8', borderWidth: 1, borderColor: '#c9beb4' } as const;
 const checkoutButtonContent = { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 } as const;
 const checkoutButtonText = { color: '#fff', fontWeight: '800', fontSize: 16 } as const;
+const requiredFieldsHint = { color: '#7b746d', fontSize: 12 } as const;
