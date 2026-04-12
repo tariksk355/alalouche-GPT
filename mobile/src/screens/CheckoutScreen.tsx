@@ -128,12 +128,6 @@ export function CheckoutScreen({ navigation, route }: any) {
         <Text style={checkoutButtonText}>{isSubmitting ? 'Envoi...' : t('checkout_submit')}</Text>
       </View>
     </Pressable>
-    {disabledByMissingRequiredFields && !isSubmitting && (
-      <Text style={requiredFieldsHint}>
-        {missingRequiredFields.length > 1 ? 'Champs obligatoires manquants : ' : 'Champ obligatoire manquant : '}
-        {missingRequiredFieldsText}
-      </Text>
-    )}
   </Screen>;
 }
 
