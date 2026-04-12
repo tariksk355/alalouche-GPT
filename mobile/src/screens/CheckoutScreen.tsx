@@ -51,7 +51,7 @@ export function CheckoutScreen({ navigation, route }: any) {
 
     <View style={sectionCard}>
       <Text style={sectionTitle}>{t('checkout_info_title')}</Text>
-      <Text style={fieldLabel}>{t('common_full_name')}</Text>
+      <Text style={fieldLabel}>{`${t('common_full_name')} *`}</Text>
       <TextInput placeholder={t('signup_name_placeholder')} placeholderTextColor="#8b837b" value={name} onChangeText={setName} style={inputStyle} />
       <Text style={fieldLabel}>{`${t('common_phone')} *`}</Text>
       <TextInput placeholder={t('signup_phone_placeholder')} placeholderTextColor="#8b837b" value={phone} onChangeText={setPhone} style={inputStyle} keyboardType="phone-pad" />
