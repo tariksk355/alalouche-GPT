@@ -90,6 +90,12 @@ export function CheckoutScreen({ navigation, route }: any) {
         </Pressable>
       </View>
     </View>
+    {disabledByMissingRequiredFields && !isSubmitting && (
+      <Text style={requiredFieldsHint}>
+        {missingRequiredFields.length > 1 ? 'Champs obligatoires manquants : ' : 'Champ obligatoire manquant : '}
+        {missingRequiredFieldsText}
+      </Text>
+    )}
     <Pressable
       style={[checkoutButton, disableSubmit && checkoutButtonDisabled]}
       disabled={disableSubmit}
