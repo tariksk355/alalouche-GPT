@@ -25,6 +25,7 @@ export function CheckoutScreen({ navigation, route }: any) {
   const totalItems = useMemo(() => lines.reduce((sum, line) => sum + line.quantity, 0), [lines]);
   const totalAmount = Number(route?.params?.totalAmount || 0);
   const missingRequiredFields = [
+    !name ? t('common_full_name') : null,
     !phone ? t('common_phone') : null,
     orderType === 'delivery' && !address ? t('checkout_delivery_address') : null,
   ].filter(Boolean) as string[];
