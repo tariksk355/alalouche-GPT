@@ -13,6 +13,7 @@
     },
     "ios": {
       "bundleIdentifier": "com.alalouche.mobile",
+      "supportsTablet": true,
       "icon": "./src/assets/icon-ios.png",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
