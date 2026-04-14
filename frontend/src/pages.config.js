@@ -60,6 +60,7 @@ import OrderReceiver from './pages/OrderReceiver';
 import Panier from './pages/Panier';
 import PolitiqueDeConfidentialite from './pages/PolitiqueDeConfidentialite';
 import Reservation from './pages/Reservation';
+import SuppressionCompte from './pages/SuppressionCompte';
 import __Layout from './Layout.jsx';
 
 
@@ -77,6 +78,7 @@ export const PAGES = {
     "Panier": Panier,
     "politique-de-confidentialite": PolitiqueDeConfidentialite,
     "Reservation": Reservation,
+    "suppression-compte": SuppressionCompte,
 }
 
 export const pagesConfig = {
