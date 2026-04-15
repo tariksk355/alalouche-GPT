@@ -24,13 +24,8 @@ export function Screen({
 }) {
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: '#fff' }}>
-      <ScrollView
-        keyboardShouldPersistTaps={keyboardShouldPersistTaps}
-        contentContainerStyle={screenScrollContentStyle}
-      >
-        <View style={[centeredContentContainerStyle, { gap: 12 }]}>
-          {children}
-        </View>
+      <ScrollView keyboardShouldPersistTaps={keyboardShouldPersistTaps} contentContainerStyle={screenScrollContentStyle}>
+        <View style={[centeredContentContainerStyle, { gap: 12 }]}>{children}</View>
       </ScrollView>
     </SafeAreaView>
   );

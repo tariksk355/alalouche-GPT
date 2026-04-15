@@ -3,6 +3,8 @@ import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
+import { Platform } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '../contexts/AuthContext';
 import { LoginScreen } from '../screens/LoginScreen';
 import { SignupScreen } from '../screens/SignupScreen';
@@ -23,6 +25,9 @@ const Tabs = createBottomTabNavigator();
 
 function MainTabs() {
   const { t } = useLanguage();
+  const insets = useSafeAreaInsets();
+  const androidBottomInset = Platform.OS === 'android' ? Math.max(insets.bottom, 8) : 8;
+  const tabBarHeight = Platform.OS === 'android' ? 66 + androidBottomInset : 74;
   const tabIconByRoute: Record<string, keyof typeof Ionicons.glyphMap> = {
     Menu: 'restaurant-outline',
     Cart: 'bag-handle-outline',
@@ -61,9 +66,9 @@ function MainTabs() {
             paddingHorizontal: 3,
           },
           tabBarStyle: {
-            height: 74,
+            height: tabBarHeight,
             paddingTop: 6,
-            paddingBottom: 8,
+            paddingBottom: androidBottomInset,
             paddingHorizontal: 10,
             backgroundColor: '#f9f7f4',
             borderTopColor: '#e8e2dc',
