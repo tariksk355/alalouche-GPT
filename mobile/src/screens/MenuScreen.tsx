@@ -1,9 +1,11 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Animated, Image, ImageBackground, Pressable, SafeAreaView, ScrollView, Text, View } from 'react-native';
+import { ActivityIndicator, Animated, Image, ImageBackground, Pressable, ScrollView, Text, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { OrderingSettings, storefrontApi } from '../api/storefront';
 import { MenuItem } from '../types/models';
 import { theme } from '../theme/theme';
 import { useLanguage } from '../contexts/LanguageContext';
+import { centeredContentContainerStyle, screenScrollContentStyle } from '../components/Screen';
 
 const MENU_HERO_LOGO = require('../assets/alalouche-logo.png');
 const MENU_HERO_BG = require('../assets/menu-hero-bg.png');
@@ -102,9 +104,9 @@ export function MenuScreen({ navigation }: any) {
           { useNativeDriver: false },
         )}
         scrollEventThrottle={16}
-        contentContainerStyle={{ padding: 16 }}
+        contentContainerStyle={screenScrollContentStyle}
       >
-        <View style={{ gap: 12 }}>
+        <View style={[centeredContentContainerStyle, { gap: 12 }]}>
       <Animated.View
         style={{
           borderRadius: 20,
