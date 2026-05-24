@@ -7,7 +7,7 @@ const CTA_VARIANTS = {
     container: 'rounded-lg border border-gray-200 bg-gray-50 px-4 py-3.5',
     title: 'text-sm font-semibold text-gray-900',
     description: 'mt-1 text-xs leading-relaxed text-gray-600',
-    actions: 'mt-2.5 flex flex-wrap gap-2',
+    actions: 'mt-2.5 flex flex-wrap justify-center gap-2',
     button: 'inline-flex items-center justify-center rounded-md border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-800 transition-colors hover:bg-gray-100',
     titleCopy: 'Commandez plus vite avec notre app',
     bodyCopy: 'Menu, commandes et favoris sur mobile.',
