@@ -55,6 +55,10 @@ export default function StorefrontAppDownloadFloatingCta({
   if (isSuppressed) return null;
 
   const wrapperPosition = VARIANT_WRAPPER[variant] || VARIANT_WRAPPER.default;
+  const buttonStyle =
+    variant === 'menu'
+      ? 'border border-white/65 shadow-[0_0_0_1px_rgba(255,255,255,0.18)]'
+      : '';
 
   return (
     <div
@@ -64,7 +68,10 @@ export default function StorefrontAppDownloadFloatingCta({
       <button
         type="button"
         onClick={() => setIsOpen((previous) => !previous)}
-        className="pointer-events-auto min-h-11 rounded-full bg-black px-4 py-2 text-sm font-medium text-white shadow-lg transition-colors hover:bg-gray-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black"
+        className={cx(
+          "pointer-events-auto min-h-11 rounded-full bg-black px-4 py-2 text-sm font-medium text-white shadow-lg transition-colors hover:bg-gray-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black",
+          buttonStyle,
+        )}
         aria-expanded={isOpen}
         aria-controls={popoverId}
       >
