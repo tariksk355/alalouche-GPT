@@ -308,7 +308,7 @@ export default function Menu() {
         </div>
 
         <div className="max-w-2xl mx-auto px-4 pt-4">
-          <StorefrontAppDownloadCta />
+          <StorefrontAppDownloadCta variant="compact" />
         </div>
 
         {/* Items */}
@@ -505,7 +505,7 @@ export default function Menu() {
 
       {/* Category List */}
       <div className="max-w-2xl mx-auto px-4 py-6">
-        <StorefrontAppDownloadCta className="mb-5" />
+        <StorefrontAppDownloadCta variant="compact" className="mb-5" />
         {!isViewOnlyMenu && (
           <div className="mb-5 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
             <p className="font-medium">Livraison disponible uniquement dans certaines zones de Fribourg.</p>
