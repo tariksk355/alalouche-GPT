@@ -82,7 +82,7 @@ export default function StorefrontAppDownloadFloatingCta({
       {isOpen && (
         <div
           id={popoverId}
-          className="pointer-events-auto w-[min(16rem,calc(100vw-1.5rem))] rounded-xl border border-gray-200 bg-white p-3 shadow-xl"
+          className="pointer-events-auto w-[min(16rem,calc(100vw-1.5rem))] rounded-xl border border-black/10 bg-[#fffdf8] p-3 shadow-[0_16px_38px_-20px_rgba(0,0,0,0.65),0_12px_26px_-18px_rgba(0,0,0,0.45)] backdrop-blur-[1px]"
           role="dialog"
           aria-label="Options de téléchargement de l’application"
         >
@@ -93,7 +93,7 @@ export default function StorefrontAppDownloadFloatingCta({
               href={IOS_APP_STORE_URL}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex min-h-10 items-center justify-center rounded-lg border border-gray-300 px-2 py-2 text-xs font-medium text-gray-800 transition-colors hover:bg-gray-100"
+              className="inline-flex min-h-10 items-center justify-center rounded-lg border border-gray-300/90 bg-white/90 px-2 py-2 text-xs font-medium text-gray-800 shadow-sm transition-colors hover:bg-gray-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black/40"
             >
               App Store
             </a>
@@ -101,7 +101,7 @@ export default function StorefrontAppDownloadFloatingCta({
               href={ANDROID_PLAY_STORE_URL}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex min-h-10 items-center justify-center rounded-lg border border-gray-300 px-2 py-2 text-xs font-medium text-gray-800 transition-colors hover:bg-gray-100"
+              className="inline-flex min-h-10 items-center justify-center rounded-lg border border-gray-300/90 bg-white/90 px-2 py-2 text-xs font-medium text-gray-800 shadow-sm transition-colors hover:bg-gray-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black/40"
             >
               Google Play
             </a>
