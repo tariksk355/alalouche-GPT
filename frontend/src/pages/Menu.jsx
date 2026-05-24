@@ -4,7 +4,7 @@ import { createPageUrl } from "@/utils";
 import { addItem, getCart, cartCount as getCartCount } from "@/components/cartStore";
 import { listMenuCatalog } from "@/lib/api/storefrontOps";
 import { useTenant } from "@/lib/TenantContext";
-import StorefrontAppDownloadCta from "@/components/storefront/StorefrontAppDownloadCta";
+import StorefrontAppDownloadFloatingCta from "@/components/storefront/StorefrontAppDownloadFloatingCta";
 
 const CATEGORY_METADATA = [
   {
@@ -300,15 +300,12 @@ export default function Menu() {
     const count = getCartCount(cart);
     return (
       <div className="min-h-screen bg-white pb-24">
+        <StorefrontAppDownloadFloatingCta variant="menu" isSuppressed={Boolean(zoomedImage || configuringItem)} />
         {/* Category Header */}
         <div className="bg-white border-b border-gray-100 px-4 py-3">
           <p className="text-[#b5122a] text-sm font-medium text-center">{activeCategoryData.subtitle}</p>
           <h1 className="text-3xl font-serif italic text-center text-gray-900 mt-1 mb-2">{activeCategoryData.title}</h1>
           <p className="text-gray-500 text-sm text-center leading-relaxed max-w-md mx-auto">{activeCategoryData.description}</p>
-        </div>
-
-        <div className="max-w-2xl mx-auto px-4 pt-4">
-          <StorefrontAppDownloadCta variant="compact" />
         </div>
 
         {/* Items */}
@@ -494,6 +491,7 @@ export default function Menu() {
   // Category list view
   return (
     <div className="min-h-screen bg-white">
+      <StorefrontAppDownloadFloatingCta variant="menu" isSuppressed={Boolean(zoomedImage || configuringItem)} />
       {/* Header */}
       <div className="bg-black text-white py-14 text-center px-4">
         <h1 className="text-4xl font-serif italic mb-2">Notre Menu</h1>
@@ -505,7 +503,6 @@ export default function Menu() {
 
       {/* Category List */}
       <div className="max-w-2xl mx-auto px-4 py-6">
-        <StorefrontAppDownloadCta variant="compact" className="mb-5" />
         {!isViewOnlyMenu && (
           <div className="mb-5 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
             <p className="font-medium">Livraison disponible uniquement dans certaines zones de Fribourg.</p>

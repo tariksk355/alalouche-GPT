@@ -2,7 +2,7 @@ import { Link } from "react-router-dom";
 import { createPageUrl } from "@/utils";
 import { useState, useEffect } from "react";
 import { listMenuCatalog } from "@/lib/api/storefrontOps";
-import StorefrontAppDownloadCta from "@/components/storefront/StorefrontAppDownloadCta";
+import StorefrontAppDownloadFloatingCta from "@/components/storefront/StorefrontAppDownloadFloatingCta";
 
 export default function Home() {
   const [menuItems, setMenuItems] = useState([]);
@@ -19,6 +19,7 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-white">
+      <StorefrontAppDownloadFloatingCta />
       {/* About / Hero Section */}
       <section className="py-12 px-4">
         <div className="max-w-5xl mx-auto grid md:grid-cols-2 gap-10 items-stretch">
@@ -68,7 +69,6 @@ export default function Home() {
                 Réserver
               </Link>
             </div>
-            <StorefrontAppDownloadCta className="mt-5 max-w-xl" />
           </div>
           <div className="rounded-lg overflow-hidden shadow-lg">
             <img
