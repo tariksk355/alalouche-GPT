@@ -4,8 +4,10 @@ import { ANDROID_PLAY_STORE_URL, IOS_APP_STORE_URL } from '@/lib/storefrontAppLi
 const cx = (...values) => values.filter(Boolean).join(' ');
 
 const VARIANT_WRAPPER = {
-  default: 'top-[max(env(safe-area-inset-top),5.25rem)] right-3 md:top-[6.25rem] md:right-6',
-  menu: 'top-[max(env(safe-area-inset-top),5.5rem)] right-3 md:top-[6.5rem] md:right-6',
+  default:
+    'top-[max(env(safe-area-inset-top),6rem)] right-[max(env(safe-area-inset-right),0.75rem)] md:top-[6.25rem] md:right-6',
+  menu:
+    'top-[max(env(safe-area-inset-top),6.25rem)] right-[max(env(safe-area-inset-right),0.75rem)] md:top-[6.5rem] md:right-6',
 };
 
 export default function StorefrontAppDownloadFloatingCta({
@@ -57,7 +59,7 @@ export default function StorefrontAppDownloadFloatingCta({
   return (
     <div
       ref={rootRef}
-      className={cx('fixed z-40 flex flex-col items-end gap-2 pointer-events-none', wrapperPosition, className)}
+      className={cx('fixed z-30 flex flex-col items-end gap-2 pointer-events-none', wrapperPosition, className)}
     >
       <button
         type="button"
@@ -66,13 +68,14 @@ export default function StorefrontAppDownloadFloatingCta({
         aria-expanded={isOpen}
         aria-controls={popoverId}
       >
-        Télécharger l’app
+        <span className="sm:hidden">L’app</span>
+        <span className="hidden sm:inline">Télécharger l’app</span>
       </button>
 
       {isOpen && (
         <div
           id={popoverId}
-          className="pointer-events-auto w-64 rounded-xl border border-gray-200 bg-white p-3 shadow-xl"
+          className="pointer-events-auto w-[min(16rem,calc(100vw-1.5rem))] rounded-xl border border-gray-200 bg-white p-3 shadow-xl"
           role="dialog"
           aria-label="Options de téléchargement de l’application"
         >
