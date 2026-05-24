@@ -26,7 +26,7 @@ export default function Home() {
           {/* Image */}
           <div className="self-stretch rounded-lg overflow-hidden">
             <img
-              src="https://qtrypzzcjebvfcihiynt.supabase.co/storage/v1/object/public/base44-prod/public/699f6d055b5dc5582a3c406f/d035e89cd_Donerspit.png"
+              src="/images/home/doner-hero-rounded.png"
               alt="Döner à la louche"
               className="w-full object-contain rounded-lg"
               style={{ maxHeight: "75%", height: "75%", imageRendering: "crisp-edges" }}
