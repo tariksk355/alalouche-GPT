@@ -4,6 +4,7 @@ import { createPageUrl } from "@/utils";
 import { addItem, getCart, cartCount as getCartCount } from "@/components/cartStore";
 import { listMenuCatalog } from "@/lib/api/storefrontOps";
 import { useTenant } from "@/lib/TenantContext";
+import StorefrontAppDownloadCta from "@/components/storefront/StorefrontAppDownloadCta";
 
 const CATEGORY_METADATA = [
   {
@@ -306,6 +307,10 @@ export default function Menu() {
           <p className="text-gray-500 text-sm text-center leading-relaxed max-w-md mx-auto">{activeCategoryData.description}</p>
         </div>
 
+        <div className="max-w-2xl mx-auto px-4 pt-4">
+          <StorefrontAppDownloadCta />
+        </div>
+
         {/* Items */}
         <div className="max-w-2xl mx-auto px-4 py-6">
           {loading ? (
@@ -500,6 +505,7 @@ export default function Menu() {
 
       {/* Category List */}
       <div className="max-w-2xl mx-auto px-4 py-6">
+        <StorefrontAppDownloadCta className="mb-5" />
         {!isViewOnlyMenu && (
           <div className="mb-5 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
             <p className="font-medium">Livraison disponible uniquement dans certaines zones de Fribourg.</p>

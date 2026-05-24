@@ -2,6 +2,7 @@ import { Link } from "react-router-dom";
 import { createPageUrl } from "@/utils";
 import { useState, useEffect } from "react";
 import { listMenuCatalog } from "@/lib/api/storefrontOps";
+import StorefrontAppDownloadCta from "@/components/storefront/StorefrontAppDownloadCta";
 
 export default function Home() {
   const [menuItems, setMenuItems] = useState([]);
@@ -67,6 +68,7 @@ export default function Home() {
                 Réserver
               </Link>
             </div>
+            <StorefrontAppDownloadCta className="mt-5 max-w-xl" />
           </div>
           <div className="rounded-lg overflow-hidden shadow-lg">
             <img
