@@ -68,7 +68,7 @@ export default function StorefrontAppDownloadFloatingCta({
         aria-expanded={isOpen}
         aria-controls={popoverId}
       >
-        <span className="sm:hidden">L’app</span>
+        <span className="sm:hidden">Télécharger l’app</span>
         <span className="hidden sm:inline">Télécharger l’app</span>
       </button>
 
