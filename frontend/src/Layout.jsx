@@ -216,7 +216,7 @@ export default function Layout({ children, currentPageName }) {
               </button>
             ))}
             {!isMenuViewOnlyMode && (
-              <Link to={createPageUrl('Order')} className="px-5 py-2 text-white text-sm font-medium transition-colors" style={{ backgroundColor: primaryColor }}>
+              <Link to={createPageUrl('Menu')} className="px-5 py-2 text-white text-sm font-medium transition-colors" style={{ backgroundColor: primaryColor }}>
                 Commander
               </Link>
             )}
@@ -287,7 +287,7 @@ export default function Layout({ children, currentPageName }) {
                   Connexion / S'inscrire
                 </button>
               )}
-              <Link to={createPageUrl('Order')} onClick={() => setMobileMenuOpen(false)} className="block w-full text-center px-5 py-3 text-white text-sm font-medium rounded" style={{ backgroundColor: primaryColor }}>
+              <Link to={createPageUrl('Menu')} onClick={() => setMobileMenuOpen(false)} className="block w-full text-center px-5 py-3 text-white text-sm font-medium rounded" style={{ backgroundColor: primaryColor }}>
                 Commander
               </Link>
             </div>}
