@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { NotificationService } from '../notifications/notification.service';
 import { CreateReservationDto } from './dto/create-reservation.dto';
+import { reservationDateInTimeZone } from './reservation-date';
 
 @Injectable()
 export class ReservationsService {
@@ -11,7 +12,11 @@ export class ReservationsService {
   ) {}
 
   async createReservation(restaurantId: string, dto: CreateReservationDto) {
-    const reservationDate = new Date(`${dto.date}T${dto.time}:00`);
+    const restaurant = await this.prisma.restaurant.findUniqueOrThrow({
+      where: { id: restaurantId },
+      select: { timezone: true },
+    });
+    const reservationDate = reservationDateInTimeZone(dto.date, dto.time, restaurant.timezone);
 
     const reservation = await this.prisma.reservation.create({
       data: {
