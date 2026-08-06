@@ -3,6 +3,7 @@ import { debugLog } from './debug.js';
 import { toPrintJob } from './boundaries/orderFormatter.js';
 import { createPrinterAdapter } from './boundaries/printerAdapter.js';
 import { normalizeOrderForDisplay } from './boundaries/printJobContract.js';
+import { buildReservationPrintJob } from './boundaries/reservationPrintJobContract.js';
 import {
   changeOrderStatus,
   changeReservationStatus,
@@ -76,6 +77,7 @@ const state = {
   systemNoticeTimeoutId: null,
   reservationUiById: {},
   reservationFeedbackTimeoutsById: {},
+  reservationPrintInFlightById: {},
   completedOrderUiById: {},
   printDebug: {
     at: null,
@@ -175,6 +177,14 @@ const RECEIVER_I18N = {
     attention_new_request: 'New request',
     close: 'Close',
     print_in_progress: 'Printing...',
+    action_print: 'Print',
+    reservation_print_title: 'RESERVATION',
+    reservation_print_name: 'NAME',
+    reservation_print_date_time: 'DATE AND TIME',
+    reservation_print_guests: 'GUESTS',
+    reservation_print_status: 'STATUS',
+    reservation_print_queued: 'Reservation print queued.',
+    reservation_print_sent: 'Reservation print sent.',
     printed: 'Printed',
     print_failed_retry: 'Print failed. Retry.',
     print_blocked: 'Printing blocked',
@@ -273,6 +283,14 @@ const RECEIVER_I18N = {
     attention_new_request: 'Nouvelle demande',
     close: 'Fermer',
     print_in_progress: 'Impression en cours...',
+    action_print: 'Imprimer',
+    reservation_print_title: 'RÉSERVATION',
+    reservation_print_name: 'NOM',
+    reservation_print_date_time: 'DATE ET HEURE',
+    reservation_print_guests: 'PERSONNES',
+    reservation_print_status: 'STATUT',
+    reservation_print_queued: 'Impression de la réservation mise en file.',
+    reservation_print_sent: 'Impression de la réservation envoyée.',
     printed: 'Imprimé',
     print_failed_retry: 'Impression échouée. Réessayez.',
     print_blocked: 'Impression bloquée',
@@ -371,6 +389,14 @@ const RECEIVER_I18N = {
     attention_new_request: 'Neue Anfrage',
     close: 'Schließen',
     print_in_progress: 'Druck läuft...',
+    action_print: 'Drucken',
+    reservation_print_title: 'RESERVIERUNG',
+    reservation_print_name: 'NAME',
+    reservation_print_date_time: 'DATUM UND UHRZEIT',
+    reservation_print_guests: 'PERSONEN',
+    reservation_print_status: 'STATUS',
+    reservation_print_queued: 'Reservierungsdruck wurde eingereiht.',
+    reservation_print_sent: 'Reservierungsdruck wurde gesendet.',
     printed: 'Gedruckt',
     print_failed_retry: 'Druck fehlgeschlagen. Erneut versuchen.',
     print_blocked: 'Druck blockiert',
@@ -419,6 +445,8 @@ function getReservationUiState(reservationId) {
     confirmCancel: candidate?.confirmCancel === true,
     confirmDelete: candidate?.confirmDelete === true,
     successMessage: candidate?.successMessage || '',
+    printFeedback: candidate?.printFeedback || '',
+    printFeedbackKind: candidate?.printFeedbackKind || '',
   };
 }
 
@@ -454,6 +482,7 @@ function cleanupReservationUiState(nextReservations = state.reservations) {
   Object.keys(state.reservationUiById).forEach((reservationId) => {
     if (activeIds.has(reservationId)) return;
     delete state.reservationUiById[reservationId];
+    delete state.reservationPrintInFlightById[reservationId];
     clearReservationFeedbackTimeout(reservationId);
   });
 
@@ -1649,6 +1678,10 @@ function render() {
       : reservationUi.successMessage
         ? `<div class="reservation-feedback reservation-feedback-success">${escapeHtml(reservationUi.successMessage)}</div>`
         : '';
+    const printInFlight = Boolean(state.reservationPrintInFlightById[reservation.id]);
+    const printFeedbackHtml = reservationUi.printFeedback
+      ? `<div class="reservation-feedback reservation-feedback-${reservationUi.printFeedbackKind || 'warning'}">${escapeHtml(reservationUi.printFeedback)}</div>`
+      : '';
 
     const actionAreaHtml = String(reservation.status || '').toLowerCase() !== 'pending'
       ? `
@@ -1695,6 +1728,8 @@ function render() {
         ${reservation.customerPhone ? `<div class="subtle">${t('label_phone')}: ${escapeHtml(reservation.customerPhone)}</div>` : ''}
         ${reservation.customerEmail ? `<div class="subtle">${t('label_email')}: ${escapeHtml(reservation.customerEmail)}</div>` : ''}
         ${reservation.notes ? `<div class="subtle">${t('label_note')}: ${escapeHtml(reservation.notes)}</div>` : ''}
+        <div class="print-state-row"><button class="btn-secondary-inline print-retry-btn" data-action="print-reservation" data-id="${reservation.id}" ${printInFlight ? 'disabled' : ''}>${printInFlight ? t('print_in_progress') : t('action_print')}</button></div>
+        ${printFeedbackHtml}
         ${actionFeedbackHtml}
         ${actionAreaHtml}
       </div>
@@ -2086,6 +2121,59 @@ async function showPrinterInfo() {
   render();
 }
 
+async function printReservationTicket(reservation) {
+  const reservationId = reservation?.id;
+  if (!reservationId || state.reservationPrintInFlightById[reservationId]) return;
+
+  let printJob;
+  try {
+    printJob = buildReservationPrintJob({
+      reservationId,
+      customerName: reservation.customerName || reservation.id,
+      dateTime: formatReservationDate(reservation.reservationDate),
+      guestCount: reservation.guestCount,
+      phone: reservation.customerPhone,
+      email: reservation.customerEmail,
+      notes: reservation.notes,
+      status: formatReservationStatus(reservation.status),
+      title: t('reservation_print_title'),
+      locale: normalizeReceiverLanguage(state.alertSettings.language),
+      labels: {
+        customerName: t('reservation_print_name'),
+        dateTime: t('reservation_print_date_time'),
+        guestCount: t('reservation_print_guests'),
+        phone: t('label_phone').toUpperCase(),
+        email: t('label_email').toUpperCase(),
+        status: t('reservation_print_status'),
+        notes: t('label_note').toUpperCase(),
+      },
+    });
+  } catch {
+    setReservationUiState(reservationId, { printFeedback: t('details_unavailable'), printFeedbackKind: 'warning' });
+    render();
+    return;
+  }
+
+  state.reservationPrintInFlightById[reservationId] = true;
+  setReservationUiState(reservationId, { printFeedback: t('print_in_progress'), printFeedbackKind: 'loading' });
+  render();
+  try {
+    const result = await printerAdapter.printReceipt(printJob);
+    const queued = Boolean(result?.ok && result?.jobId);
+    setReservationUiState(reservationId, {
+      printFeedback: result?.ok
+        ? t(queued ? 'reservation_print_queued' : 'reservation_print_sent')
+        : `${t('print_failed_retry')} ${result?.code || ''}`.trim(),
+      printFeedbackKind: result?.ok ? 'success' : 'warning',
+    });
+  } catch {
+    setReservationUiState(reservationId, { printFeedback: t('print_failed_retry'), printFeedbackKind: 'warning' });
+  } finally {
+    delete state.reservationPrintInFlightById[reservationId];
+    render();
+  }
+}
+
 async function printOrderTicket(order, options = {}) {
   const isReprint = Boolean(options?.reprint);
   const orderId = order?.id || order?.orderId || '';
@@ -2252,6 +2340,15 @@ app.addEventListener('input', (event) => {
 app.addEventListener('click', async (event) => {
   const target = event.target;
   if (!(target instanceof HTMLElement)) return;
+
+  const reservationPrintAction = target.closest('[data-action="print-reservation"]');
+  if (reservationPrintAction instanceof HTMLElement) {
+    const reservationId = reservationPrintAction.dataset.id;
+    if (!reservationId || state.reservationPrintInFlightById[reservationId]) return;
+    const reservation = state.reservations.find((item) => item?.id === reservationId);
+    if (reservation) await printReservationTicket({ ...reservation });
+    return;
+  }
 
   const completedToggle = target.closest('[data-action="toggle-completed-section"]');
   if (completedToggle instanceof HTMLElement) {

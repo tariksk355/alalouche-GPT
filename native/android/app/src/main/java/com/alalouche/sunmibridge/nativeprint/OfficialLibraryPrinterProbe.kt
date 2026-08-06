@@ -156,10 +156,13 @@ class OfficialLibraryPrinterProbe(
         job: NativePrintJobEntity,
         callbackErrors: MutableList<String>,
     ) {
-        val receiptLines = buildReceiptLines(job)
-        val bitmap = renderBitmapFromLines(receiptLines)
+        val payload = runCatching { JSONObject(job.payloadJson) }.getOrNull()
+        val isReservation = payload?.optString("ticketType") == "reservation"
+        val receiptLines = if (isReservation) emptyList() else buildReceiptLines(job)
+        val reservationLines = if (isReservation) buildReservationRenderLines(payload!!) else null
+        val bitmap = renderBitmapFromLines(receiptLines, reservationLines)
         try {
-            Log.i(TAG, "official_receipt_bitmap_render commandId=${job.commandId} orderId=${job.orderId ?: ""} widthPx=${bitmap.width} heightPx=${bitmap.height} lineCount=${receiptLines.size}")
+            Log.i(TAG, "official_receipt_bitmap_render commandId=${job.commandId} orderId=${job.orderId ?: ""} ticketType=${if (isReservation) "reservation" else "order"} widthPx=${bitmap.width} heightPx=${bitmap.height} lineCount=${reservationLines?.size ?: receiptLines.size}")
             Log.i(TAG, "official_probe_step commandId=${job.commandId} orderId=${job.orderId ?: ""} official_probe_step=receipt_bitmap_dispatch")
             dispatchBitmapByProductionPrimitive(service, bitmap, job, callbackErrors)
         } finally {
@@ -168,6 +171,34 @@ class OfficialLibraryPrinterProbe(
 
         Log.i(TAG, "official_probe_step commandId=${job.commandId} orderId=${job.orderId ?: ""} official_probe_step=lineWrap_after_bitmap")
         service.lineWrap(3, callbackForOfficial(job, "lineWrap_3_receipt", callbackErrors))
+    }
+
+    private fun buildReservationRenderLines(payload: JSONObject): List<ReceiptRenderLine> {
+        val displayModel = payload.optJSONObject("displayModel")
+            ?: throw IllegalArgumentException("invalid_reservation_display_model")
+        val title = displayModel.optString("title").trim()
+        val sections = displayModel.optJSONArray("sections")
+            ?: throw IllegalArgumentException("invalid_reservation_sections")
+        if (title.isBlank() || sections.length() == 0) throw IllegalArgumentException("blank_reservation_ticket")
+
+        val lines = mutableListOf(ReceiptRenderLine(title, isHeader = true, gapAfterPx = MAJOR_SECTION_GAP_PX))
+        for (index in 0 until sections.length()) {
+            val section = sections.optJSONObject(index) ?: continue
+            val label = section.optString("label").trim()
+            val value = section.optString("value").replace("\r\n", "\n").replace('\r', '\n').trim()
+            if (label.isBlank() || value.isBlank()) continue
+            lines += ReceiptRenderLine(label, isLabel = true, gapAfterPx = MICRO_GAP_PX)
+            val valueLines = value.split('\n')
+            valueLines.forEachIndexed { lineIndex, valueLine ->
+                lines += ReceiptRenderLine(
+                    text = if (valueLine.isBlank()) " " else valueLine,
+                    gapAfterPx = if (lineIndex == valueLines.lastIndex) MAJOR_SECTION_GAP_PX else 0,
+                )
+            }
+        }
+        if (lines.size == 1) throw IllegalArgumentException("blank_reservation_ticket")
+        Log.i(TAG, "official_reservation_document_valid sectionCount=${sections.length()} renderLineCount=${lines.size}")
+        return lines
     }
 
     private fun runTextOnlyProbe(
@@ -517,16 +548,19 @@ class OfficialLibraryPrinterProbe(
         }
     }
 
-    private fun renderBitmapFromLines(lines: List<String>): Bitmap {
+    private fun renderBitmapFromLines(
+        lines: List<String>,
+        semanticLinesOverride: List<ReceiptRenderLine>? = null,
+    ): Bitmap {
         val bitmapWidth = 384
         val leftPaddingPx = 12
         val rightPaddingPx = 12
         val topPaddingPx = 18
         val bottomPaddingPx = 128
         val lineHeightPx = 38
-        val sectionGapPx = 16
-        val majorSectionGapPx = 24
-        val microGapPx = 4
+        val sectionGapPx = SECTION_GAP_PX
+        val majorSectionGapPx = MAJOR_SECTION_GAP_PX
+        val microGapPx = MICRO_GAP_PX
         val totalPreGapPx = 16
         val totalsBottomSafeReservePx = 56
         val drawableWidthPx = (bitmapWidth - leftPaddingPx - rightPaddingPx).coerceAtLeast(1)
@@ -557,8 +591,8 @@ class OfficialLibraryPrinterProbe(
             normalizedLines += normalized
         }
 
-        val semanticLines = mutableListOf<ReceiptRenderLine>()
-        normalizedLines.forEachIndexed { index, sourceLine ->
+        val semanticLines = semanticLinesOverride?.toMutableList() ?: mutableListOf()
+        if (semanticLinesOverride == null) normalizedLines.forEachIndexed { index, sourceLine ->
             if (sourceLine.isBlank()) {
                 semanticLines += ReceiptRenderLine("", gapAfterPx = sectionGapPx)
                 return@forEachIndexed
@@ -778,6 +812,9 @@ class OfficialLibraryPrinterProbe(
     companion object {
         private const val TAG = "OfficialLibraryProbe"
         private const val CALLBACK_TIMEOUT_MS = 1800L
+        private const val SECTION_GAP_PX = 16
+        private const val MAJOR_SECTION_GAP_PX = 24
+        private const val MICRO_GAP_PX = 4
         private const val BIND_TIMEOUT_MS = 3500L
         private val SEPARATOR_LINE_PATTERN: Pattern = Pattern.compile("^\\s*-{3,}\\s*$")
 

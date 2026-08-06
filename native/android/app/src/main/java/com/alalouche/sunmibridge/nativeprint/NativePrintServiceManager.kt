@@ -35,7 +35,13 @@ class NativePrintServiceManager(context: Context) {
                 needsAttention = true,
             )
         }
-        Log.i(TAG, "native_print_service_payload_raw payload=${payload.toString()}")
+        val ticketType = payload.optString("ticketType")
+        if (ticketType == "reservation") {
+            val sectionCount = payload.optJSONObject("displayModel")?.optJSONArray("sections")?.length() ?: 0
+            Log.i(TAG, "native_print_service_payload_received ticketType=reservation payloadLength=${printJobJson.length} sectionCount=$sectionCount")
+        } else {
+            Log.i(TAG, "native_print_service_payload_raw payload=${payload.toString()}")
+        }
         val normalizedPayload = normalizePayloadForWorker(payload)
         logCustomerPhoneCandidates("native_print_service_normalized", normalizedPayload)
         val formattingHints = normalizedPayload.optJSONObject("formattingHints")

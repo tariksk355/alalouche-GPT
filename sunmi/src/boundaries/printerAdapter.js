@@ -128,7 +128,16 @@ function createNativeBridgePrinterAdapter(nativeBridge) {
         strategyKeysPresent,
       };
       debugLog('submit_print_command_payload_trace_json', JSON.stringify(submitPayloadTrace));
-      debugLog('submit_print_command_payload_final_json', payload);
+      if (printJob?.ticketType === 'reservation') {
+        debugLog('submit_print_command_reservation_meta', {
+          ticketType: 'reservation',
+          printJobId: printJob.printJobId || null,
+          payloadLength: payload.length,
+          sectionCount: Array.isArray(printJob?.displayModel?.sections) ? printJob.displayModel.sections.length : 0,
+        });
+      } else {
+        debugLog('submit_print_command_payload_final_json', payload);
+      }
     }
 
     if (!methodName) {
