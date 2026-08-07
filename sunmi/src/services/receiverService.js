@@ -114,8 +114,8 @@ export async function changeReservationStatus(reservationId, status) {
   }
 
   try {
-    await updateReservationStatus(token, reservationId, status);
-    return { ok: true };
+    const reservation = await updateReservationStatus(token, reservationId, status);
+    return { ok: true, reservation };
   } catch (error) {
     if (isAuthError(error)) {
       tokenStore.clear();

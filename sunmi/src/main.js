@@ -18,6 +18,7 @@ import {
   createAttentionPlaybackController,
   detectUnseenAttentionRecords,
 } from './alerts/attentionAlertController.js';
+import { renderIncomingOrderModal, renderIncomingReservationModal } from './alerts/incomingItemModal.js';
 
 const app = document.getElementById('app');
 const printerAdapter = createPrinterAdapter();
@@ -76,6 +77,7 @@ const state = {
   dismissedCompletedOrderIds: {},
   dismissedProcessedReservationIds: {},
   activeAttentionAlert: null,
+  attentionConfirmation: { key: null, inFlight: false, error: '' },
   systemNotice: null,
   systemNoticeTimeoutId: null,
   reservationUiById: {},
@@ -178,6 +180,18 @@ const RECEIVER_I18N = {
     attention_new_order: 'New order',
     attention_new_reservation: 'New reservation',
     attention_new_request: 'New request',
+    incoming_order_details: 'Order details',
+    incoming_reservation_details: 'Reservation details',
+    incoming_customer: 'Customer',
+    incoming_order_type: 'Order type',
+    incoming_payment: 'Payment',
+    incoming_address: 'Address',
+    incoming_items: 'Items',
+    incoming_subtotal: 'Subtotal',
+    incoming_promotion: 'Promotion',
+    incoming_discount: 'Discount',
+    incoming_total: 'Total',
+    incoming_date_time: 'Date and time',
     close: 'Close',
     print_in_progress: 'Printing...',
     action_print: 'Print',
@@ -284,6 +298,18 @@ const RECEIVER_I18N = {
     attention_new_order: 'Nouvelle commande',
     attention_new_reservation: 'Nouvelle réservation',
     attention_new_request: 'Nouvelle demande',
+    incoming_order_details: 'Détails de la commande',
+    incoming_reservation_details: 'Détails de la réservation',
+    incoming_customer: 'Client',
+    incoming_order_type: 'Type de commande',
+    incoming_payment: 'Paiement',
+    incoming_address: 'Adresse',
+    incoming_items: 'Articles',
+    incoming_subtotal: 'Sous-total',
+    incoming_promotion: 'Promotion',
+    incoming_discount: 'Réduction',
+    incoming_total: 'Total',
+    incoming_date_time: 'Date et heure',
     close: 'Fermer',
     print_in_progress: 'Impression en cours...',
     action_print: 'Imprimer',
@@ -390,6 +416,18 @@ const RECEIVER_I18N = {
     attention_new_order: 'Neue Bestellung',
     attention_new_reservation: 'Neue Reservierung',
     attention_new_request: 'Neue Anfrage',
+    incoming_order_details: 'Bestelldetails',
+    incoming_reservation_details: 'Reservierungsdetails',
+    incoming_customer: 'Kunde',
+    incoming_order_type: 'Bestellart',
+    incoming_payment: 'Zahlung',
+    incoming_address: 'Adresse',
+    incoming_items: 'Artikel',
+    incoming_subtotal: 'Zwischensumme',
+    incoming_promotion: 'Aktion',
+    incoming_discount: 'Rabatt',
+    incoming_total: 'Gesamt',
+    incoming_date_time: 'Datum und Uhrzeit',
     close: 'Schließen',
     print_in_progress: 'Druck läuft...',
     action_print: 'Drucken',
@@ -885,6 +923,7 @@ function toAttentionAlert(type, item) {
     recordId: id,
     title: type === 'order' ? 'Nouvelle commande' : 'Nouvelle réservation',
     subtitle: type === 'order' ? (item?.orderNumber || id) : (item?.customerName || item?.id || 'Nouvelle demande'),
+    record: item,
   };
 }
 
@@ -928,10 +967,10 @@ function detectAndTriggerNewEventAlerts(nextOrders, nextReservations) {
   if (!wasHydrated) return;
 
   const alerts = [];
-  if (state.alertSettings.soundEnabled && state.alertSettings.orderEnabled) {
+  if (state.alertSettings.orderEnabled) {
     alerts.push(...detected.newOrders.map((order) => toAttentionAlert('order', order)));
   }
-  if (state.alertSettings.soundEnabled && state.alertSettings.reservationEnabled) {
+  if (state.alertSettings.reservationEnabled) {
     alerts.push(...detected.newReservations.map((reservation) => toAttentionAlert('reservation', reservation)));
   }
   attentionAlertQueue.enqueue(alerts);
@@ -1474,6 +1513,63 @@ function prepMinutesForOrder(order) {
   return state.alertSettings.defaultPrepTime || 30;
 }
 
+function renderIncomingAttentionModal() {
+  const alert = state.activeAttentionAlert;
+  if (!alert?.record) return '';
+  const confirming = state.attentionConfirmation.key === alert.key && state.attentionConfirmation.inFlight;
+  const error = state.attentionConfirmation.key === alert.key ? state.attentionConfirmation.error : '';
+  const commonLabels = {
+    customer: t('incoming_customer'),
+    phone: t('label_phone'),
+    email: t('label_email'),
+    notes: t('label_note'),
+    confirm: t('action_confirm').toUpperCase(),
+    confirming: t('action_confirming'),
+  };
+
+  if (alert.type === 'order') {
+    const order = state.orders.find((item) => item.id === alert.recordId) || alert.record;
+    return renderIncomingOrderModal({
+      alert,
+      order,
+      displayModel: normalizeOrderForDisplay(order),
+      prepMinutes: prepMinutesForOrder(order),
+      confirming,
+      error,
+      labels: {
+        ...commonLabels,
+        title: t('attention_new_order'),
+        prepTime: t('prep_time'),
+        orderDetails: t('incoming_order_details'),
+        orderType: t('incoming_order_type'),
+        payment: t('incoming_payment'),
+        address: t('incoming_address'),
+        items: t('incoming_items'),
+        subtotal: t('incoming_subtotal'),
+        promotion: t('incoming_promotion'),
+        discount: t('incoming_discount'),
+        total: t('incoming_total'),
+      },
+    });
+  }
+
+  const reservation = state.reservations.find((item) => item.id === alert.recordId) || alert.record;
+  return renderIncomingReservationModal({
+    alert,
+    reservation,
+    formattedDate: formatReservationDate(reservation.reservationDate),
+    confirming,
+    error,
+    labels: {
+      ...commonLabels,
+      title: t('attention_new_reservation'),
+      details: t('incoming_reservation_details'),
+      dateTime: t('incoming_date_time'),
+      guests: t('reservation_print_guests'),
+    },
+  });
+}
+
 function renderPairingCard() {
   const systemNoticeHtml = state.systemNotice
     ? `<div class="receiver-system-notice receiver-system-notice-${state.systemNotice.kind || 'warning'}">${escapeHtml(state.systemNotice.message || '')}</div>`
@@ -1659,14 +1755,7 @@ function render() {
         ${printJob?.transientUnavailable ? `<div class="subtle print-status-unavailable">${t('print_status_unavailable')}</div>` : ''}
         ${sectionRowsHtml}
         ${isCompleted ? '' : `
-          <div class="prep-row">
-            <span class="subtle">${t('prep_time')}</span>
-            <div class="chip-row">
-              ${[15, 30, 45, 60].map((minutes) => `<button class="prep-chip ${prepMinutesForOrder(order) === minutes ? 'active' : ''}" data-action="set-prep" data-id="${order.id}" data-minutes="${minutes}">${minutes} min</button>`).join('')}
-            </div>
-          </div>
           <div class="btn-row">
-            <button class="btn-accept" data-action="accepted" data-id="${order.id}">${t('action_accept_print')}</button>
             <button class="btn-ready" data-action="ready" data-id="${order.id}">${t('action_ready')}</button>
             <button class="btn-done" data-action="completed" data-id="${order.id}">${t('action_done')}</button>
           </div>
@@ -1727,10 +1816,7 @@ function render() {
           </div>
         `
         : `
-          <div class="btn-row">
-            <button class="btn-accept" data-action="reservation_confirmed" data-id="${reservation.id}" ${isPendingAction ? 'disabled' : ''}>${reservationUi.pendingAction === 'confirmed' ? t('action_confirming') : t('action_confirm')}</button>
-            <button class="btn-secondary-inline" data-action="reservation_cancel_request" data-id="${reservation.id}" ${isPendingAction ? 'disabled' : ''}>${t('cancel')}</button>
-          </div>
+          <div class="btn-row"><button class="btn-secondary-inline" data-action="reservation_cancel_request" data-id="${reservation.id}" ${isPendingAction ? 'disabled' : ''}>${t('cancel')}</button></div>
         `;
 
     return `
@@ -1764,17 +1850,7 @@ function render() {
     ? `<div class="card"><p class="subtle">${t('no_processed_reservations')}</p></div>`
     : processedReservations.map((reservation) => renderReservationCard(reservation)).join('');
 
-  const attentionOverlay = state.activeAttentionAlert
-    ? `
-      <div class="attention-overlay attention-overlay-${state.activeAttentionAlert.type}">
-        <div class="attention-overlay-card">
-          <div class="attention-overlay-title">${escapeHtml(state.activeAttentionAlert.title)}</div>
-          <div class="attention-overlay-subtitle">${escapeHtml(state.activeAttentionAlert.subtitle || '')}</div>
-          <button class="attention-overlay-dismiss" data-action="dismiss-attention-alert" data-alert-key="${escapeHtml(state.activeAttentionAlert.key)}">${t('close')}</button>
-        </div>
-      </div>
-    `
-    : '';
+  const attentionOverlay = renderIncomingAttentionModal();
 
   const settingsPanelHtml = state.isSettingsPanelOpen
     ? `
@@ -2003,6 +2079,15 @@ async function refreshOperations() {
     detectAndTriggerNewEventAlerts(nextOrders, nextReservations);
     state.orders = nextOrders;
     state.reservations = nextReservations;
+    const ordersById = new Map(nextOrders.map((order) => [order.id, order]));
+    const reservationsById = new Map(nextReservations.map((reservation) => [reservation.id, reservation]));
+    const removedStaleActive = attentionAlertQueue.removeWhere((alert) => {
+      if (alert.type === 'order') return String(ordersById.get(alert.recordId)?.status || '').toLowerCase() !== 'new';
+      return String(reservationsById.get(alert.recordId)?.status || '').toLowerCase() !== 'pending';
+    });
+    if (removedStaleActive) {
+      state.attentionConfirmation = { key: null, inFlight: false, error: '' };
+    }
     nextReservations.forEach((reservation) => {
       if (String(reservation?.status || '').toLowerCase() === 'pending' && state.dismissedProcessedReservationIds[reservation.id]) {
         delete state.dismissedProcessedReservationIds[reservation.id];
@@ -2340,6 +2425,74 @@ async function printOrderTicket(order, options = {}) {
   }
 }
 
+async function confirmIncomingAttention(expectedKey) {
+  const alert = state.activeAttentionAlert;
+  if (!alert || alert.key !== expectedKey || state.attentionConfirmation.inFlight) return;
+
+  state.attentionConfirmation = { key: alert.key, inFlight: true, error: '' };
+  render();
+
+  if (alert.type === 'order') {
+    const currentOrder = state.orders.find((order) => order.id === alert.recordId) || alert.record;
+    if (String(currentOrder?.status || '').toLowerCase() !== 'new') {
+      state.attentionConfirmation = { key: null, inFlight: false, error: '' };
+      acknowledgeAttentionAlert(alert.key);
+      render();
+      return;
+    }
+    const prepMinutes = prepMinutesForOrder(currentOrder);
+    const res = await changeOrderStatus(alert.recordId, 'accepted', prepMinutes);
+    if (!res.ok) {
+      state.attentionConfirmation = { key: alert.key, inFlight: false, error: res.message };
+      if (res.code === 'DEVICE_AUTH_REQUIRED') {
+        enterNotPairedState({ error: res.message });
+      }
+      render();
+      return;
+    }
+
+    const acceptedOrder = { ...currentOrder, ...(res.order || {}), status: 'accepted', prepMinutes };
+    state.orders = state.orders.map((order) => order.id === alert.recordId ? acceptedOrder : order);
+    state.attentionConfirmation = { key: null, inFlight: false, error: '' };
+    acknowledgeAttentionAlert(alert.key);
+    render();
+    try {
+      await printOrderTicket(acceptedOrder);
+    } finally {
+      await refreshOperations();
+    }
+    return;
+  }
+
+  const currentReservation = state.reservations.find((reservation) => reservation.id === alert.recordId) || alert.record;
+  if (String(currentReservation?.status || '').toLowerCase() !== 'pending') {
+    state.attentionConfirmation = { key: null, inFlight: false, error: '' };
+    acknowledgeAttentionAlert(alert.key);
+    render();
+    return;
+  }
+  const res = await changeReservationStatus(alert.recordId, 'confirmed');
+  if (!res.ok) {
+    state.attentionConfirmation = { key: alert.key, inFlight: false, error: res.message };
+    if (res.code === 'DEVICE_AUTH_REQUIRED') {
+      enterNotPairedState({ error: res.message });
+    }
+    render();
+    return;
+  }
+
+  const confirmedReservation = { ...currentReservation, ...(res.reservation || {}), status: 'confirmed' };
+  updateReservationLocally(alert.recordId, confirmedReservation);
+  state.attentionConfirmation = { key: null, inFlight: false, error: '' };
+  acknowledgeAttentionAlert(alert.key);
+  render();
+  try {
+    await printReservationTicket(confirmedReservation);
+  } finally {
+    await refreshOperations();
+  }
+}
+
 app.addEventListener('input', (event) => {
   const target = event.target;
   if (!(target instanceof HTMLInputElement)) return;
@@ -2441,9 +2594,20 @@ app.addEventListener('click', async (event) => {
     return;
   }
 
-  const attentionDismissAction = target.closest('[data-action="dismiss-attention-alert"]');
-  if (attentionDismissAction instanceof HTMLElement) {
-    if (acknowledgeAttentionAlert(attentionDismissAction.dataset.alertKey)) render();
+  const incomingConfirmAction = target.closest('[data-action="confirm-incoming"]');
+  if (incomingConfirmAction instanceof HTMLElement) {
+    await confirmIncomingAttention(incomingConfirmAction.dataset.alertKey);
+    return;
+  }
+
+  if (target.dataset.action === 'set-popup-prep' && state.activeAttentionAlert?.type === 'order') {
+    if (state.attentionConfirmation.inFlight) return;
+    const minutes = Number(target.dataset.minutes || 0);
+    if ([15, 30, 45, 60].includes(minutes)) {
+      state.prepMinutesByOrderId[state.activeAttentionAlert.recordId] = minutes;
+      state.attentionConfirmation.error = '';
+      render();
+    }
     return;
   }
 
@@ -2654,9 +2818,8 @@ app.addEventListener('click', async (event) => {
     return;
   }
 
-  if ((reservationAction === 'reservation_confirmed' || reservationAction === 'reservation_cancel_confirm') && reservationId) {
-    const status = reservationAction === 'reservation_confirmed' ? 'confirmed' : 'cancelled';
-    await handleReservationStatusAction(reservationId, status);
+  if (reservationAction === 'reservation_cancel_confirm' && reservationId) {
+    await handleReservationStatusAction(reservationId, 'cancelled');
     return;
   }
 
@@ -2665,20 +2828,16 @@ app.addEventListener('click', async (event) => {
   if (!orderId || !status) return;
 
 
-  if (!['accepted', 'ready', 'completed'].includes(status)) {
+  if (!['ready', 'completed'].includes(status)) {
     return;
   }
 
-  let prepMinutes;
-  if (status === 'accepted') {
-    prepMinutes = state.prepMinutesByOrderId[orderId] || undefined;
-  }
   if (status === 'completed') {
     console.debug(`[sunmi-receiver] order_marked_completed_clicked orderId=${orderId}`);
   }
 
   target.setAttribute('disabled', 'true');
-  const res = await changeOrderStatus(orderId, status, prepMinutes);
+  const res = await changeOrderStatus(orderId, status);
   target.removeAttribute('disabled');
 
   if (!res.ok) {
@@ -2704,19 +2863,6 @@ app.addEventListener('click', async (event) => {
     state.completedOrdersById[orderId] = completedSnapshot;
     persistCompletedOrdersCache();
     console.debug(`[sunmi-receiver] order_marked_completed_success orderId=${orderId} status=${completedSnapshot.status}`);
-  }
-
-  if (status === 'accepted') {
-    const acceptedOrder = state.orders.find((item) => item.id === orderId);
-    const liveAcceptedOrder = res.order || acceptedOrder;
-    if (liveAcceptedOrder) {
-      await printOrderTicket({
-        ...(acceptedOrder || {}),
-        ...(liveAcceptedOrder || {}),
-        payload: (liveAcceptedOrder && liveAcceptedOrder.payload) || acceptedOrder?.payload,
-        prepMinutes: prepMinutes || (liveAcceptedOrder?.prepMinutes ?? acceptedOrder?.prepMinutes),
-      });
-    }
   }
 
   await refreshOperations();

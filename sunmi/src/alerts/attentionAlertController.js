@@ -38,6 +38,18 @@ export function createAttentionAlertQueue({ onActivate, onDeactivate } = {}) {
       activateNext();
       return true;
     },
+    removeWhere(predicate) {
+      pending = pending.filter((alert) => !predicate(alert));
+      let removedActive = false;
+      while (active && predicate(active)) {
+        const removed = active;
+        active = null;
+        removedActive = true;
+        onDeactivate?.(removed);
+        activateNext();
+      }
+      return removedActive;
+    },
     reset() {
       const previous = active;
       active = null;

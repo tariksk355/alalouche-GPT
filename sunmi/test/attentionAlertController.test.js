@@ -70,6 +70,30 @@ test('reset clears active and pending alerts', () => {
   assert.deepEqual(queue.getPending(), []);
 });
 
+test('stale reconciliation removes active and pending alerts and advances FIFO once', () => {
+  const activated = [];
+  const deactivated = [];
+  const queue = createAttentionAlertQueue({
+    onActivate: (item) => activated.push(item.key),
+    onDeactivate: (item) => deactivated.push(item.key),
+  });
+  queue.enqueue([alert('order', '1'), alert('reservation', '2'), alert('order', '3')]);
+
+  assert.equal(queue.removeWhere((item) => item.key === 'order:1' || item.key === 'reservation:2'), true);
+  assert.equal(queue.getActive().key, 'order:3');
+  assert.deepEqual(queue.getPending(), []);
+  assert.deepEqual(activated, ['order:1', 'order:3']);
+  assert.deepEqual(deactivated, ['order:1']);
+});
+
+test('stale reconciliation leaves a current active alert untouched', () => {
+  const queue = createAttentionAlertQueue();
+  queue.enqueue([alert('reservation', '1'), alert('order', '2')]);
+  assert.equal(queue.removeWhere((item) => item.key === 'order:2'), false);
+  assert.equal(queue.getActive().key, 'reservation:1');
+  assert.deepEqual(queue.getPending(), []);
+});
+
 test('playback starts immediately and repeats only after completion plus silence', async () => {
   const timers = [];
   const completions = [];
